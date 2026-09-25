@@ -50,30 +50,34 @@ class ChatSessionController {
     if (e.sessionId != null && e.sessionId != sessionId) return;
     switch (e.type) {
       case 'message.start':
-        _messages.add(ChatMessage(
-          id: _localId(),
-          path: path,
-          role: MessageRole.assistant,
-          text: '',
-          streaming: true,
-          origin: MessageOrigin.live,
-          timestamp: DateTime.now(),
-        ));
+        _messages.add(
+          ChatMessage(
+            id: _localId(),
+            path: path,
+            role: MessageRole.assistant,
+            text: '',
+            streaming: true,
+            origin: MessageOrigin.live,
+            timestamp: DateTime.now(),
+          ),
+        );
         _notify();
         break;
       case 'message.delta':
         final text = e.payload['text'] as String? ?? '';
         final idx = _lastStreamingIndex();
         if (idx == null) {
-          _messages.add(ChatMessage(
-            id: _localId(),
-            path: path,
-            role: MessageRole.assistant,
-            text: text,
-            streaming: true,
-            origin: MessageOrigin.live,
-            timestamp: DateTime.now(),
-          ));
+          _messages.add(
+            ChatMessage(
+              id: _localId(),
+              path: path,
+              role: MessageRole.assistant,
+              text: text,
+              streaming: true,
+              origin: MessageOrigin.live,
+              timestamp: DateTime.now(),
+            ),
+          );
         } else {
           final m = _messages[idx];
           _messages[idx] = m.copyWith(text: m.text + text);
@@ -85,21 +89,20 @@ class ChatSessionController {
         final text = e.payload['text'] as String?;
         if (idx != null) {
           final m = _messages[idx];
-          _messages[idx] = m.copyWith(
-            text: text ?? m.text,
-            streaming: false,
-          );
+          _messages[idx] = m.copyWith(text: text ?? m.text, streaming: false);
           _notify();
         } else if (text != null && text.isNotEmpty) {
-          _messages.add(ChatMessage(
-            id: _localId(),
-            path: path,
-            role: MessageRole.assistant,
-            text: text,
-            streaming: false,
-            origin: MessageOrigin.live,
-            timestamp: DateTime.now(),
-          ));
+          _messages.add(
+            ChatMessage(
+              id: _localId(),
+              path: path,
+              role: MessageRole.assistant,
+              text: text,
+              streaming: false,
+              origin: MessageOrigin.live,
+              timestamp: DateTime.now(),
+            ),
+          );
           _notify();
         }
         break;
@@ -107,7 +110,9 @@ class ChatSessionController {
         final tool = ToolActivity(
           toolId: e.payload['tool_id'] as String? ?? '',
           name: e.payload['name'] as String? ?? '',
-          argsText: e.payload['args_text'] as String? ?? e.payload['args']?.toString(),
+          argsText:
+              e.payload['args_text'] as String? ??
+              e.payload['args']?.toString(),
           running: true,
         );
         _appendToolToLast(tool);
@@ -133,15 +138,17 @@ class ChatSessionController {
         break;
       case 'error':
         final message = e.payload['message'] as String? ?? 'error desconocido';
-        _messages.add(ChatMessage(
-          id: _localId(),
-          path: path,
-          role: MessageRole.system,
-          text: message,
-          origin: MessageOrigin.live,
-          sendState: SendState.failed,
-          timestamp: DateTime.now(),
-        ));
+        _messages.add(
+          ChatMessage(
+            id: _localId(),
+            path: path,
+            role: MessageRole.system,
+            text: message,
+            origin: MessageOrigin.live,
+            sendState: SendState.failed,
+            timestamp: DateTime.now(),
+          ),
+        );
         _notify();
         break;
     }
@@ -199,10 +206,10 @@ class ChatSessionController {
     _messages.add(optimistic);
     _notify();
     try {
-      final result = await gateway.rawCall('prompt.submit', params: {
-        'session_id': sessionId,
-        'text': text,
-      });
+      final result = await gateway.rawCall(
+        'prompt.submit',
+        params: {'session_id': sessionId, 'text': text},
+      );
       final status = result is Map<String, Object?> ? result['status'] : null;
       final idx = _messages.indexOf(optimistic);
       if (idx >= 0) {
@@ -223,7 +230,10 @@ class ChatSessionController {
   /// Cancelación (session.interrupt) si el gateway la soporta.
   Future<void> interrupt() async {
     try {
-      await gateway.rawCall('session.interrupt', params: {'session_id': sessionId});
+      await gateway.rawCall(
+        'session.interrupt',
+        params: {'session_id': sessionId},
+      );
     } on JsonRpcError catch (e) {
       _log.warning('interrupt failed ${e.code}');
     }

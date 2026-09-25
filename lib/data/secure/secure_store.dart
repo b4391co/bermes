@@ -9,8 +9,7 @@ class SecureStore {
   final FlutterSecureStorage _storage;
 
   SecureStore([FlutterSecureStorage? storage])
-    : _storage =
-          storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   String _key(String connectionId) => 'session/$connectionId';
 
