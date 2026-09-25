@@ -20,20 +20,25 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "dev.bermes.hermes_pocket"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    packaging {
+        jniLibs {
+            // Un APK debug no necesita símbolos stripping; evita colgadas del
+            // task stripDebugSymbols en entornos de CI lentos.
+            doNotStrip.add("**/*.so")
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Firma con clave debug para compilación de prueba.
+            // La distribución release tendrá su propio secreto, nunca en el repo.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
