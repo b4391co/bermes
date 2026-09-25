@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'rpc_types.dart';
 import 'gateway_client.dart';
 
 /// Modelos de hosted rooms (grupos) — contratos de tui_gateway/contracts/groups_bot_relay.py
