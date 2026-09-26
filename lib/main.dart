@@ -16,25 +16,24 @@ class HermesPocketApp extends StatefulWidget {
 }
 
 class _HermesPocketAppState extends State<HermesPocketApp> {
-  ThemeMode _themeMode = ThemeMode.system;
-
   @override
   void initState() {
     super.initState();
-    ThemeModeSetting.load().then((m) {
-      if (mounted) setState(() => _themeMode = m);
-    });
+    ThemeModeSetting.load().then((m) => themeNotifier.value = m);
   }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Hermes Pocket',
-      debugShowCheckedModeBanner: false,
-      theme: buildLightTheme(),
-      darkTheme: buildDarkTheme(),
-      themeMode: _themeMode,
-      home: const AppShell(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeNotifier,
+      builder: (context, mode, _) => MaterialApp(
+        title: 'Hermes Pocket',
+        debugShowCheckedModeBanner: false,
+        theme: buildLightTheme(),
+        darkTheme: buildDarkTheme(),
+        themeMode: mode,
+        home: const AppShell(),
+      ),
     );
   }
 }

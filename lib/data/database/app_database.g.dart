@@ -729,6 +729,17 @@ class $ConversationsTable extends Conversations
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _avatarUrlMeta = const VerificationMeta(
+    'avatarUrl',
+  );
+  @override
+  late final GeneratedColumn<String> avatarUrl = GeneratedColumn<String>(
+    'avatar_url',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _isGroupMeta = const VerificationMeta(
     'isGroup',
   );
@@ -810,6 +821,7 @@ class $ConversationsTable extends Conversations
     title,
     subtitle,
     avatarSeed,
+    avatarUrl,
     isGroup,
     gatewayLabel,
     lastActivity,
@@ -879,6 +891,12 @@ class $ConversationsTable extends Conversations
       context.handle(
         _avatarSeedMeta,
         avatarSeed.isAcceptableOrUnknown(data['avatar_seed']!, _avatarSeedMeta),
+      );
+    }
+    if (data.containsKey('avatar_url')) {
+      context.handle(
+        _avatarUrlMeta,
+        avatarUrl.isAcceptableOrUnknown(data['avatar_url']!, _avatarUrlMeta),
       );
     }
     if (data.containsKey('is_group')) {
@@ -963,6 +981,10 @@ class $ConversationsTable extends Conversations
         DriftSqlType.string,
         data['${effectivePrefix}avatar_seed'],
       ),
+      avatarUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}avatar_url'],
+      ),
       isGroup: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}is_group'],
@@ -1004,6 +1026,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
   final String title;
   final String? subtitle;
   final String? avatarSeed;
+  final String? avatarUrl;
   final bool isGroup;
   final String? gatewayLabel;
   final DateTime? lastActivity;
@@ -1018,6 +1041,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     required this.title,
     this.subtitle,
     this.avatarSeed,
+    this.avatarUrl,
     required this.isGroup,
     this.gatewayLabel,
     this.lastActivity,
@@ -1038,6 +1062,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     }
     if (!nullToAbsent || avatarSeed != null) {
       map['avatar_seed'] = Variable<String>(avatarSeed);
+    }
+    if (!nullToAbsent || avatarUrl != null) {
+      map['avatar_url'] = Variable<String>(avatarUrl);
     }
     map['is_group'] = Variable<bool>(isGroup);
     if (!nullToAbsent || gatewayLabel != null) {
@@ -1067,6 +1094,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       avatarSeed: avatarSeed == null && nullToAbsent
           ? const Value.absent()
           : Value(avatarSeed),
+      avatarUrl: avatarUrl == null && nullToAbsent
+          ? const Value.absent()
+          : Value(avatarUrl),
       isGroup: Value(isGroup),
       gatewayLabel: gatewayLabel == null && nullToAbsent
           ? const Value.absent()
@@ -1095,6 +1125,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       title: serializer.fromJson<String>(json['title']),
       subtitle: serializer.fromJson<String?>(json['subtitle']),
       avatarSeed: serializer.fromJson<String?>(json['avatarSeed']),
+      avatarUrl: serializer.fromJson<String?>(json['avatarUrl']),
       isGroup: serializer.fromJson<bool>(json['isGroup']),
       gatewayLabel: serializer.fromJson<String?>(json['gatewayLabel']),
       lastActivity: serializer.fromJson<DateTime?>(json['lastActivity']),
@@ -1114,6 +1145,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       'title': serializer.toJson<String>(title),
       'subtitle': serializer.toJson<String?>(subtitle),
       'avatarSeed': serializer.toJson<String?>(avatarSeed),
+      'avatarUrl': serializer.toJson<String?>(avatarUrl),
       'isGroup': serializer.toJson<bool>(isGroup),
       'gatewayLabel': serializer.toJson<String?>(gatewayLabel),
       'lastActivity': serializer.toJson<DateTime?>(lastActivity),
@@ -1131,6 +1163,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     String? title,
     Value<String?> subtitle = const Value.absent(),
     Value<String?> avatarSeed = const Value.absent(),
+    Value<String?> avatarUrl = const Value.absent(),
     bool? isGroup,
     Value<String?> gatewayLabel = const Value.absent(),
     Value<DateTime?> lastActivity = const Value.absent(),
@@ -1145,6 +1178,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     title: title ?? this.title,
     subtitle: subtitle.present ? subtitle.value : this.subtitle,
     avatarSeed: avatarSeed.present ? avatarSeed.value : this.avatarSeed,
+    avatarUrl: avatarUrl.present ? avatarUrl.value : this.avatarUrl,
     isGroup: isGroup ?? this.isGroup,
     gatewayLabel: gatewayLabel.present ? gatewayLabel.value : this.gatewayLabel,
     lastActivity: lastActivity.present ? lastActivity.value : this.lastActivity,
@@ -1165,6 +1199,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       avatarSeed: data.avatarSeed.present
           ? data.avatarSeed.value
           : this.avatarSeed,
+      avatarUrl: data.avatarUrl.present ? data.avatarUrl.value : this.avatarUrl,
       isGroup: data.isGroup.present ? data.isGroup.value : this.isGroup,
       gatewayLabel: data.gatewayLabel.present
           ? data.gatewayLabel.value
@@ -1190,6 +1225,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           ..write('title: $title, ')
           ..write('subtitle: $subtitle, ')
           ..write('avatarSeed: $avatarSeed, ')
+          ..write('avatarUrl: $avatarUrl, ')
           ..write('isGroup: $isGroup, ')
           ..write('gatewayLabel: $gatewayLabel, ')
           ..write('lastActivity: $lastActivity, ')
@@ -1209,6 +1245,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     title,
     subtitle,
     avatarSeed,
+    avatarUrl,
     isGroup,
     gatewayLabel,
     lastActivity,
@@ -1227,6 +1264,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           other.title == this.title &&
           other.subtitle == this.subtitle &&
           other.avatarSeed == this.avatarSeed &&
+          other.avatarUrl == this.avatarUrl &&
           other.isGroup == this.isGroup &&
           other.gatewayLabel == this.gatewayLabel &&
           other.lastActivity == this.lastActivity &&
@@ -1243,6 +1281,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
   final Value<String> title;
   final Value<String?> subtitle;
   final Value<String?> avatarSeed;
+  final Value<String?> avatarUrl;
   final Value<bool> isGroup;
   final Value<String?> gatewayLabel;
   final Value<DateTime?> lastActivity;
@@ -1258,6 +1297,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     this.title = const Value.absent(),
     this.subtitle = const Value.absent(),
     this.avatarSeed = const Value.absent(),
+    this.avatarUrl = const Value.absent(),
     this.isGroup = const Value.absent(),
     this.gatewayLabel = const Value.absent(),
     this.lastActivity = const Value.absent(),
@@ -1274,6 +1314,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     required String title,
     this.subtitle = const Value.absent(),
     this.avatarSeed = const Value.absent(),
+    this.avatarUrl = const Value.absent(),
     this.isGroup = const Value.absent(),
     this.gatewayLabel = const Value.absent(),
     this.lastActivity = const Value.absent(),
@@ -1294,6 +1335,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     Expression<String>? title,
     Expression<String>? subtitle,
     Expression<String>? avatarSeed,
+    Expression<String>? avatarUrl,
     Expression<bool>? isGroup,
     Expression<String>? gatewayLabel,
     Expression<DateTime>? lastActivity,
@@ -1310,6 +1352,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
       if (title != null) 'title': title,
       if (subtitle != null) 'subtitle': subtitle,
       if (avatarSeed != null) 'avatar_seed': avatarSeed,
+      if (avatarUrl != null) 'avatar_url': avatarUrl,
       if (isGroup != null) 'is_group': isGroup,
       if (gatewayLabel != null) 'gateway_label': gatewayLabel,
       if (lastActivity != null) 'last_activity': lastActivity,
@@ -1328,6 +1371,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     Value<String>? title,
     Value<String?>? subtitle,
     Value<String?>? avatarSeed,
+    Value<String?>? avatarUrl,
     Value<bool>? isGroup,
     Value<String?>? gatewayLabel,
     Value<DateTime?>? lastActivity,
@@ -1344,6 +1388,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
       title: title ?? this.title,
       subtitle: subtitle ?? this.subtitle,
       avatarSeed: avatarSeed ?? this.avatarSeed,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
       isGroup: isGroup ?? this.isGroup,
       gatewayLabel: gatewayLabel ?? this.gatewayLabel,
       lastActivity: lastActivity ?? this.lastActivity,
@@ -1377,6 +1422,9 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     }
     if (avatarSeed.present) {
       map['avatar_seed'] = Variable<String>(avatarSeed.value);
+    }
+    if (avatarUrl.present) {
+      map['avatar_url'] = Variable<String>(avatarUrl.value);
     }
     if (isGroup.present) {
       map['is_group'] = Variable<bool>(isGroup.value);
@@ -1412,6 +1460,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
           ..write('title: $title, ')
           ..write('subtitle: $subtitle, ')
           ..write('avatarSeed: $avatarSeed, ')
+          ..write('avatarUrl: $avatarUrl, ')
           ..write('isGroup: $isGroup, ')
           ..write('gatewayLabel: $gatewayLabel, ')
           ..write('lastActivity: $lastActivity, ')
@@ -3376,6 +3425,7 @@ typedef $$ConversationsTableCreateCompanionBuilder =
       required String title,
       Value<String?> subtitle,
       Value<String?> avatarSeed,
+      Value<String?> avatarUrl,
       Value<bool> isGroup,
       Value<String?> gatewayLabel,
       Value<DateTime?> lastActivity,
@@ -3393,6 +3443,7 @@ typedef $$ConversationsTableUpdateCompanionBuilder =
       Value<String> title,
       Value<String?> subtitle,
       Value<String?> avatarSeed,
+      Value<String?> avatarUrl,
       Value<bool> isGroup,
       Value<String?> gatewayLabel,
       Value<DateTime?> lastActivity,
@@ -3443,6 +3494,11 @@ class $$ConversationsTableFilterComposer
 
   ColumnFilters<String> get avatarSeed => $composableBuilder(
     column: $table.avatarSeed,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get avatarUrl => $composableBuilder(
+    column: $table.avatarUrl,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3521,6 +3577,11 @@ class $$ConversationsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get avatarUrl => $composableBuilder(
+    column: $table.avatarUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get isGroup => $composableBuilder(
     column: $table.isGroup,
     builder: (column) => ColumnOrderings(column),
@@ -3586,6 +3647,9 @@ class $$ConversationsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get avatarUrl =>
+      $composableBuilder(column: $table.avatarUrl, builder: (column) => column);
+
   GeneratedColumn<bool> get isGroup =>
       $composableBuilder(column: $table.isGroup, builder: (column) => column);
 
@@ -3649,6 +3713,7 @@ class $$ConversationsTableTableManager
                 Value<String> title = const Value.absent(),
                 Value<String?> subtitle = const Value.absent(),
                 Value<String?> avatarSeed = const Value.absent(),
+                Value<String?> avatarUrl = const Value.absent(),
                 Value<bool> isGroup = const Value.absent(),
                 Value<String?> gatewayLabel = const Value.absent(),
                 Value<DateTime?> lastActivity = const Value.absent(),
@@ -3664,6 +3729,7 @@ class $$ConversationsTableTableManager
                 title: title,
                 subtitle: subtitle,
                 avatarSeed: avatarSeed,
+                avatarUrl: avatarUrl,
                 isGroup: isGroup,
                 gatewayLabel: gatewayLabel,
                 lastActivity: lastActivity,
@@ -3681,6 +3747,7 @@ class $$ConversationsTableTableManager
                 required String title,
                 Value<String?> subtitle = const Value.absent(),
                 Value<String?> avatarSeed = const Value.absent(),
+                Value<String?> avatarUrl = const Value.absent(),
                 Value<bool> isGroup = const Value.absent(),
                 Value<String?> gatewayLabel = const Value.absent(),
                 Value<DateTime?> lastActivity = const Value.absent(),
@@ -3696,6 +3763,7 @@ class $$ConversationsTableTableManager
                 title: title,
                 subtitle: subtitle,
                 avatarSeed: avatarSeed,
+                avatarUrl: avatarUrl,
                 isGroup: isGroup,
                 gatewayLabel: gatewayLabel,
                 lastActivity: lastActivity,

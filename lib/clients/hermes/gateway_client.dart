@@ -243,6 +243,28 @@ class HermesGatewayClient {
   Future<Object?> rawCall(String method, {Map<String, Object?>? params}) =>
       _request(method, params: params);
 
+  /// Roster de bots del gateway (contrato hermes-map §4): profiles.list.
+  Future<List<Map<String, Object?>>> listProfiles() async {
+    final result = await _request('profiles.list');
+    // Acepta {profiles:[...]} o lista plana.
+    final List raw = switch (result) {
+      {'profiles': final List p} => p,
+      final List l => l,
+      _ => const [],
+    };
+    return raw.whereType<Map<String, Object?>>().toList();
+  }
+
+  /// Avatar de un perfil como data-URL (hermes-map §4).
+  Future<String?> profileAvatar(String name) async {
+    final result = await _request(
+      'profiles.get_asset',
+      params: {'name': name, 'asset': 'avatar'},
+    );
+    final url = (result as Map<String, Object?>?)?['data_url'] ?? result;
+    return url is String && url.startsWith('data:') ? url : null;
+  }
+
   void _scheduleReconnect() {
     if (_manuallyClosed) return;
     _setState(GatewayLinkState.reconnecting);

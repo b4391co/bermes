@@ -23,11 +23,15 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     // Bootstrap de conexiones al arrancar: runtime por cada conexión
-    // persistida + login automático con contraseña recordada.
+    // persistida + login automático con contraseña recordada + roster bots.
     () async {
       try {
         final rows = await AppServices.db.select(AppServices.db.connections).get();
-        await AppServices.connections.bootstrap(rows, secrets: AppServices.secrets);
+        await AppServices.connections.bootstrap(
+          rows,
+          secrets: AppServices.secrets,
+          db: AppServices.db,
+        );
       } catch (e) {
         // Un bootstrap fallido no bloquea la UI: cada chat reintenta.
         Logger('Bootstrap').warning('bootstrap conexiones falló', e);
@@ -142,26 +146,43 @@ class BotAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = Hp.avatarColor(seed);
     final initials = _initials(label);
+    final image = imageUrl != null
+        ? Image.network(
+            imageUrl!,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => Text(
+              initials,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: size * 0.38,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.5,
+              ),
+            ),
+          )
+        : Text(
+            initials,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: size * 0.38,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.5,
+            ),
+          );
     return Container(
       width: size,
       height: size,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.circular(size * 0.32),
       ),
       alignment: Alignment.center,
-      child: Text(
-        initials,
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: size * 0.38,
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.5,
-        ),
-      ),
+      child: image,
     );
   }
-
   String _initials(String text) {
     final clean = text.trim();
     if (clean.isEmpty) return '?';

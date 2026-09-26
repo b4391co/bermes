@@ -157,6 +157,46 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         .toList(growable: false);
   }
 
+  /// Elimina la fila local de la conversación (mensajes + borrador).
+  /// NO toca nada del gateway: los datos del servidor quedan intactos.
+  Future<void> _confirmDelete(BuildContext context, Conversation c) async {
+    final database = AppServices.db;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Eliminar "${c.title}"'),
+        content: const Text(
+          'Se elimina de esta app (chat y borrador). '
+          'El bot y su historial en el gateway no se tocan.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await database.batch((b) {
+      b.deleteWhere<$MessagesTable, Message>(
+        database.messages,
+        (m) => m.conversationId.equals(c.id),
+      );
+      b.deleteWhere<$DraftsTable, Draft>(
+        database.drafts,
+        (d) => d.conversationId.equals(c.id),
+      );
+    });
+    await (database.delete(database.conversations)
+          ..where((x) => x.id.equals(c.id)))
+        .go();
+  }
+
   Widget _tile(BuildContext context, Conversation c) {
     final cs = Theme.of(context).colorScheme;
     final showGateway = _connectionCount > 1 && c.gatewayLabel != null;
@@ -167,6 +207,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         label: c.title,
         size: 46,
         isGroup: c.isGroup,
+        imageUrl: c.avatarUrl,
       ),
       title: Row(
         children: [
@@ -251,6 +292,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           );
         }
       },
+      onLongPress: () => _confirmDelete(context, c),
     );
   }
 
@@ -448,6 +490,7 @@ class _NewChatSheet extends StatelessWidget {
                   label: c.title,
                   size: 38,
                   isGroup: c.isGroup,
+                  imageUrl: c.avatarUrl,
                 ),
                 title: Text(c.title),
                 subtitle: c.subtitle == null

@@ -1,7 +1,9 @@
 import 'dart:async';
 
-import '../../data/database/app_database.dart' show Connection;
+import 'package:drift/drift.dart' show Value;
 
+import '../../data/database/app_database.dart'
+    show AppDatabase, Connection, ConversationsCompanion;
 import '../../core/logger.dart';
 import '../../data/secure/secure_store.dart';
 import '../../domain/connection/connection_profile.dart';
@@ -79,6 +81,7 @@ class ConnectionManager {
   Future<void> bootstrap(
     List<Connection> rows, {
     required SecureStore secrets,
+    required AppDatabase db,
   }) async {
     for (final row in rows) {
       if (!row.enabled) continue;
@@ -102,10 +105,71 @@ class ConnectionManager {
       try {
         final result = await runtime.http.login(profile.username, password);
         _log.info('bootstrap login ${row.name}: ok=${result.ok}');
-        if (result.ok) await runtime.gateway.connect();
+        if (result.ok) {
+          await syncBots(row, runtime, db);
+        }
       } catch (e) {
         _log.warning('bootstrap login ${row.name} falló', e);
       }
+    }
+  }
+
+  /// Descubre los bots del gateway (hermes-map §4: profiles.list) y los
+  /// refleja como conversaciones kind='bot' en la caché local. NO borra
+  /// filas locales: la eliminación local es explícita del usuario.
+  Future<void> syncBots(
+    Connection row,
+    ConnectionRuntime runtime,
+    AppDatabase db,
+  ) async {
+    try {
+      final profiles = await runtime.gateway.listProfiles();
+      for (final p in profiles) {
+        final name = p['name'] as String?;
+        if (name == null || name.isEmpty) continue;
+        final displayName = (p['display_name'] as String?) ?? name;
+        // Avatar REAL del perfil (igual que Hermes Desktop): data-url.
+        String? avatarUrl;
+        if (p['has_avatar'] == true) {
+          try {
+            avatarUrl = await runtime.gateway.profileAvatar(name);
+          } catch (_) {}
+        }
+        final id = '${row.id}/bot/$name';
+        // Chat canónico del bot (hermes-map §4): sesión con título exacto
+        // "Bot Chat". session.resume trae el session_id runtime REAL que
+        // exige prompt.submit; sin él el envío falla (sesión inexistente).
+        String? canonicalSessionId;
+        try {
+          final resumed = await runtime.gateway.rawCall(
+            'session.resume',
+            params: {'title': 'Bot Chat'},
+          );
+          if (resumed is Map<String, Object?>) {
+            canonicalSessionId = resumed['session_id'] as String?;
+          }
+        } catch (_) {}
+        await db.into(db.conversations).insertOnConflictUpdate(
+              ConversationsCompanion.insert(
+                id: id,
+                connectionId: row.id,
+                kind: 'bot',
+                gatewayId: canonicalSessionId ?? name,
+                title: displayName,
+                subtitle: Value(p['description'] as String?),
+                avatarSeed: Value(name),
+                avatarUrl: Value(avatarUrl),
+                isGroup: const Value(false),
+                gatewayLabel: Value(row.name),
+              ),
+            );
+        _log.info(
+          'bot sync ${row.name}/$name session=${canonicalSessionId ?? '??'}',
+        );
+      }
+    } catch (e) {
+      // Un gateway sin profiles.list (versión antigua) no bloquea nada.
+      _log.warning('syncBots ${row.name} falló', e);
     }
   }
 }

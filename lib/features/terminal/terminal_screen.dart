@@ -193,7 +193,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
     await s.close();
     setState(() {
       _sessions.removeAt(index);
-      if (_activeIndex >= _sessions.length) {
+      if (_sessions.isEmpty) {
+        _activeIndex = 0;
+      } else if (_activeIndex >= _sessions.length || _activeIndex < 0) {
         _activeIndex = _sessions.length - 1;
       }
     });
@@ -289,8 +291,22 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   Widget _buildSessionView() {
     final cs = Theme.of(context).colorScheme;
+    final picking = _activeIndex < 0;
     final active = _activeIndex.clamp(0, _sessions.length - 1);
     final session = _sessions[active];
+    if (picking) {
+      // Modo "añadir": lista de hosts sin cerrar las sesiones vivas.
+      return Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: () => setState(() => _activeIndex = 0),
+          ),
+          title: const Text('Nueva sesión'),
+        ),
+        body: _buildHostList(),
+      );
+    }
     return Scaffold(
       appBar: AppBar(
         title: Text(session.title),
@@ -322,6 +338,15 @@ class _TerminalScreenState extends State<TerminalScreen> {
                       onTap: () => setState(() => _activeIndex = i),
                       onDetach: () => _detach(i),
                     ),
+                  // Nueva sesión sin cerrar las existentes.
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: Hp.s1),
+                    child: IconButton(
+                      tooltip: 'Nueva sesión',
+                      icon: const Icon(Icons.add_rounded, size: 18),
+                      onPressed: () => setState(() => _activeIndex = -1),
+                    ),
+                  ),
                 ],
               ),
             ),

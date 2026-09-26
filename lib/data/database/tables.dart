@@ -29,6 +29,7 @@ class Conversations extends Table {
   TextColumn get title => text()();
   TextColumn get subtitle => text().nullable()();
   TextColumn get avatarSeed => text().nullable()();
+  TextColumn get avatarUrl => text().nullable()(); // data-url del perfil
   BoolColumn get isGroup => boolean().withDefault(const Constant(false))();
   TextColumn get gatewayLabel => text().nullable()();
   DateTimeColumn get lastActivity => dateTime().nullable()();

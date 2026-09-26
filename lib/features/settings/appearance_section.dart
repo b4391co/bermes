@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import '../../core/app_services.dart';
 import '../../design/tokens.dart';
 
+/// Estado global del tema: el MaterialApp escucha y cambia en vivo.
+final themeNotifier = ValueNotifier<ThemeMode>(ThemeMode.system);
+
 /// Selector persistente de modo de tema: Sistema / Claro / Oscuro.
 ///
 /// Persistencia: JSON en path_provider (getApplicationSupportDirectory/
@@ -71,6 +74,7 @@ class _AppearanceSectionState extends State<AppearanceSection> {
   Future<void> _pick(ThemeMode mode) async {
     if (mode == _mode) return;
     setState(() => _mode = mode);
+    themeNotifier.value = mode;
     await ThemeModeSetting.save(mode);
   }
 

@@ -365,6 +365,17 @@ class _ChatScreenState extends State<ChatScreen> {
         });
         _input.text = text;
         _input.selection = TextSelection.collapsed(offset: text.length);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'No se pudo enviar: ${e.toString().substring(0, e.toString().length.clamp(0, 140))}',
+            ),
+            action: SnackBarAction(
+              label: 'Reintentar',
+              onPressed: () => _send(),
+            ),
+          ),
+        );
       }
     }
   }
