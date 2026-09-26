@@ -1,0 +1,50 @@
+name: Build Windows release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+        shell: bash
+
+      - run: flutter config --enable-windows-desktop
+        shell: bash
+
+      - name: Build Windows (release)
+        run: flutter build windows --release
+        shell: bash
+
+      - name: Build Android universal APK (release)
+        run: flutter build apk --release
+        shell: bash
+
+      - name: Zip Windows bundle
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath hermes-pocket-windows-x64.zip
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundles
+          path: |
+            hermes-pocket-windows-x64.zip
+            build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Attach to release v0.1.2
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload v0.1.2 hermes-pocket-windows-x64.zip --repo b4391co/bermes --clobber
+          mv build/app/outputs/flutter-apk/app-release.apk hermes-pocket-android-universal.apk
+          gh release upload v0.1.2 hermes-pocket-android-universal.apk --repo b4391co/bermes --clobber
