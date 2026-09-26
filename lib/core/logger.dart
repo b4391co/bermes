@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:developer' as dev;
 
+import 'package:flutter/foundation.dart';
+
 /// Logger mínimo que NUNCA imprime secretos (tokens, cookies, tickets).
 /// Los llamadores nunca pasan material sensible; si se pasa, se enmascara.
 class Logger {
@@ -24,6 +26,11 @@ class Logger {
 
   void _log(String level, String message, [StackTrace? stack]) {
     final safe = _mask(message);
+    // En debug también a logcat: dev.log no es visible sin VM service.
+    assert(() {
+      debugPrint('[$tag/$level] $safe');
+      return true;
+    }());
     dev.log(
       safe,
       name: tag,

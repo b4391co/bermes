@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../core/app_services.dart';
+import '../core/logger.dart';
 import '../design/tokens.dart';
 import 'conversations/conversations_screen.dart';
 import 'settings/settings_screen.dart';
@@ -16,6 +18,23 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Bootstrap de conexiones al arrancar: runtime por cada conexión
+    // persistida + login automático con contraseña recordada.
+    () async {
+      try {
+        final rows = await AppServices.db.select(AppServices.db.connections).get();
+        await AppServices.connections.bootstrap(rows, secrets: AppServices.secrets);
+      } catch (e) {
+        // Un bootstrap fallido no bloquea la UI: cada chat reintenta.
+        Logger('Bootstrap').warning('bootstrap conexiones falló', e);
+      }
+    }();
+  }
+
 
   bool _isWide(BuildContext context) =>
       MediaQuery.sizeOf(context).width >= 640;

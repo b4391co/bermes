@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show SocketException;
 import 'dart:math';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -82,7 +83,32 @@ class HermesGatewayClient {
       final ws = WebSocketChannel.connect(uri);
       _ws = ws;
 
-      final first = await ws.stream.first.timeout(const Duration(seconds: 15));
+      // Un solo listener: el primer frame ES el ready; el resto pasa a _onFrame.
+      final completer = Completer<dynamic>();
+      late final StreamSubscription<dynamic> sub;
+      sub = ws.stream.listen(
+        (frame) {
+          if (!completer.isCompleted) {
+            completer.complete(frame);
+          } else {
+            _onFrame(frame);
+          }
+        },
+        onError: (Object e) {
+          if (!completer.isCompleted) completer.completeError(e);
+          _scheduleReconnect();
+        },
+        onDone: () {
+          if (!completer.isCompleted) {
+            completer.completeError(const SocketException('ws closed'));
+          }
+          _scheduleReconnect();
+        },
+        cancelOnError: true,
+      );
+      _wsSub = sub;
+
+      final first = await completer.future.timeout(const Duration(seconds: 15));
       final firstFrame = jsonDecode(first as String) as Map<String, Object?>;
       final readyParams = firstFrame['params'] as Map<String, Object?>?;
       final payload = readyParams?['payload'] as Map<String, Object?>? ?? {};
@@ -96,13 +122,6 @@ class HermesGatewayClient {
           'client.capabilities',
           params: {'server_requests': true},
         ),
-      );
-
-      _wsSub = ws.stream.listen(
-        _onFrame,
-        onError: (Object e) => _scheduleReconnect(),
-        onDone: () => _scheduleReconnect(),
-        cancelOnError: true,
       );
 
       _pingTimer?.cancel();

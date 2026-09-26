@@ -37,7 +37,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
   late final TextEditingController _password;
   late String _scheme;
   late bool _insecureTls;
-  bool _rememberPassword = false;
+  bool _rememberPassword = true;
   bool _testing = false;
   AuthResult? _testResult;
 
@@ -174,7 +174,18 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
                   profile.allowInsecureTls)) {
         await connections.removeRuntime(id);
       }
-      connections.ensureRuntime(profile);
+      final runtime = connections.ensureRuntime(profile);
+      // Login + WS inmediato con la password del formulario: el chat queda
+      // en línea sin esperar al bootstrap del siguiente arranque.
+      if (_password.text.isNotEmpty) {
+        try {
+          final result = await runtime.http
+              .login(profile.username, _password.text);
+          if (result.ok) await runtime.gateway.connect();
+        } catch (e) {
+          _log.warning('post-save connect falló', e);
+        }
+      }
 
       _log.info('connection saved ${profile.name}');
       if (mounted) Navigator.of(context).pop(true);
@@ -509,9 +520,8 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
       return (
         Hp.online,
         Icons.check_circle_rounded,
-        'El gateway responde',
-        'Transporte y /api/health OK en $_scheme://${_host.text.trim()}'
-            ':${_port.text.trim()}',
+        'Login correcto',
+        'Credenciales válidas y transporte listo en $_scheme://${_host.text.trim()}'
       );
     }
     return switch (r.cause) {

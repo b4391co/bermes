@@ -6,3 +6,7 @@ id_rsa*
 id_ed25519*
 *.key
 .env
+build/
+.dart_tool/
+dist/
+*.log

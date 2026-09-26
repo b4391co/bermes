@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import '../../data/database/app_database.dart' show Connection;
+
 import '../../core/logger.dart';
+import '../../data/secure/secure_store.dart';
 import '../../domain/connection/connection_profile.dart';
 import 'gateway_client.dart';
 import 'http_client.dart';
@@ -11,9 +14,12 @@ class ConnectionRuntime {
   final HermesHttpClient http;
   final HermesGatewayClient gateway;
 
-  ConnectionRuntime(this.profile)
-    : http = HermesHttpClient(profile),
-      gateway = HermesGatewayClient(profile, HermesHttpClient(profile));
+  factory ConnectionRuntime(ConnectionProfile profile) {
+    final http = HermesHttpClient(profile);
+    return ConnectionRuntime._(profile, http, HermesGatewayClient(profile, http));
+  }
+
+  ConnectionRuntime._(this.profile, this.http, this.gateway);
 
   Future<void> dispose() async {
     await gateway.disconnect();
@@ -64,5 +70,42 @@ class ConnectionManager {
     }
     _runtimes.clear();
     await _controller.close();
+  }
+
+  /// Bootstrap al arrancar la app: crea el runtime de cada conexión
+  /// persistida y autentica con la contraseña recordada (si la hay).
+  /// Sin sesión válida el runtime queda vivo pero "sin conexión": el chat
+  /// marca error reintentable en lugar de fingir conectividad.
+  Future<void> bootstrap(
+    List<Connection> rows, {
+    required SecureStore secrets,
+  }) async {
+    for (final row in rows) {
+      if (!row.enabled) continue;
+      if (_runtimes.containsKey(row.id)) continue;
+      final profile = ConnectionProfile(
+        id: row.id,
+        name: row.name,
+        scheme: row.scheme,
+        host: row.host,
+        port: row.port,
+        basePath: row.basePath,
+        authKind: HermesAuthKind.values.asNameMap()[row.authKind] ??
+            HermesAuthKind.password,
+        username: row.username,
+        allowInsecureTls: row.allowInsecureTls,
+        enabled: row.enabled,
+      );
+      final runtime = ensureRuntime(profile);
+      final password = await secrets.readRememberedPassword(row.id);
+      if (password == null || password.isEmpty) continue;
+      try {
+        final result = await runtime.http.login(profile.username, password);
+        _log.info('bootstrap login ${row.name}: ok=${result.ok}');
+        if (result.ok) await runtime.gateway.connect();
+      } catch (e) {
+        _log.warning('bootstrap login ${row.name} falló', e);
+      }
+    }
   }
 }
