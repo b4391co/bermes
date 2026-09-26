@@ -55,21 +55,25 @@ ThemeData buildLightTheme() {
             fontSize: 17,
             fontWeight: FontWeight.w600,
             letterSpacing: -0.2,
+            color: ink,
           ),
           titleMedium: const TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w600,
             letterSpacing: -0.1,
+            color: ink,
           ),
           bodyLarge: const TextStyle(
             fontSize: 15.5,
             height: 1.45,
             letterSpacing: -0.1,
+            color: ink,
           ),
           bodyMedium: const TextStyle(
             fontSize: 14.5,
             height: 1.42,
             letterSpacing: -0.1,
+            color: ink,
           ),
           bodySmall: const TextStyle(
             fontSize: 12.5,
@@ -203,21 +207,25 @@ ThemeData buildDarkTheme() {
             fontSize: 17,
             fontWeight: FontWeight.w600,
             letterSpacing: -0.2,
+            color: ink,
           ),
           titleMedium: const TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w600,
             letterSpacing: -0.1,
+            color: ink,
           ),
           bodyLarge: const TextStyle(
             fontSize: 15.5,
             height: 1.45,
             letterSpacing: -0.1,
+            color: ink,
           ),
           bodyMedium: const TextStyle(
             fontSize: 14.5,
             height: 1.42,
             letterSpacing: -0.1,
+            color: ink,
           ),
           bodySmall: const TextStyle(
             fontSize: 12.5,

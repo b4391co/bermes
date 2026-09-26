@@ -40,6 +40,8 @@ class SshTerminalSession {
 
   Stream<Uint8List> get output => _output.stream;
   Stream<void> get onClosed => _closed.stream;
+  /// Cliente SSH subyacente (para clientes derivados como HerdrClient).
+  SSHClient? get client => _client;
   bool get isOpen => _client != null && _shell != null;
 
   Future<void> connect({

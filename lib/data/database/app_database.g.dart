@@ -2463,6 +2463,564 @@ class DraftsCompanion extends UpdateCompanion<Draft> {
   }
 }
 
+class $SshHostsTable extends SshHosts with TableInfo<$SshHostsTable, SshHost> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SshHostsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _hostMeta = const VerificationMeta('host');
+  @override
+  late final GeneratedColumn<String> host = GeneratedColumn<String>(
+    'host',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _portMeta = const VerificationMeta('port');
+  @override
+  late final GeneratedColumn<int> port = GeneratedColumn<int>(
+    'port',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(22),
+  );
+  static const VerificationMeta _usernameMeta = const VerificationMeta(
+    'username',
+  );
+  @override
+  late final GeneratedColumn<String> username = GeneratedColumn<String>(
+    'username',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _authKindMeta = const VerificationMeta(
+    'authKind',
+  );
+  @override
+  late final GeneratedColumn<String> authKind = GeneratedColumn<String>(
+    'auth_kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _knownFingerprintMeta = const VerificationMeta(
+    'knownFingerprint',
+  );
+  @override
+  late final GeneratedColumn<String> knownFingerprint = GeneratedColumn<String>(
+    'known_fingerprint',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    host,
+    port,
+    username,
+    authKind,
+    knownFingerprint,
+    enabled,
+    createdAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'ssh_hosts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SshHost> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('host')) {
+      context.handle(
+        _hostMeta,
+        host.isAcceptableOrUnknown(data['host']!, _hostMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_hostMeta);
+    }
+    if (data.containsKey('port')) {
+      context.handle(
+        _portMeta,
+        port.isAcceptableOrUnknown(data['port']!, _portMeta),
+      );
+    }
+    if (data.containsKey('username')) {
+      context.handle(
+        _usernameMeta,
+        username.isAcceptableOrUnknown(data['username']!, _usernameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_usernameMeta);
+    }
+    if (data.containsKey('auth_kind')) {
+      context.handle(
+        _authKindMeta,
+        authKind.isAcceptableOrUnknown(data['auth_kind']!, _authKindMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_authKindMeta);
+    }
+    if (data.containsKey('known_fingerprint')) {
+      context.handle(
+        _knownFingerprintMeta,
+        knownFingerprint.isAcceptableOrUnknown(
+          data['known_fingerprint']!,
+          _knownFingerprintMeta,
+        ),
+      );
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SshHost map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SshHost(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      host: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}host'],
+      )!,
+      port: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}port'],
+      )!,
+      username: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}username'],
+      )!,
+      authKind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}auth_kind'],
+      )!,
+      knownFingerprint: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}known_fingerprint'],
+      ),
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $SshHostsTable createAlias(String alias) {
+    return $SshHostsTable(attachedDatabase, alias);
+  }
+}
+
+class SshHost extends DataClass implements Insertable<SshHost> {
+  final String id;
+  final String name;
+  final String host;
+  final int port;
+  final String username;
+  final String authKind;
+  final String? knownFingerprint;
+  final bool enabled;
+  final DateTime createdAt;
+  const SshHost({
+    required this.id,
+    required this.name,
+    required this.host,
+    required this.port,
+    required this.username,
+    required this.authKind,
+    this.knownFingerprint,
+    required this.enabled,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['host'] = Variable<String>(host);
+    map['port'] = Variable<int>(port);
+    map['username'] = Variable<String>(username);
+    map['auth_kind'] = Variable<String>(authKind);
+    if (!nullToAbsent || knownFingerprint != null) {
+      map['known_fingerprint'] = Variable<String>(knownFingerprint);
+    }
+    map['enabled'] = Variable<bool>(enabled);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  SshHostsCompanion toCompanion(bool nullToAbsent) {
+    return SshHostsCompanion(
+      id: Value(id),
+      name: Value(name),
+      host: Value(host),
+      port: Value(port),
+      username: Value(username),
+      authKind: Value(authKind),
+      knownFingerprint: knownFingerprint == null && nullToAbsent
+          ? const Value.absent()
+          : Value(knownFingerprint),
+      enabled: Value(enabled),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory SshHost.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SshHost(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      host: serializer.fromJson<String>(json['host']),
+      port: serializer.fromJson<int>(json['port']),
+      username: serializer.fromJson<String>(json['username']),
+      authKind: serializer.fromJson<String>(json['authKind']),
+      knownFingerprint: serializer.fromJson<String?>(json['knownFingerprint']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'host': serializer.toJson<String>(host),
+      'port': serializer.toJson<int>(port),
+      'username': serializer.toJson<String>(username),
+      'authKind': serializer.toJson<String>(authKind),
+      'knownFingerprint': serializer.toJson<String?>(knownFingerprint),
+      'enabled': serializer.toJson<bool>(enabled),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  SshHost copyWith({
+    String? id,
+    String? name,
+    String? host,
+    int? port,
+    String? username,
+    String? authKind,
+    Value<String?> knownFingerprint = const Value.absent(),
+    bool? enabled,
+    DateTime? createdAt,
+  }) => SshHost(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    host: host ?? this.host,
+    port: port ?? this.port,
+    username: username ?? this.username,
+    authKind: authKind ?? this.authKind,
+    knownFingerprint: knownFingerprint.present
+        ? knownFingerprint.value
+        : this.knownFingerprint,
+    enabled: enabled ?? this.enabled,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  SshHost copyWithCompanion(SshHostsCompanion data) {
+    return SshHost(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      host: data.host.present ? data.host.value : this.host,
+      port: data.port.present ? data.port.value : this.port,
+      username: data.username.present ? data.username.value : this.username,
+      authKind: data.authKind.present ? data.authKind.value : this.authKind,
+      knownFingerprint: data.knownFingerprint.present
+          ? data.knownFingerprint.value
+          : this.knownFingerprint,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SshHost(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('host: $host, ')
+          ..write('port: $port, ')
+          ..write('username: $username, ')
+          ..write('authKind: $authKind, ')
+          ..write('knownFingerprint: $knownFingerprint, ')
+          ..write('enabled: $enabled, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    name,
+    host,
+    port,
+    username,
+    authKind,
+    knownFingerprint,
+    enabled,
+    createdAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SshHost &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.host == this.host &&
+          other.port == this.port &&
+          other.username == this.username &&
+          other.authKind == this.authKind &&
+          other.knownFingerprint == this.knownFingerprint &&
+          other.enabled == this.enabled &&
+          other.createdAt == this.createdAt);
+}
+
+class SshHostsCompanion extends UpdateCompanion<SshHost> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<String> host;
+  final Value<int> port;
+  final Value<String> username;
+  final Value<String> authKind;
+  final Value<String?> knownFingerprint;
+  final Value<bool> enabled;
+  final Value<DateTime> createdAt;
+  final Value<int> rowid;
+  const SshHostsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.host = const Value.absent(),
+    this.port = const Value.absent(),
+    this.username = const Value.absent(),
+    this.authKind = const Value.absent(),
+    this.knownFingerprint = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SshHostsCompanion.insert({
+    required String id,
+    required String name,
+    required String host,
+    this.port = const Value.absent(),
+    required String username,
+    required String authKind,
+    this.knownFingerprint = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       host = Value(host),
+       username = Value(username),
+       authKind = Value(authKind);
+  static Insertable<SshHost> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<String>? host,
+    Expression<int>? port,
+    Expression<String>? username,
+    Expression<String>? authKind,
+    Expression<String>? knownFingerprint,
+    Expression<bool>? enabled,
+    Expression<DateTime>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (host != null) 'host': host,
+      if (port != null) 'port': port,
+      if (username != null) 'username': username,
+      if (authKind != null) 'auth_kind': authKind,
+      if (knownFingerprint != null) 'known_fingerprint': knownFingerprint,
+      if (enabled != null) 'enabled': enabled,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SshHostsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<String>? host,
+    Value<int>? port,
+    Value<String>? username,
+    Value<String>? authKind,
+    Value<String?>? knownFingerprint,
+    Value<bool>? enabled,
+    Value<DateTime>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return SshHostsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      host: host ?? this.host,
+      port: port ?? this.port,
+      username: username ?? this.username,
+      authKind: authKind ?? this.authKind,
+      knownFingerprint: knownFingerprint ?? this.knownFingerprint,
+      enabled: enabled ?? this.enabled,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (host.present) {
+      map['host'] = Variable<String>(host.value);
+    }
+    if (port.present) {
+      map['port'] = Variable<int>(port.value);
+    }
+    if (username.present) {
+      map['username'] = Variable<String>(username.value);
+    }
+    if (authKind.present) {
+      map['auth_kind'] = Variable<String>(authKind.value);
+    }
+    if (knownFingerprint.present) {
+      map['known_fingerprint'] = Variable<String>(knownFingerprint.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SshHostsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('host: $host, ')
+          ..write('port: $port, ')
+          ..write('username: $username, ')
+          ..write('authKind: $authKind, ')
+          ..write('knownFingerprint: $knownFingerprint, ')
+          ..write('enabled: $enabled, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -2470,6 +3028,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $ConversationsTable conversations = $ConversationsTable(this);
   late final $MessagesTable messages = $MessagesTable(this);
   late final $DraftsTable drafts = $DraftsTable(this);
+  late final $SshHostsTable sshHosts = $SshHostsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2479,6 +3038,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     conversations,
     messages,
     drafts,
+    sshHosts,
   ];
 }
 
@@ -3710,6 +4270,287 @@ typedef $$DraftsTableProcessedTableManager =
       Draft,
       PrefetchHooks Function()
     >;
+typedef $$SshHostsTableCreateCompanionBuilder =
+    SshHostsCompanion Function({
+      required String id,
+      required String name,
+      required String host,
+      Value<int> port,
+      required String username,
+      required String authKind,
+      Value<String?> knownFingerprint,
+      Value<bool> enabled,
+      Value<DateTime> createdAt,
+      Value<int> rowid,
+    });
+typedef $$SshHostsTableUpdateCompanionBuilder =
+    SshHostsCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<String> host,
+      Value<int> port,
+      Value<String> username,
+      Value<String> authKind,
+      Value<String?> knownFingerprint,
+      Value<bool> enabled,
+      Value<DateTime> createdAt,
+      Value<int> rowid,
+    });
+
+class $$SshHostsTableFilterComposer
+    extends Composer<_$AppDatabase, $SshHostsTable> {
+  $$SshHostsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get host => $composableBuilder(
+    column: $table.host,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get port => $composableBuilder(
+    column: $table.port,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get username => $composableBuilder(
+    column: $table.username,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get authKind => $composableBuilder(
+    column: $table.authKind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get knownFingerprint => $composableBuilder(
+    column: $table.knownFingerprint,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SshHostsTableOrderingComposer
+    extends Composer<_$AppDatabase, $SshHostsTable> {
+  $$SshHostsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get host => $composableBuilder(
+    column: $table.host,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get port => $composableBuilder(
+    column: $table.port,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get username => $composableBuilder(
+    column: $table.username,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get authKind => $composableBuilder(
+    column: $table.authKind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get knownFingerprint => $composableBuilder(
+    column: $table.knownFingerprint,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SshHostsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SshHostsTable> {
+  $$SshHostsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get host =>
+      $composableBuilder(column: $table.host, builder: (column) => column);
+
+  GeneratedColumn<int> get port =>
+      $composableBuilder(column: $table.port, builder: (column) => column);
+
+  GeneratedColumn<String> get username =>
+      $composableBuilder(column: $table.username, builder: (column) => column);
+
+  GeneratedColumn<String> get authKind =>
+      $composableBuilder(column: $table.authKind, builder: (column) => column);
+
+  GeneratedColumn<String> get knownFingerprint => $composableBuilder(
+    column: $table.knownFingerprint,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$SshHostsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SshHostsTable,
+          SshHost,
+          $$SshHostsTableFilterComposer,
+          $$SshHostsTableOrderingComposer,
+          $$SshHostsTableAnnotationComposer,
+          $$SshHostsTableCreateCompanionBuilder,
+          $$SshHostsTableUpdateCompanionBuilder,
+          (SshHost, BaseReferences<_$AppDatabase, $SshHostsTable, SshHost>),
+          SshHost,
+          PrefetchHooks Function()
+        > {
+  $$SshHostsTableTableManager(_$AppDatabase db, $SshHostsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SshHostsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SshHostsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SshHostsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> host = const Value.absent(),
+                Value<int> port = const Value.absent(),
+                Value<String> username = const Value.absent(),
+                Value<String> authKind = const Value.absent(),
+                Value<String?> knownFingerprint = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SshHostsCompanion(
+                id: id,
+                name: name,
+                host: host,
+                port: port,
+                username: username,
+                authKind: authKind,
+                knownFingerprint: knownFingerprint,
+                enabled: enabled,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                required String host,
+                Value<int> port = const Value.absent(),
+                required String username,
+                required String authKind,
+                Value<String?> knownFingerprint = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SshHostsCompanion.insert(
+                id: id,
+                name: name,
+                host: host,
+                port: port,
+                username: username,
+                authKind: authKind,
+                knownFingerprint: knownFingerprint,
+                enabled: enabled,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$SshHostsTable, SshHost>(table),
+                  BaseReferences<_$AppDatabase, $SshHostsTable, SshHost>(
+                    db,
+                    table,
+                    e,
+                  ),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SshHostsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SshHostsTable,
+      SshHost,
+      $$SshHostsTableFilterComposer,
+      $$SshHostsTableOrderingComposer,
+      $$SshHostsTableAnnotationComposer,
+      $$SshHostsTableCreateCompanionBuilder,
+      $$SshHostsTableUpdateCompanionBuilder,
+      (SshHost, BaseReferences<_$AppDatabase, $SshHostsTable, SshHost>),
+      SshHost,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -3722,4 +4563,6 @@ class $AppDatabaseManager {
       $$MessagesTableTableManager(_db, _db.messages);
   $$DraftsTableTableManager get drafts =>
       $$DraftsTableTableManager(_db, _db.drafts);
+  $$SshHostsTableTableManager get sshHosts =>
+      $$SshHostsTableTableManager(_db, _db.sshHosts);
 }

@@ -17,51 +17,85 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _index = 0;
 
+  bool _isWide(BuildContext context) =>
+      MediaQuery.sizeOf(context).width >= 640;
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: IndexedStack(
-        index: _index,
-        children: const [
-          ConversationsScreen(),
-          TerminalScreen(),
-          SettingsScreen(),
-        ],
-      ),
-      bottomNavigationBar: NavigationBarTheme(
-        data: NavigationBarThemeData(
-          height: 68,
-          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-          indicatorColor: Theme.of(context).colorScheme.surfaceContainerLow,
-          labelTextStyle: WidgetStatePropertyAll(
-            TextStyle(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w500,
-              color: Theme.of(context).colorScheme.onSurface,
+    final destinations = [
+      const (icon: Icons.chat_bubble_outline_rounded, selected: Icons.chat_bubble_rounded, label: 'Chats'),
+      const (icon: Icons.terminal_outlined, selected: Icons.terminal_rounded, label: 'Terminal'),
+      const (icon: Icons.settings_outlined, selected: Icons.settings_rounded, label: 'Ajustes'),
+    ];
+    final wide = _isWide(context);
+    final body = IndexedStack(
+      index: _index,
+      children: const [
+        ConversationsScreen(),
+        TerminalScreen(),
+        SettingsScreen(),
+      ],
+    );
+
+    if (!wide) {
+      return Scaffold(
+        body: body,
+        bottomNavigationBar: NavigationBarTheme(
+          data: NavigationBarThemeData(
+            height: 68,
+            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+            indicatorColor: Theme.of(context).colorScheme.surfaceContainerLow,
+            labelTextStyle: WidgetStatePropertyAll(
+              TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w500,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
             ),
           ),
+          child: NavigationBar(
+            selectedIndex: _index,
+            onDestinationSelected: (i) => setState(() => _index = i),
+            destinations: [
+              for (final d in destinations)
+                NavigationDestination(
+                  icon: Icon(d.icon),
+                  selectedIcon: Icon(d.selected),
+                  label: d.label,
+                ),
+            ],
+          ),
         ),
-        child: NavigationBar(
-          selectedIndex: _index,
-          onDestinationSelected: (i) => setState(() => _index = i),
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.chat_bubble_outline_rounded),
-              selectedIcon: Icon(Icons.chat_bubble_rounded),
-              label: 'Chats',
+      );
+    }
+
+    // Fold 6 desplegado / tablet / horizontal: rail lateral + contenido.
+    return Scaffold(
+      body: Row(
+        children: [
+          NavigationRailTheme(
+            data: NavigationRailThemeData(
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+              indicatorColor: Theme.of(context).colorScheme.surfaceContainerLow,
+              labelType: NavigationRailLabelType.all,
+              groupAlignment: 0,
             ),
-            NavigationDestination(
-              icon: Icon(Icons.terminal_outlined),
-              selectedIcon: Icon(Icons.terminal_rounded),
-              label: 'Terminal',
+            child: NavigationRail(
+              selectedIndex: _index,
+              onDestinationSelected: (i) => setState(() => _index = i),
+              labelType: NavigationRailLabelType.all,
+              destinations: [
+                for (final d in destinations)
+                  NavigationRailDestination(
+                    icon: Icon(d.icon),
+                    selectedIcon: Icon(d.selected),
+                    label: Text(d.label),
+                  ),
+              ],
             ),
-            NavigationDestination(
-              icon: Icon(Icons.settings_outlined),
-              selectedIcon: Icon(Icons.settings_rounded),
-              label: 'Ajustes',
-            ),
-          ],
-        ),
+          ),
+          Expanded(child: body),
+        ],
       ),
     );
   }
