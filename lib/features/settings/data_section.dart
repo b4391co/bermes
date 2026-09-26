@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart' hide Column;
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/app_services.dart';
 import '../../core/logger.dart';
@@ -11,11 +13,11 @@ import '../../data/settings/settings_package.dart';
 import '../../design/tokens.dart';
 import 'appearance_section.dart';
 
-
 /// Sección Datos: exportar/importar ajustes con SettingsPackage real.
 ///
-/// Sin share_plus/file_picker en pubspec: export escribe un archivo en
-/// Documents (muestra la ruta) e import pide la ruta en un diálogo.
+/// Export: el usuario elige destino con el picker del sistema y se
+/// ofrece compartir el archivo. Import: el usuario elige el archivo
+/// con el picker (sin escribir rutas).
 class DataSection extends StatefulWidget {
   const DataSection({super.key});
 
@@ -69,21 +71,39 @@ class _DataSectionState extends State<DataSection> {
         },
         includesSecrets: false,
       );
-      final dir = await AppServices.documentsDir();
+      final json = const JsonEncoder.withIndent(
+        '  ',
+      ).convert(pkg.toJson());
       final stamp = DateTime.now()
           .toIso8601String()
           .replaceAll(RegExp(r'[:.]'), '-')
           .substring(0, 19);
-      final file = File('${dir.path}/hermes-pocket-ajustes-$stamp.json');
-      await file.writeAsString(const JsonEncoder.withIndent('  ').convert(pkg.toJson()));
+      final suggested = 'hermes-pocket-ajustes-$stamp.json';
 
+      // El usuario ELIGE dónde guardar (SAF en Android, diálogo del sistema
+      // en Windows/macOS/Linux). saveFile escribe los bytes y devuelve el Uri.
+      final picked = await FilePicker.saveFile(
+        fileName: suggested,
+        bytes: Uint8List.fromList(utf8.encode(json)),
+        mimeType: 'application/json',
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Exportado a ${file.path}'),
-          duration: const Duration(seconds: 6),
+      if (picked == null) return; // cancelado por el usuario
+      final path = picked.toFilePath();
+
+      // Ofrecer compartir inmediatamente (WhatsApp, Drive, correo...).
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(path)],
+          text: 'Ajustes de Hermes Pocket',
         ),
       );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Exportado a $path')));
     } catch (e, st) {
       _log.error('export failed', e, st);
       if (mounted) {
@@ -110,11 +130,17 @@ class _DataSectionState extends State<DataSection> {
   };
 
   Future<void> _import() async {
-    final path = await _askPath();
-    if (path == null || path.trim().isEmpty) return;
+    // El usuario ELIGE el archivo con el picker del sistema (sin rutas).
+    final files = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['json'],
+    );
+    if (!mounted) return;
+    final path = files.isEmpty ? null : files.single.path;
+    if (path == null || path.isEmpty) return; // cancelado
     _setBusy(true);
     try {
-      final raw = await File(path.trim()).readAsString();
+      final raw = await File(path).readAsString();
       final pkg = SettingsPackage.parse(raw);
       final list = pkg.data['connections'];
       if (list is! List) {
@@ -180,39 +206,6 @@ class _DataSectionState extends State<DataSection> {
     }
   }
 
-  Future<String?> _askPath() {
-    final controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Importar ajustes'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Ruta del archivo exportado (.json):'),
-            const SizedBox(height: Hp.s2),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              decoration: const InputDecoration(
-                hintText: '/storage/emulated/0/Download/…json',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text),
-            child: const Text('Importar'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 /// Sección Acerca de: versión fija (sin package_info en pubspec).
@@ -220,7 +213,7 @@ class AboutSection extends StatelessWidget {
   const AboutSection({super.key});
 
   /// Sin package_info en pubspec: constante sincronizada con pubspec.yaml.
-  static const version = '0.1.2';
+  static const version = '0.1.3';
 
   @override
   Widget build(BuildContext context) {

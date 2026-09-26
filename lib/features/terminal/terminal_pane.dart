@@ -31,6 +31,8 @@ class _TerminalPaneState extends State<TerminalPane> {
   void initState() {
     super.initState();
     _terminalController = TerminalController();
+    // El output del emulador (teclas del IME/teclado físico) → SSH.
+    _terminal.onOutput = widget.session.write;
     widget.session.output.listen((data) {
       _terminal.write(String.fromCharCodes(data));
     });

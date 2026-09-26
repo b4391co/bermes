@@ -80,9 +80,11 @@ class SshTerminalSession {
       rethrow;
     }
 
+    // NOTA: sin `environment:` — OpenSSH con AcceptEnv por defecto RECHAZA
+    // la petición env y dartssh2 la propaga como SSHChannelRequestError, matando
+    // la sesión. El tipo de PTY ('xterm-256color') ya fija TERM en el servidor.
     _shell = await _client!.shell(
       pty: SSHPtyConfig(width: cols, height: rows, type: 'xterm-256color'),
-      environment: {'TERM': 'xterm-256color'},
     );
 
     _shell!.stdout.cast<Uint8List>().listen(
@@ -117,8 +119,14 @@ class SshTerminalSession {
     _shell = null;
   }
 
+  bool _closedEmitted = false;
+
   void _handleClosed() {
-    if (!_closed.isClosed) _closed.add(null);
+    // stdout.done, shell.done y close() pueden llegar en cascada: emitir UNA vez.
+    if (!_closedEmitted && !_closed.isClosed) {
+      _closedEmitted = true;
+      _closed.add(null);
+    }
   }
 
   Future<void> dispose() async {

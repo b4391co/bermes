@@ -88,15 +88,81 @@ class HermesHttpClient {
     return adapter;
   }
 
-  /// Prueba de conexión REAL: comprueba /api/health y /api/status (públicos)
-  /// y que el transporte funcione; NO basta con que cualquier página responda.
-  Future<AuthResult> probeTransport() async {
+  /// Prueba de conexión REAL en dos etapas (contratos de
+  /// docs/protocol/hermes-map.md §1; NO inventa endpoints):
+  /// 1. POST /auth/password-login con las credenciales del formulario.
+  ///    - 200 → gateway vivo + credenciales válidas (cookies recibidas).
+  ///    - 401/403 → gateway vivo, credenciales malas.
+  ///    - 404/405 → responde un servidor pero NO es un gateway Hermes
+  ///      de esta versión (o ruta base mal configurada).
+  /// 2. Si el login no es concluyente (5xx/timeout), fallback GET /
+  ///    para distinguir «servidor vivo pero no-Hermes» de «red caída».
+  Future<AuthResult> probeTransport({String? username, String? password}) async {
     try {
-      final r = await _dio.get<Object?>('/api/health');
-      if (r.statusCode == 200) return const AuthResult.ok();
+      final r = await _dio.post<Object?>(
+        '/auth/password-login',
+        data: {
+          'provider': 'basic',
+          'username': username ?? '',
+          'password': password ?? '',
+        },
+        options: dio.Options(validateStatus: (c) => c != null && c < 600),
+      );
+      final code = r.statusCode ?? 0;
+      if (code == 200 || code == 204) {
+        return const AuthResult.ok();
+      }
+      if (code == 401 || code == 403) {
+        return const AuthResult.fail(
+          AuthFailureCause.badCredentials,
+          'El gateway responde pero rechazó las credenciales',
+        );
+      }
+      if (code == 404 || code == 405) {
+        return const AuthResult.fail(
+          AuthFailureCause.version,
+          'Hay un servidor en esa dirección pero no responde como un gateway '
+          'Hermes (revisa la ruta base, p. ej. /hermes)',
+        );
+      }
+      if (code == 429) {
+        return const AuthResult.fail(
+          AuthFailureCause.rateLimited,
+          'Demasiados intentos; espera un minuto',
+        );
+      }
+      // 5xx u otro código: ¿es siquiera un servidor Hermes? GET / como pista.
+      try {
+        final root = await _dio.get<String>(
+          '/',
+          options: dio.Options(
+            validateStatus: (c) => c != null && c < 600,
+            responseType: dio.ResponseType.plain,
+          ),
+        );
+        final body = root.data ?? '';
+        final looksHermes = body.contains('hermes') ||
+            body.contains('Hermes') ||
+            (root.headers.value('server')?.contains('hermes') ?? false);
+        if (root.statusCode == 200 && looksHermes) {
+          return AuthResult.fail(
+            AuthFailureCause.serverError,
+            'El gateway responde ($code en login) pero falló el inicio de '
+            'sesión; revisa usuario y contraseña',
+          );
+        }
+        if (root.statusCode == 200) {
+          return const AuthResult.fail(
+            AuthFailureCause.version,
+            'Hay un servidor web pero no parece un gateway Hermes',
+          );
+        }
+      } on dio.DioException {
+        // GET / también falló → el problema es de red/servidor.
+      }
       return AuthResult.fail(
         AuthFailureCause.serverError,
-        'health status ${r.statusCode}',
+        'El gateway respondió $code en el login',
       );
     } on dio.DioException catch (e) {
       return AuthResult.fail(_causeFrom(e), e.message);

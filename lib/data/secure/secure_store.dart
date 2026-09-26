@@ -1,11 +1,17 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../../core/logger.dart';
 import '../../domain/connection/connection_profile.dart';
 import '../../clients/hermes/http_client.dart';
 
 /// Almacén de secretos: tokens por conexión en secure storage
 /// (Keystore Android / DPAPI Windows). NUNCA en la DB ni en logs.
+///
+/// Resiliencia: si el Keystore se corrompe (reinstalaciones, restore de
+/// backup), las lecturas/escrituras resetean el almacén UNA vez; si
+/// persiste, degradan a null/false con log (el usuario vuelve a loguearse).
 class SecureStore {
+  final Logger _log = Logger('SecureStore');
   final FlutterSecureStorage _storage;
 
   SecureStore([FlutterSecureStorage? storage])
@@ -33,13 +39,44 @@ class SecureStore {
   static const _rememberPrefix = 'remember/';
 
   Future<String?> readRememberedPassword(String connectionId) =>
-      _storage.read(key: '$_rememberPrefix$connectionId');
+      _readSafe('$_rememberPrefix$connectionId');
 
   Future<void> writeRememberedPassword(String connectionId, String password) =>
-      _storage.write(key: '$_rememberPrefix$connectionId', value: password);
+      _writeSafe('$_rememberPrefix$connectionId', password);
 
   Future<void> deleteRememberedPassword(String connectionId) =>
       _storage.delete(key: '$_rememberPrefix$connectionId');
+
+  Future<String?> _readSafe(String key) async {
+    try {
+      return await _storage.read(key: key);
+    } catch (e) {
+      _log.warning('lectura segura falló; reseteando keystore', e);
+      await _tryReset();
+      try {
+        return await _storage.read(key: key);
+      } catch (e2) {
+        _log.error('keystore irrecuperable', e2);
+        return null;
+      }
+    }
+  }
+
+  Future<void> _writeSafe(String key, String value) async {
+    try {
+      await _storage.write(key: key, value: value);
+    } catch (e) {
+      _log.warning('escritura segura falló; reseteando keystore', e);
+      await _tryReset();
+      await _storage.write(key: key, value: value);
+    }
+  }
+
+  Future<void> _tryReset() async {
+    try {
+      await _storage.deleteAll();
+    } catch (_) {}
+  }
 
   static String _encode(Map<String, Object?> json) {
     final parts = <String>[];

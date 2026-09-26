@@ -108,7 +108,10 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
       _testResult = null;
     });
     final client = HermesHttpClient(_profileFromForm(_currentId));
-    final result = await client.probeTransport();
+    final result = await client.probeTransport(
+      username: _username.text.trim(),
+      password: _password.text,
+    );
     client.dispose();
     if (!mounted) return;
     setState(() {
@@ -123,7 +126,17 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
 
 
   Future<void> _save() async {
-    if (!_formValid) return;
+    if (!_formValid) {
+      final missing = <String>[
+        if (_name.text.trim().isEmpty) 'nombre',
+        if (_host.text.trim().isEmpty) 'host',
+        if (int.tryParse(_port.text.trim()) == null) 'puerto válido',
+      ];
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Falta por completar: ${missing.join(', ')}')),
+      );
+      return;
+    }
     final db = AppServices.db;
     final connections = AppServices.connections;
     try {
@@ -340,7 +353,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
                 Expanded(
                   flex: _isEdit ? 2 : 1,
                   child: FilledButton.icon(
-                    onPressed: _formValid ? _save : null,
+                    onPressed: _save,
                     icon: const Icon(Icons.check_rounded),
                     label: Text(_isEdit ? 'Guardar cambios' : 'Guardar'),
                   ),

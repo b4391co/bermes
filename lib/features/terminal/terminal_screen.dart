@@ -104,9 +104,15 @@ class _TerminalScreenState extends State<TerminalScreen> {
       });
     } catch (e) {
       _sessions.remove(pending);
-      setState(() {
-        _activeIndex = _activeIndex.clamp(0, _sessions.length - 1);
-      });
+      if (mounted) {
+        setState(() {
+          if (_sessions.isEmpty) {
+            _activeIndex = 0;
+          } else {
+            _activeIndex = _activeIndex.clamp(0, _sessions.length - 1);
+          }
+        });
+      }
       _log.error('conexión SSH falló ${host.name}', e);
       _snack('No se pudo conectar a ${host.name}: ${_errText(e)}');
     }

@@ -41,7 +41,9 @@ class HerdrClient {
   /// Inventario de agentes: herdr session snapshot → parse SessionSnapshot.
   /// Devuelve la lista normalizada de agentes con estado.
   Future<List<HerdrAgent>> listAgents() async {
-    final raw = await _run('$binary api snapshot --json 2>/dev/null');
+    // OJO: `herdr api snapshot` no acepta --json (su salida ya es JSON);
+    // con el flag la CLI imprime usage y el fallback pierde los paneles vivos.
+    final raw = await _run('$binary api snapshot 2>/dev/null');
     if (raw.trim().isEmpty) {
       // Fallback a session list --json (formato {"sessions":[...]}, cli.rs:459).
       final sessionsRaw = await _run('$binary session list --json 2>/dev/null');
@@ -53,7 +55,13 @@ class HerdrClient {
   List<HerdrAgent> _parseSnapshot(String raw) {
     try {
       final json = jsonDecode(raw) as Map<String, Object?>;
-      final agents = json['agents'];
+      // Envoltorio RPC: {"id":..., "result":{"snapshot":{"agents":[...]}}}.
+      final result = json['result'];
+      final snapshot = result is Map<String, Object?>
+          ? (result['snapshot'] ?? result)
+          : json;
+      final agents =
+          snapshot is Map<String, Object?> ? snapshot['agents'] : null;
       if (agents is! List) return const [];
       return agents
           .whereType<Map<String, Object?>>()
@@ -95,7 +103,12 @@ class HerdrClient {
     required int rows,
     bool takeover = true,
   }) async {
-    final session = await _ssh.shell(environment: {'TERM': 'xterm-256color'});
+    // NOTA: sin environment: — OpenSSH con AcceptEnv por defecto rechaza la
+    // petición env y la sesión muere (SSHChannelRequestError).
+    // CON PTY: sin pty-req, la CLI herdr detecta stdin no-tty y cierra el
+    // stream al instante ({type:"terminal.closed",reason:"detached"} —
+    // verificado empíricamente contra v0.9.1). El PTY mantiene el stream vivo.
+    final session = await _ssh.shell(pty: const SSHPtyConfig());
     final mode = takeover ? 'control' : 'observe';
     final flags = takeover ? '--takeover' : '';
     session.write(
@@ -155,13 +168,13 @@ extension HerdrStatusX on HerdrStatus {
 
 /// Puente NDJSON del terminal de Herdr sobre un shell SSH.
 ///
-/// Frames que llegan por stdout del comando:
-///   {"type":"terminal.frame","data":"(base64 ANSI)"}   → bytes de terminal
-///   {"type":"terminal.closed"}                          → fin del stream
-/// Comandos que se envían por stdin:
-///   {"type":"terminal.input","data":"(texto o b64)"}
-///   {"type":"terminal.resize","cols":N,"rows":M}
-///   {"type":"terminal.release"}
+/// Frames que llegan por stdout del comando (verificado contra herdr v0.9.1):
+///   {"type":"terminal.frame","bytes":"(b64 ANSI)","seq":N,"full":bool,
+///    "width":N,"height":N,"encoding":"ansi"}
+///   {"type":"terminal.closed","reason":"..."}
+/// Comandos que se envían por stdin (verificado empíricamente):
+///   {"type":"terminal.input","text":"..."}
+///   {"type":"terminal.resize","cols":N,"rows":M} / {"type":"terminal.release"}
 class HerdrTerminalBridge {
   final SSHSession _session;
   final _log = Logger('HerdrTerm');
@@ -189,7 +202,8 @@ class HerdrTerminalBridge {
       final frame = jsonDecode(line) as Map<String, Object?>;
       switch (frame['type']) {
         case 'terminal.frame':
-          final data = frame['data'] as String?;
+          // Campo real v0.9.1: bytes (b64 ANSI); "data" era el contrato supuesto.
+          final data = frame['bytes'] as String?;
           if (data != null) {
             final bytes = base64.decode(data);
             _output.add(bytes);
@@ -209,7 +223,7 @@ class HerdrTerminalBridge {
 
   void sendInput(String text) {
     _session.write(
-      utf8.encode('${jsonEncode({'type': 'terminal.input', 'data': text})}\n'),
+      utf8.encode('${jsonEncode({'type': 'terminal.input', 'text': text})}\n'),
     );
   }
 
@@ -231,6 +245,12 @@ class HerdrTerminalBridge {
   /// Cerrar el shell SSH del bridge. El proceso remoto sigue vivo en herdr
   /// (detach ≠ kill).
   Future<void> close() async {
+    // Devolver el control ANTES de cerrar: si no, el pane queda tomado
+    // (takeover) y Herdr Desktop no puede adjuntarse hasta que muera el shell.
+    try {
+      release();
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    } catch (_) {}
     await _stdoutSub?.cancel();
     _session.close();
     await _output.close();

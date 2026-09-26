@@ -29,9 +29,10 @@ android {
 
     packaging {
         jniLibs {
-            // Un APK debug no necesita símbolos stripping; evita colgadas del
-            // task stripDebugSymbols en entornos de CI lentos.
-            doNotStrip.add("**/*.so")
+            // El doNotStrip acelera builds de DEBUG (evita el task stripDebugSymbols,
+            // lento en CI), pero DEBE quedar limitado a debug: sin él, libflutter.so
+            // ship 154MB de secciones .debug_* y el APK pasa de ~20MB a 184MB.
+            // En release sí se hace strip (AGP lo aplica salvo doNotStrip).
         }
     }
 

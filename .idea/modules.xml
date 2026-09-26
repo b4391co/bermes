@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/hermes_pocket.iml" filepath="$PROJECT_DIR$/hermes_pocket.iml" />
+      <module fileurl="file://$PROJECT_DIR$/android/hermes_pocket_android.iml" filepath="$PROJECT_DIR$/android/hermes_pocket_android.iml" />
+    </modules>
+  </component>
+</project>
