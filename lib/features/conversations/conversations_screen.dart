@@ -33,7 +33,9 @@ class ConversationsScreen extends StatelessWidget {
               const SizedBox(height: Hp.s5),
               Text(
                 'Sin conversaciones todavía',
-                style: Theme.of(context).textTheme.titleMedium,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
               ),
               const SizedBox(height: Hp.s2),
               Text(

@@ -8,15 +8,21 @@ class TerminalScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final inkSoft = Theme.of(context).brightness == Brightness.light
+        ? const Color(0xFF5A6072)
+        : const Color(0xFF9BA1AF);
     return Scaffold(
-      appBar: AppBar(title: const Text('Terminal')),
+      appBar: AppBar(title: Text('Terminal')),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.terminal_rounded, size: 56, color: cs.onSurfaceVariant),
             const SizedBox(height: 16),
-            const Text('Terminal SSH y Herdr — Entrega E'),
+            Text(
+              'Terminal SSH y Herdr — Entrega E',
+              style: TextStyle(fontSize: 12.5, color: inkSoft),
+            ),
           ],
         ),
       ),
