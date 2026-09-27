@@ -25,15 +25,34 @@ import '../../core/logger.dart';
 class HerdrClient {
   final _log = Logger('Herdr');
   SSHClient _ssh;
-  final String binary; // nombre/binario remoto
+  String _resolvedBinary; // ruta absoluta resuelta por isAvailable()
 
-  HerdrClient({required SSHClient ssh, this.binary = 'herdr'}) : _ssh = ssh;
+  HerdrClient({required SSHClient ssh, String binary = 'herdr'})
+      : _ssh = ssh,
+        _resolvedBinary = binary;
+
+  String get binary => _resolvedBinary;
 
   /// true si herdr está instalado en el host remoto.
+  ///
+  /// Shell NO interactiva de SSH no carga .profile/.bashrc: herdr instalado en
+  /// ~/.local/bin o ~/.cargo/bin (cargo install, el camino documentado) no se
+  /// encuentra con `command -v` a secas. Moshi/TermRover resuelven igual:
+  /// rutas típicas + login shell. Verificado en este host: herdr vive en
+  /// /root/.local/bin y `ssh host command -v herdr` NO lo ve.
+  static const _pathFallback =
+      '\$HOME/.local/bin:\$HOME/.cargo/bin:\$HOME/bin:/usr/local/bin:/opt/bin';
+
   Future<bool> isAvailable() async {
-    final r = await _run('command -v $binary');
-    return r.trim().isNotEmpty;
+    final r = await _run(
+      'PATH="\$PATH:$_pathFallback" command -v $binary 2>/dev/null || '
+      'bash -lc "command -v $binary" 2>/dev/null || true',
+    );
+    final found = r.trim().isNotEmpty;
+    if (found) _resolvedBinary = r.trim().split('\n').last.trim();
+    return found;
   }
+
 
   /// Versión (o cadena vacía si falla).
   Future<String> version() => _run('$binary --version 2>/dev/null || true');

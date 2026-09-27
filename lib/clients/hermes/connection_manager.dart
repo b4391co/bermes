@@ -216,10 +216,15 @@ class ConnectionManager {
         if (rawCanonical is String) {
           canonical = rawCanonical;
         } else if (rawCanonical is Map) {
-          canonical = rawCanonical['session_id']?.toString();
+          // CanonicalSessionInfo real (hermes-mobile Profile.kt):
+          // {id, resolved_id, title, preview, …}. resolved_id > id.
+          canonical = (rawCanonical['resolved_id'] ??
+                  rawCanonical['id'] ??
+                  rawCanonical['session_id'])
+              ?.toString();
         }
-        canonical ??= await runtime.gateway
-            .resumeCanonicalSession(name);
+        // Fallback: session.resume/crea del Bot Chat scopiado por perfil.
+        canonical ??= await runtime.gateway.resumeCanonicalSession(name);
         final id = '${row.id}/bot/$name';
         await db.into(db.conversations).insertOnConflictUpdate(
               ConversationsCompanion.insert(

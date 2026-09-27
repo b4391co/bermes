@@ -93,14 +93,14 @@ def rpc_result(method: str, params: dict) -> object:
                 "description": "Bot principal de pruebas",
                 "is_default": True,
                 "ui_meta": {"hermes-bots": dict(BOT_META)},
-                "canonical_session": "sess-canonical-default",
+                "canonical_session": {"id": "sess-canonical-default", "resolved_id": "sess-canonical-default-r", "title": "Bot Chat"},
             },
             {
                 "name": "researcher",
                 "display_name": "Researcher",
                 "description": "Bot de investigación",
                 "is_default": False,
-                "canonical_session": "sess-canonical-researcher",
+                "canonical_session": {"id": "sess-canonical-researcher", "title": "Bot Chat"},
             },
         ]}
     if method == "profiles.configure":
