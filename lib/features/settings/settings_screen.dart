@@ -99,6 +99,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: const Icon(Icons.add_rounded),
                 onPressed: () => _openEditor(),
               ),
+              IconButton(
+                tooltip: 'Resincronizar bots y sesiones',
+                icon: const Icon(Icons.sync_rounded),
+                onPressed: () {
+                  AppServices.connections.resyncAll();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Resincronizando gateways…'),
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         ),

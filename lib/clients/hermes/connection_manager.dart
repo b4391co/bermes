@@ -82,6 +82,21 @@ class ConnectionManager {
     }
   }
 
+  /// Resincroniza TODAS las conexiones conectadas (bots + sesiones).
+  /// Botón de Ajustes: para forzar roster/sesiones sin reiniciar la app.
+  Future<void> resyncAll() async {
+    final db = _db;
+    if (db == null) return;
+    for (final entry in _runtimes.entries) {
+      final row = _rowsById[entry.key];
+      if (row == null || _syncing.contains(entry.key)) continue;
+      if (entry.value.gateway.state != GatewayLinkState.ready) continue;
+      _syncing.add(entry.key);
+      syncBots(row, entry.value, db)
+          .whenComplete(() => _syncing.remove(entry.key));
+    }
+  }
+
   Future<void> removeRuntime(String connectionId) async {
     final runtime = _runtimes.remove(connectionId);
     if (runtime != null) {
