@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../core/app_services.dart';
@@ -146,9 +149,17 @@ class BotAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = Hp.avatarColor(seed);
     final initials = _initials(label);
-    final image = imageUrl != null
-        ? Image.network(
-            imageUrl!,
+    // El avatar llega como data-URL (hermes-map §4: profiles.get_asset).
+    // Image.network no soporta data: URIs — se decodifica a bytes.
+    Uint8List? bytes;
+    final url = imageUrl;
+    if (url != null && url.startsWith('data:')) {
+      final b64 = url.split(',').last;
+      bytes = base64Decode(b64);
+    }
+    final image = bytes != null
+        ? Image.memory(
+            bytes,
             width: size,
             height: size,
             fit: BoxFit.cover,

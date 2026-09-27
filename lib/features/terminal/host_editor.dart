@@ -16,7 +16,11 @@ class HostEditor extends StatefulWidget {
   /// Fila existente (edición) o null (alta).
   final SshHost? existing;
 
-  const HostEditor({super.key, this.existing});
+  /// Valores iniciales para ALTA (p.ej. host derivado de una conexión
+  /// Hermes): prellena el formulario sin tocar la lógica de guardado.
+  final ({String name, String host, int port, String username})? preset;
+
+  const HostEditor({super.key, this.existing, this.preset});
 
   @override
   State<HostEditor> createState() => _HostEditorState();
@@ -42,10 +46,13 @@ class _HostEditorState extends State<HostEditor> {
   void initState() {
     super.initState();
     final e = widget.existing;
-    _name = TextEditingController(text: e?.name ?? '');
-    _host = TextEditingController(text: e?.host ?? '');
-    _port = TextEditingController(text: (e?.port ?? 22).toString());
-    _username = TextEditingController(text: e?.username ?? '');
+    final p = widget.preset;
+    _name = TextEditingController(text: e?.name ?? p?.name ?? '');
+    _host = TextEditingController(text: e?.host ?? p?.host ?? '');
+    _port = TextEditingController(
+      text: (e?.port ?? p?.port ?? 22).toString(),
+    );
+    _username = TextEditingController(text: e?.username ?? p?.username ?? '');
     _authKind = e?.authKind ?? 'password';
     _password = TextEditingController();
     _passphrase = TextEditingController();

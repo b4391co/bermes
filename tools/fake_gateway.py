@@ -103,11 +103,18 @@ def rpc_result(method: str, params: dict) -> object:
     if method == "profiles.get_asset":
         if params.get("name") != "default":
             raise ValueError("no avatar")
-        png = base64.b64encode(bytes.fromhex(
-            "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
-            "890000000d49444154789c6260f8ffff3f0005fe02fea735c9d4000000004945"
-            "4e44ae426082")).decode()
+        # PNG 8x8 rojo (visible en screenshots, a diferencia del 1x1).
+        png = ("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAEklEQVR4"
+               "nGN47JP5Hx9mGBkKAG7jpcHQzqtjAAAAAElFTkSuQmCC")
         return {"data_url": f"data:image/png;base64,{png}"}
+    if method == "session.list":
+        prof = params.get("profile", "default")
+        return {"sessions": [
+            {"session_id": f"sess-{prof}-1", "title": "Refactor parser",
+             "preview": "último mensaje de prueba", "message_count": 12},
+            {"session_id": f"sess-{prof}-2", "title": "Ideas bot",
+             "preview": "otra sesión", "message_count": 3},
+        ]}
     if method == "session.resume":
         if params.get("profile") == "researcher":
             return {"session_id": "sess-canonical-researcher"}

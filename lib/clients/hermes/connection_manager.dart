@@ -159,11 +159,19 @@ class ConnectionManager {
         if (name == null || name.isEmpty) continue;
         final displayName = (p['display_name'] as String?) ?? name;
         // Avatar REAL del perfil (igual que Hermes Desktop): data-url.
+        // has_avatar puede faltar en versiones antiguas del REST: si no dice
+        // false explícito, se intenta get_asset (barato; falla → iniciales).
         String? avatarUrl;
-        if (p['has_avatar'] == true) {
+        if (p['has_avatar'] != false) {
           try {
             avatarUrl = await runtime.gateway.profileAvatar(name);
           } catch (_) {}
+        }
+        // Diagnóstico (2): si un gateway manda otra forma, el log muestra
+        // las claves crudas del primer perfil para depurarlo sin ciegas.
+        if (profiles.indexOf(p) == 0) {
+          _log.info('profiles[0] keys=${p.keys.toList()} '
+              'display_name=${p['display_name']} has_avatar=${p['has_avatar']}');
         }
         // Chat canónico: ProfileRow.canonical_session trae el session_id
         // de la sesión "Bot Chat" del perfil (hermes-protocol §3, línea
@@ -197,6 +205,39 @@ class ConnectionManager {
               ),
             );
         _log.info('bot sync ${row.name}/$name canonical=${canonical ?? '??'}');
+        // Sesiones de Hermes Desktop para este perfil (hermes-map §2/§3):
+        // la barra lateral del Desktop es session.list por perfil. Cada fila
+        // se refleja como conversación kind='session' reutilizable: identidad
+        // estable = session_id si llega; si no, title (session.resume por
+        // título funciona igual al abrir). NO borra filas locales.
+        try {
+          final sessions = await runtime.gateway.listSessions(name);
+          for (final s in sessions) {
+            final sid = (s['session_id'] ?? s['id'])?.toString();
+            final stitle = (s['title'] as String?) ?? 'Sesión';
+            if (stitle == 'Bot Chat') continue; // ya es la fila del bot
+            final key = sid ?? stitle;
+            await db.into(db.conversations).insertOnConflictUpdate(
+                  ConversationsCompanion.insert(
+                    id: '${row.id}/session/$key',
+                    connectionId: row.id,
+                    kind: 'session',
+                    gatewayId: name,
+                    title: stitle,
+                    // Las sesiones viven DENTRO de un perfil: en la lista
+                    // se desambiguan con el perfil delante del preview.
+                    subtitle: Value('$name · ${s['preview'] ?? ''}'),
+                    avatarUrl: Value(avatarUrl),
+                    canonicalSession: Value(sid),
+                    isGroup: const Value(false),
+                    gatewayLabel: Value(row.name),
+                  ),
+                );
+          }
+          _log.info('sessions sync ${row.name}/$name: ${sessions.length} filas');
+        } catch (e) {
+          _log.warning('session.list ${row.name}/$name falló', e);
+        }
       }
     } catch (e) {
       // Un gateway sin profiles.list (versión antigua) no bloquea nada.

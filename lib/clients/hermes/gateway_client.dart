@@ -307,6 +307,28 @@ class HermesGatewayClient {
     return url is String && url.startsWith('data:') ? url : null;
   }
 
+  /// Sesiones de un perfil (hermes-map §2: session.list viaja con `profile`
+  /// en los params). Es lo que Hermes Desktop muestra en su barra lateral
+  /// por perfil; filas con title/preview/started_at/last_active/message_count
+  /// y session_id cuando la versión del gateway lo incluye.
+  Future<List<Map<String, Object?>>> listSessions(String profile) async {
+    try {
+      final result = await _request('session.list', params: {
+        'profile': profile,
+        'limit': 100,
+      });
+      final List raw = switch (result) {
+        {'sessions': final List s} => s,
+        {'rows': final List r} => r,
+        final List l => l,
+        _ => const [],
+      };
+      return raw.whereType<Map<String, Object?>>().toList();
+    } on JsonRpcError {
+      return const [];
+    }
+  }
+
 
   void _scheduleReconnect() {
     if (_manuallyClosed) return;

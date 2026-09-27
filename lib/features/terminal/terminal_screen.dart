@@ -163,6 +163,50 @@ class _TerminalScreenState extends State<TerminalScreen> {
     )..where((h) => h.enabled.equals(true))).get();
     if (!mounted) return;
     if (hosts.isEmpty) {
+      // Sin hosts SSH NO nos quedamos en un snackbar ciego: si hay
+      // conexiones Hermes, ofrecemos derivar el host SSH del gateway
+      // (mismo host, SSH 22) para que la flota funcione a un toque.
+      final conns = await AppServices.db.select(AppServices.db.connections).get();
+      if (!mounted) return;
+      if (conns.isNotEmpty) {
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Flota Herdr'),
+            content: Text(
+              'No hay hosts SSH guardados. ¿Crear uno a partir de tu conexión '
+              'Hermes «${conns.first.name}» (${conns.first.host})? '
+              'Las credenciales SSH son independientes de las del gateway: '
+              'te pedirá usuario y clave en el formulario.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Crear host SSH'),
+              ),
+            ],
+          ),
+        );
+        if (ok == true && mounted) {
+          await Navigator.of(context).push<bool>(
+            MaterialPageRoute(
+              builder: (_) => HostEditor(
+                preset: (
+                  name: conns.first.name,
+                  host: conns.first.host,
+                  port: 22,
+                  username: 'root',
+                ),
+              ),
+            ),
+          );
+        }
+        return;
+      }
       _snack('No hay hosts SSH guardados todavía.');
       return;
     }
