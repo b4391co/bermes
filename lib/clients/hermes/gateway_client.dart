@@ -243,22 +243,31 @@ class HermesGatewayClient {
   Future<Object?> rawCall(String method, {Map<String, Object?>? params}) =>
       _request(method, params: params);
 
-  /// Roster de bots del gateway (contrato hermes-map §4): profiles.list
-  /// por JSON-RPC. Si el gateway no lo expone por WS (versión antigua),
-  /// fallback REST GET /api/profiles (hermes-protocol §1, mismo contrato).
+  /// Roster de bots del gateway. Hermes Desktop lista los perfiles con
+  /// REST GET /api/profiles (hermes-protocol §1), que es el camino que
+  /// SIEMPRE existe; profiles.list por JSON-RPC es el fallback (contrato
+  /// hermes-map §4, gateway moderno). Un WS que responde vacío también
+  /// cae al REST antes de devolver lista vacía.
   Future<List<Map<String, Object?>>> listProfiles() async {
+    Object? decode(Object? data) => data is List
+        ? {'profiles': data}
+        : data is Map<String, Object?> && data['profiles'] is List
+            ? data
+            : null;
+
     Object? result;
     try {
-      result = await _request('profiles.list');
-    } on JsonRpcError {
-      final decoded = await http.getJson('/api/profiles');
-      result = decoded is List
-          ? {'profiles': decoded}
-          : decoded is Map<String, Object?> && decoded['profiles'] is List
-              ? decoded
-              : null;
+      result = decode(await http.getJson('/api/profiles'));
+    } catch (_) {
+      result = null; // red/HTTP cae al WS; el login ya validó credenciales.
     }
-    // Acepta {profiles:[...]} o lista plana.
+    if (result == null) {
+      try {
+        result = decode(await _request('profiles.list'));
+      } on JsonRpcError {
+        result = null;
+      }
+    }
     final List raw = switch (result) {
       {'profiles': final List p} => p,
       final List l => l,

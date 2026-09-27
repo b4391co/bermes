@@ -4,11 +4,13 @@ import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
 
 import '../../clients/herdr/herdr_client.dart';
+import '../../clients/herdr/herdr_fleet.dart';
 import '../../clients/ssh/ssh_session.dart';
 import '../../core/app_services.dart';
 import '../../core/logger.dart';
 import '../../data/database/app_database.dart';
 import '../../design/tokens.dart';
+import 'herdr_fleet_sheet.dart';
 import 'herdr_panel.dart';
 import 'host_editor.dart';
 import 'host_tile.dart';
@@ -152,6 +154,77 @@ class _TerminalScreenState extends State<TerminalScreen> {
     );
   }
 
+  /// Flota Herdr: sondea todos los hosts SSH guardados y lista sus agentes
+  /// (patrón TermRover). Tap en un agente → conecta si hace falta y abre
+  /// el bridge NDJSON como pestaña.
+  Future<void> _openHerdrFleet() async {
+    final hosts = await (AppServices.db.select(
+      AppServices.db.sshHosts,
+    )..where((h) => h.enabled.equals(true))).get();
+    if (!mounted) return;
+    if (hosts.isEmpty) {
+      _snack('No hay hosts SSH guardados todavía.');
+      return;
+    }
+    final infos = hosts
+        .map(
+          (h) => SshHostInfo(
+            id: h.id,
+            name: h.name,
+            host: h.host,
+            port: h.port,
+            username: h.username,
+            knownFingerprint: h.knownFingerprint,
+          ),
+        )
+        .toList();
+    await HerdrFleetSheet.show(
+      context,
+      hosts: infos,
+      credentialsFor: (info) async => HerdrCredentials(
+        password: await sshSecrets.readPassword(info.id),
+        privateKeyPem: await sshSecrets.readPrivateKey(info.id),
+        passphrase: await sshSecrets.readPassphrase(info.id),
+      ),
+      onFingerprint: (info, sha) async {
+        await (AppServices.db.sshHosts.update()
+              ..where((h) => h.id.equals(info.id)))
+            .write(SshHostsCompanion(knownFingerprint: Value(sha)));
+        _log.info('huella TOFU fijada por flota ${info.name}');
+      },
+      onOpenAgent: (info, agent) => _openHerdrAgentFromFleet(info, agent),
+    );
+  }
+
+  /// Abre el terminal NDJSON de un agente de la flota: conecta SSH si el
+  /// host no tiene sesión activa, después lanza el bridge como pestaña.
+  Future<void> _openHerdrAgentFromFleet(
+    SshHostInfo info,
+    HerdrAgent agent,
+  ) async {
+    final host = await (AppServices.db.select(
+      AppServices.db.sshHosts,
+    )..where((h) => h.id.equals(info.id))).getSingleOrNull();
+    if (host == null) return;
+    final existing = _sessions.indexWhere(
+      (s) => s is SshTermSession && s.hostId == host.id,
+    );
+    if (existing >= 0) {
+      final s = _sessions[existing] as SshTermSession;
+      await _openHerdrAgent(s, HerdrClient(ssh: s.sshClient), agent.paneId!,
+          agent.name);
+      return;
+    }
+    await _connectHost(host);
+    final idx = _sessions.indexWhere(
+      (s) => s is SshTermSession && s.hostId == host.id,
+    );
+    if (idx < 0) return; // la conexión falló; _connectHost ya avisó.
+    final s = _sessions[idx] as SshTermSession;
+    await _openHerdrAgent(s, HerdrClient(ssh: s.sshClient), agent.paneId!,
+        agent.name);
+  }
+
   /// Abre el terminal NDJSON de un agente como nueva pestaña.
   Future<void> _openHerdrAgent(
     SshTermSession s,
@@ -228,6 +301,16 @@ class _TerminalScreenState extends State<TerminalScreen> {
     // existía en el estado vacío: con hosts guardados no había forma
     // de añadir otro — el bug del usuario).
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('Terminal'),
+        actions: [
+          IconButton(
+            tooltip: 'Flota Herdr (todos los hosts)',
+            icon: const Icon(Icons.hub_outlined),
+            onPressed: _openHerdrFleet,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openEditor(null),
         icon: const Icon(Icons.add_rounded),

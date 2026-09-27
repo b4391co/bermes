@@ -50,18 +50,45 @@ class ConnectionManager {
     final existing = _runtimes[profile.id];
     if (existing != null) return existing;
     final runtime = ConnectionRuntime(profile);
+    // Roster de bots SIEMPRE al día: cuando el gateway pasa a ready
+    // (arranque, reconexión), se redescubre una vez por transición.
+    runtime.gateway.stateStream.listen((s) {
+      if (s != GatewayLinkState.ready) return;
+      final row = _rowsById[profile.id];
+      final db = _db;
+      if (row == null || db == null || _syncing.contains(profile.id)) {
+        return;
+      }
+      _syncing.add(profile.id);
+      syncBots(row, runtime, db)
+          .whenComplete(() => _syncing.remove(profile.id));
+    });
     _runtimes[profile.id] = runtime;
     _notify();
     return runtime;
+  }
+
+  final _rowsById = <String, Connection>{};
+  final _syncing = <String>{};
+
+  /// DB inyectada al bootstrap para el auto-sync de rosters.
+  AppDatabase? _db;
+
+  /// Registra filas + DB (bootstrap) para el auto-sync en ready.
+  void registerRows(List<Connection> rows, AppDatabase db) {
+    _db = db;
+    for (final r in rows) {
+      _rowsById[r.id] = r;
+    }
   }
 
   Future<void> removeRuntime(String connectionId) async {
     final runtime = _runtimes.remove(connectionId);
     if (runtime != null) {
       await runtime.dispose();
+      _rowsById.remove(connectionId);
       _notify();
     }
-    _log.info('runtime removed $connectionId');
   }
 
   void _notify() => _controller.add(Map.unmodifiable(_runtimes));
@@ -83,6 +110,7 @@ class ConnectionManager {
     required SecureStore secrets,
     required AppDatabase db,
   }) async {
+    registerRows(rows, db);
     _log.info('bootstrap: ${rows.length} conexiones');
     for (final row in rows) {
       if (!row.enabled) continue;

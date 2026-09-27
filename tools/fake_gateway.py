@@ -166,10 +166,18 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
+async def rest_profiles(request: web.Request) -> web.Response:
+    """GET /api/profiles: mismo roster que profiles.list (contrato Desktop)."""
+    if not authed(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    return web.json_response({"profiles": rpc_result("profiles.list", {})["profiles"]})
+
+
 def main() -> None:
     app = web.Application()
     app.middlewares.append(log_middleware)
     app.router.add_get("/api/health", health)
+    app.router.add_get("/api/profiles", rest_profiles)
     app.router.add_post("/auth/password-login", password_login)
     app.router.add_post("/auth/native/refresh", native_refresh)
     app.router.add_post("/api/auth/ws-ticket", ws_ticket)

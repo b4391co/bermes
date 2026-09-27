@@ -183,21 +183,25 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
           final result = await runtime.http
               .login(profile.username, _password.text);
           if (result.ok) {
+            // Auto-sync en ready: registra la fila (con la password ya
+            // persistida, el roster se refresca en cada reconexión).
+            final savedRow = Connection(
+              id: id,
+              name: profile.name,
+              scheme: profile.scheme,
+              host: profile.host,
+              port: profile.port,
+              basePath: profile.basePath,
+              authKind: profile.authKind.name,
+              username: profile.username,
+              allowInsecureTls: profile.allowInsecureTls,
+              enabled: profile.enabled,
+              createdAt: DateTime.now(),
+            );
+            connections.registerRows([savedRow], db);
             await runtime.gateway.connect();
             await connections.syncBots(
-              Connection(
-                id: id,
-                name: profile.name,
-                scheme: profile.scheme,
-                host: profile.host,
-                port: profile.port,
-                basePath: profile.basePath,
-                authKind: profile.authKind.name,
-                username: profile.username,
-                allowInsecureTls: profile.allowInsecureTls,
-                enabled: profile.enabled,
-                createdAt: DateTime.now(),
-              ),
+              savedRow,
               runtime,
               db,
             );
