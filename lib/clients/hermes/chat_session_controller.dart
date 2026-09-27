@@ -196,6 +196,13 @@ class ChatSessionController {
 
   /// Enviar texto. Estados de envío inequívocos; NO reenviar automático.
   Future<void> send(String text) async {
+    if (sessionId.isEmpty) {
+      // Sin sesión canónica resuelta: no se inventa un destino.
+      throw const ChatSendException(
+        'El gateway no expone la sesión "Bot Chat" de este bot. '
+        'Reintentar la conexión desde Ajustes y volver a abrir el chat.',
+      );
+    }
     final optimistic = ChatMessage(
       id: _localId(),
       path: path,
@@ -229,7 +236,20 @@ class ChatSessionController {
         _messages[idx] = optimistic.copyWith(sendState: SendState.failed);
         _notify();
       }
-      _log.warning('prompt failed ${e.code}');
+      _log.warning('prompt failed ${e.code} ${e.message}');
+      throw ChatSendException(e.message);
+    } catch (e) {
+      // Transporte caído u otro fallo: el estado queda failed y el texto
+      // vuelve al campo (UI). NO se reintente a ciegas.
+      final idx = _messages.indexOf(optimistic);
+      if (idx >= 0) {
+        _messages[idx] = optimistic.copyWith(sendState: SendState.failed);
+        _notify();
+      }
+      _log.warning('prompt falló (transporte)', e);
+      throw ChatSendException(
+        e is ChatSendException ? e.message : 'Sin conexión con el gateway',
+      );
     }
   }
 
@@ -251,4 +271,12 @@ class ChatSessionController {
   void dispose() {
     _messagesController.close();
   }
+}
+
+/// Fallo de envío con causa apta para mostrar al usuario.
+class ChatSendException implements Exception {
+  final String message;
+  const ChatSendException(this.message);
+  @override
+  String toString() => message;
 }

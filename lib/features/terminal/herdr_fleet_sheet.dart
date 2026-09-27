@@ -126,8 +126,10 @@ class _HerdrFleetSheetState extends State<HerdrFleetSheet> {
     final cs = Theme.of(context).colorScheme;
     final subtitle = r.error != null
         ? 'Error: ${_clip(r.error!)}'
+        : r.notFound
+        ? 'herdr no encontrado'
         : r.agents.isEmpty
-        ? 'herdr no disponible'
+        ? 'herdr sin agentes'
         : '${r.agents.length} agente(s)';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

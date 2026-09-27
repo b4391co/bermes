@@ -129,19 +129,71 @@ class _ChatScreenState extends State<ChatScreen> {
     // Bots: la sesión de envío es la canónica "Bot Chat" del perfil
     // (resuelta en syncBots); el envío va scopiado con profile=<perfil>.
     // Grupos/sesiones: gatewayId ES el room/session id.
-    final sendSession = conv.canonicalSession ?? conv.gatewayId;
+    var sendSession = conv.canonicalSession;
+    if (sendSession == null && conv.kind == 'bot') {
+      // En sync el gateway no dio id (o estaba caído). Reintento resolver
+      // ahora, en abierto; si sigue sin id, NO creo una sesión inventada:
+      // el envío mostrará la causa real.
+      unawaited(
+        runtime.gateway
+            .resumeCanonicalSession(conv.gatewayId)
+            .then((id) async {
+              if (id == null || !mounted) return;
+              await (AppServices.db.update(AppServices.db.conversations)
+                    ..where((c) => c.id.equals(conv.id)))
+                  .write(
+                db.ConversationsCompanion(
+                  canonicalSession: Value(id),
+                ),
+              );
+              _reattachWithSession(id);
+            }),
+      );
+      sendSession = null;
+    }
+    _startController(path, sendSession, runtime);
+  }
+
+  void _startController(
+    EntityRefPath path,
+    String? sendSession,
+    ConnectionRuntime runtime,
+  ) {
+    final conv = _conversation!;
     final controller = ChatSessionController(
       path,
       runtime.gateway,
-      sendSession,
+      // Sin id real NO se envía a una sesión inventada: el controller lo
+      // sabe (sessionId null → error claro en send).
+      sendSession ?? '',
       profile: conv.kind == 'bot' ? conv.gatewayId : null,
     );
     controller.attach();
+    _liveSub?.cancel();
     _liveSub = controller.stream.listen(_onLive);
     setState(() {
       _controller = controller;
       _live = controller.messages;
     });
+  }
+
+  void _reattachWithSession(String sessionId) {
+    final conv = _conversation;
+    final runtime = _runtime;
+    if (conv == null || runtime == null) return;
+    final kind = EntityKind.values.firstWhere(
+      (k) => k.name == conv.kind,
+      orElse: () => EntityKind.session,
+    );
+    _startController(
+      EntityRefPath(
+        connectionId: conv.connectionId,
+        kind: kind,
+        gatewayId: conv.gatewayId,
+      ),
+      sessionId,
+      runtime,
+    );
   }
 
   void _onLive(List<ChatMessage> live) {
@@ -214,6 +266,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _loadHistory() async {
+    await _pullRemoteHistory();
     final database = AppServices.db;
     final query = database.select(database.messages)
       ..where(
@@ -236,6 +289,60 @@ class _ChatScreenState extends State<ChatScreen> {
       _hasMoreHistory = hasMore;
     });
     _jumpToBottom();
+  }
+
+  /// Trae el historial real del gateway (GET /api/sessions/{id}/messages) y
+  /// lo persiste con origen 'history'. Sin endpoint (versión antigua o
+  /// sesión no resuelta): silencio — la línea viva sigue cubriendo la
+  /// conversación de esta sesión.
+  Future<void> _pullRemoteHistory() async {
+    final runtime = _runtime;
+    final conv = _conversation;
+    if (runtime == null || conv == null) return;
+    final sessionId = conv.canonicalSession ?? _controller?.sessionId;
+    if (sessionId == null || sessionId.isEmpty) return;
+    final msgs = await runtime.gateway.fetchSessionMessages(sessionId);
+    if (msgs == null || msgs.isEmpty || !mounted) return;
+    final database = AppServices.db;
+    try {
+      await database.batch((b) {
+        b.deleteWhere<db.$MessagesTable, db.Message>(
+          database.messages,
+          (m) =>
+              m.conversationId.equals(conv.id) & m.origin.equals('history'),
+        );
+        b.insertAll(
+          database.messages,
+          msgs.reversed.map((m) => _rowFromRemote(m, conv)).nonNulls.toList(),
+        );
+      });
+    } catch (e) {
+      _log.warning('persist remote history failed', e);
+    }
+  }
+
+  db.MessagesCompanion? _rowFromRemote(
+    Map<String, Object?> m,
+    db.Conversation conv,
+  ) {
+    final role = (m['role'] as String?) ?? 'assistant';
+    final text = (m['text'] ?? m['content'])?.toString();
+    if (text == null || text.isEmpty) return null;
+    final tsMs = (m['created_at'] ?? m['timestamp'] ?? m['ts']) as num?;
+    final ts = tsMs != null
+        ? DateTime.fromMillisecondsSinceEpoch(
+            (tsMs.toDouble() * (tsMs < 1e12 ? 1000 : 1)).round(),
+          )
+        : null;
+    return db.MessagesCompanion.insert(
+      id: 'gw:${m['id'] ?? m['message_id'] ?? tsMs ?? text.hashCode}',
+      conversationId: conv.id,
+      connectionId: conv.connectionId,
+      role: role == 'user' ? 'user' : (role == 'system' ? 'system' : 'assistant'),
+      text_: Value(text),
+      timestamp: Value(ts),
+      origin: const Value('history'),
+    );
   }
 
   int _byTimestamp(db.Message a, db.Message b) {

@@ -243,6 +243,7 @@ class ConnectionManager {
                     : const JsonEncoder().convert(botMeta!.avatar!.toJson())),
                 isGroup: const Value(false),
                 gatewayLabel: Value(row.name),
+                canonicalSession: Value(canonical),
               ),
             );
         _log.info('bot sync ${row.name}/$name canonical=${canonical ?? '??'}');

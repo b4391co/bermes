@@ -93,24 +93,49 @@ class HerdrFleet {
         },
       );
       final herdr = HerdrClient(ssh: client);
-      if (!await herdr.isAvailable()) {
-        return FleetHostResult(host: host, agents: const [], error: null);
+      final outcome = await _agentsOf(herdr).timeout(
+        const Duration(seconds: 40),
+      );
+      if (outcome.notFound) {
+        return FleetHostResult(
+          host: host,
+          agents: const [],
+          notFound: true,
+          error:
+              'herdr no encontrado en la PATH de la shell SSH. '
+              'Comprueba `which herdr` al conectarte por terminal.',
+        );
       }
-      final agents = await herdr.listAgents();
-      return FleetHostResult(host: host, agents: agents, error: null);
+      return FleetHostResult(host: host, agents: outcome.agents);
     } finally {
       await client?.close();
     }
   }
+
+  Future<_ProbeOutcome> _agentsOf(HerdrClient herdr) async {
+    if (!await herdr.isAvailable()) return const _ProbeOutcome(notFound: true);
+    return _ProbeOutcome(agents: await herdr.listAgents());
+  }
 }
 
-/// Resultado del probe de un host.
+class _ProbeOutcome {
+  final List<HerdrAgent> agents;
+  final bool notFound;
+  const _ProbeOutcome({this.agents = const [], this.notFound = false});
+}
+
 class FleetHostResult {
   final SshHostInfo host;
   final List<HerdrAgent> agents;
   final String? error;
+  final bool notFound;
 
-  const FleetHostResult({required this.host, required this.agents, this.error});
+  const FleetHostResult({
+    required this.host,
+    required this.agents,
+    this.error,
+    this.notFound = false,
+  });
 }
 
 /// Datos mínimos de host que el probe necesita (desacoplado de la DB).

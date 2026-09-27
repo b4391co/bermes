@@ -699,3 +699,5 @@ y [https://docs.x.ai/grok-bot/mobile](https://docs.x.ai/grok-bot/mobile) (leída
 - TermRover: https://termrover.sh/ ·
   https://termrover.sh/blog/herdr-agent-fleet-mobile/
 - Grok Bot: https://docs.x.ai/grok-bot/overview · https://docs.x.ai/grok-bot/mobile
+
+> **Verificado 2026-09-27**: la shell SSH no interactiva no ve `herdr` instalado en `~/.local/bin` o `~/.cargo/bin` (no carga `.profile`/`.bashrc`); el probe lo amplía con rutas típicas + `bash -lc` y resuelve la ruta absoluta. `herdr api snapshot` **cuelga indefinidamente si el daemon no está levantado** (espera el socket local) — cada comando remoto necesita techo propio y cerrar el canal al expirar.

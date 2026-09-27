@@ -289,12 +289,16 @@ class HermesGatewayClient {
           'title': 'Bot Chat',
           'profile': profile,
         });
-        if (result is! Map<String, Object?>) return null;
-        return result['session_id'] as String?;
+        if (result is! Map<String, Object?>) continue;
+        final id = result['session_id'] as String?;
+        if (id != null && id.isNotEmpty) return id;
       } on JsonRpcError {
-        continue; // resume falló (no existe) → crear.
+        continue; // resume falló (no existe) → intentar crear.
+      } catch (e) {
+        _log.warning('canonical session $method falló', e);
       }
     }
+    // Sin id real: devolver null evita enviar a una sesión inventada.
     return null;
   }
 
@@ -414,5 +418,27 @@ class HermesGatewayClient {
       }
     }
     _pending.clear();
+  }
+
+  /// Historial HTTP (hermes-map §4):
+  /// GET /api/sessions/{id}/messages?limit&offset&order.
+  Future<List<Map<String, Object?>>?> fetchSessionMessages(
+    String sessionId, {
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    try {
+      final result = await http.getJson(
+        '/api/sessions/$sessionId/messages'
+        '?limit=$limit&offset=$offset&order=latest',
+      );
+      if (result is! Map<String, Object?>) return null;
+      final msgs = result['messages'];
+      if (msgs is! List) return null;
+      return msgs.whereType<Map<String, Object?>>().toList(growable: false);
+    } catch (e) {
+      _log.info('historial HTTP no disponible: $e');
+      return null;
+    }
   }
 }

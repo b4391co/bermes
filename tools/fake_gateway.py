@@ -15,6 +15,7 @@ import asyncio, json, time, uuid, base64
 from aiohttp import web, WSMsgType
 
 USERS = {"test": "hermespass"}
+MODE = {"canonical": True, "prompt_error": False}
 SESSION_COOKIE = "hermes_session_at"
 REFRESH_COOKIE = "hermes_session_rt"
 TICKETS: dict[str, float] = {}
@@ -80,6 +81,9 @@ def rpc_result(method: str, params: dict) -> object:
     if method == "gateway.ping":
         return {"pong": True, "ts": now()}
     if method == "prompt.submit":
+        if MODE["prompt_error"]:
+            return {"error": {"code": "session_not_found",
+                              "message": f"unknown session {params.get('session_id')!r}"}}
         return {"status": "streaming"}
     if method == "session.interrupt":
         return {"interrupted": True}
@@ -93,14 +97,14 @@ def rpc_result(method: str, params: dict) -> object:
                 "description": "Bot principal de pruebas",
                 "is_default": True,
                 "ui_meta": {"hermes-bots": dict(BOT_META)},
-                "canonical_session": {"id": "sess-canonical-default", "resolved_id": "sess-canonical-default-r", "title": "Bot Chat"},
+                "canonical_session": ({"id": "sess-canonical-default", "resolved_id": "sess-canonical-default-r", "title": "Bot Chat"} if MODE["canonical"] else None),
             },
             {
                 "name": "researcher",
                 "display_name": "Researcher",
                 "description": "Bot de investigación",
                 "is_default": False,
-                "canonical_session": {"id": "sess-canonical-researcher", "title": "Bot Chat"},
+                "canonical_session": ({"id": "sess-canonical-researcher", "title": "Bot Chat"} if MODE["canonical"] else None),
             },
         ]}
     if method == "profiles.configure":
@@ -122,7 +126,11 @@ def rpc_result(method: str, params: dict) -> object:
             {"session_id": f"sess-{prof}-2", "title": "Ideas bot",
              "preview": "otra sesión", "message_count": 3},
         ]}
+    if method == "session.create":
+        return {"session_id": f"sess-created-{params.get('profile', 'default')}"}
     if method == "session.resume":
+        if not MODE["canonical"]:
+            return {"error": {"code": "not_found", "message": "no bot chat"}}
         if params.get("profile") == "researcher":
             return {"session_id": "sess-canonical-researcher"}
         return {"session_id": "sess-canonical-default"}
@@ -176,8 +184,37 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
         if method == "prompt.fail_test":
             await ws.send_str(json.dumps({"id": rid, "error": {"code": 500, "message": "boom"}}))
             continue
-        await ws.send_str(json.dumps({"id": rid, "result": rpc_result(method, params)}))
+        res = rpc_result(method, params)
+        if isinstance(res, dict) and "error" in res:
+            await ws.send_str(json.dumps({"id": rid, "error": {
+                "code": -32001, "message": res["error"].get("code", "error")}}))
+        else:
+            await ws.send_str(json.dumps({"id": rid, "result": res}))
     return ws
+
+
+
+async def session_messages(request: web.Request) -> web.Response:
+    if not authed(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    sid = request.match_info["sid"]
+    limit = int(request.query.get("limit", "50"))
+    return web.json_response({
+        "messages": [
+            {"id": f"{sid}-m1", "role": "user", "text": "hola bot",
+             "created_at": 1770000000},
+            {"id": f"{sid}-m2", "role": "assistant", "text": "Hola, soy el bot de prueba.",
+             "created_at": 1770000001},
+        ][:limit],
+        "pagination": {"has_more": False, "offset": 0},
+    })
+
+async def set_mode(request: web.Request) -> web.Response:
+    if "canonical" in request.query:
+        MODE["canonical"] = request.query["canonical"] == "1"
+    if "prompt_error" in request.query:
+        MODE["prompt_error"] = request.query["prompt_error"] == "1"
+    return web.json_response(dict(MODE))
 
 
 async def rest_profiles(request: web.Request) -> web.Response:
@@ -192,6 +229,8 @@ def main() -> None:
     app.middlewares.append(log_middleware)
     app.router.add_get("/api/health", health)
     app.router.add_get("/api/profiles", rest_profiles)
+    app.router.add_get("/api/mode", set_mode)
+    app.router.add_get("/api/sessions/{sid}/messages", session_messages)
     app.router.add_post("/auth/password-login", password_login)
     app.router.add_post("/auth/native/refresh", native_refresh)
     app.router.add_post("/api/auth/ws-ticket", ws_ticket)

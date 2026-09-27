@@ -62,16 +62,25 @@ class HerdrClient {
   Future<List<HerdrAgent>> listAgents() async {
     // OJO: `herdr api snapshot` no acepta --json (su salida ya es JSON);
     // con el flag la CLI imprime usage y el fallback pierde los paneles vivos.
-    final raw = await _run('$binary api snapshot 2>/dev/null');
+    // La CLI `herdr api snapshot` espera al daemon: si no está levantado, el
+    // comando CUELGA (verificado aquí: sin daemon no termina nunca). `timeout`
+    // (coreutils) lo remata en el host; si no existe, el techo de _run cubre.
+    final raw = await _run(
+      'timeout -k 2 10 $binary api snapshot 2>/dev/null '
+      '|| $binary api snapshot 2>/dev/null',
+      timeout: const Duration(seconds: 12),
+    );
     if (raw.trim().isEmpty) {
       // Fallback a session list --json (formato {"sessions":[...]}, cli.rs:459).
       final sessionsRaw = await _run('$binary session list --json 2>/dev/null');
       return _parseSessionsFallback(sessionsRaw);
     }
-    return _parseSnapshot(raw);
+    return parseSnapshot(raw);
   }
 
-  List<HerdrAgent> _parseSnapshot(String raw) {
+  /// Parseo del SessionSnapshot (herdr api snapshot). Público y sin IO:
+  /// testeable y reutilizable.
+  static List<HerdrAgent> parseSnapshot(String raw) {
     try {
       final json = jsonDecode(raw) as Map<String, Object?>;
       // Envoltorio RPC: {"id":..., "result":{"snapshot":{"agents":[...]}}}.
@@ -86,8 +95,8 @@ class HerdrClient {
           .whereType<Map<String, Object?>>()
           .map(HerdrAgent.fromJson)
           .toList();
-    } on FormatException catch (e) {
-      _log.warning('snapshot no es JSON: ${e.message}');
+    } on FormatException {
+      // salida no-JSON (usage de la CLI, error del daemon): sin agentes.
       return const [];
     }
   }
@@ -138,9 +147,24 @@ class HerdrClient {
     return HerdrTerminalBridge._(session);
   }
 
-  Future<String> _run(String command) async {
-    final result = await _ssh.run(command);
-    return utf8.decode(result, allowMalformed: true);
+  Future<String> _run(String command, {Duration? timeout}) async {
+    final limit = timeout ?? const Duration(seconds: 8);
+    // execute (no run()): run() no cancela el proceso remoto al expirar el
+    // techo local — `herdr api snapshot` esperando un daemon inexistente
+    // queda vivo en el host. Cerrar la SSHSession fuerza el cierre del canal.
+    final session = await _ssh.execute(command);
+    final out = <int>[];
+    final sub = session.stdout.listen(out.addAll);
+    session.stderr.listen(out.addAll);
+    try {
+      await session.done.timeout(limit);
+      await sub.cancel();
+      return utf8.decode(out, allowMalformed: true);
+    } on TimeoutException {
+      await sub.cancel();
+      session.close();
+      rethrow;
+    }
   }
 
   void updateClient(SSHClient ssh) => _ssh = ssh;

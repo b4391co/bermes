@@ -28,6 +28,7 @@ Frame NDJSON JSON-RPC 2.0. Primer frame servidor→cliente:
 
 ### Métodos clave para Hermes Pocket
 - Sesiones: `session.list`, `session.resume {session_id|title}` → snapshot, `session.create`, `session.status`, `session.events.since`, `session.interrupt` (cancelación).
+- `profiles.list[].canonical_session` (verificado 2026-09-27, hermes-mobile Profile.kt `CanonicalSessionInfo`): puede venir como **objeto** `{id, resolved_id, title, preview, started_at, last_active, message_count}` (forma real del gateway) o string (versiones antiguas). Identidad de chat: `resolved_id` > `id` > string; nunca el nombre del perfil. Si falta y `session.resume {title:'Bot Chat'}` falla, `session.create {title:'Bot Chat', profile}` devuelve el id (verificado E2E con fake gateway).
 - Prompt: `prompt.submit {session_id?, text, …}` → ACK `{status: streaming|queued}` (fire-and-forget, timeout 1800 s).
 - Aprobaciones: server-request `approval {session_id, request_id, command, description, choices[once|session|always|deny], …}`; responder `approval.respond {request_id, choice}`; cancelación → evento `request.cancel {id, reason}`. `approval.pending` al reconectar.
 - Perfiles (bots): `profiles.list` → `ProfileRow {name, display_name, description, has_avatar, ui_meta, bot_mode_protocol, …}`; `profiles.get_asset` (avatar data-url).
