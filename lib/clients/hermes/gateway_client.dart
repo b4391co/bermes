@@ -277,40 +277,28 @@ class HermesGatewayClient {
     return raw.whereType<Map<String, Object?>>().toList();
   }
 
-  /// Resuelve la sesión canónica "Bot Chat" de UN perfil (hermes-protocol
-  /// §3). Los métodos por-perfil viajan con `profile` en los params (ProfileParams).
-  /// Orden: 1) session.resume {title:'Bot Chat'} (el canónico YA existe en
-  /// Desktop); 2) si no existe, session.create {title:'Bot Chat'} — misma
-  /// identidad UNIQUE(title) del perfil que usa Desktop (canonical-chat.ts:49).
+  /// Resuelve la sesión canónica "Bot Chat" de UN perfil (hermes-map §3).
+  ///
+  /// IMPORTANTE (sincronía con Desktop): la sesión canónica la CREA el
+  /// gateway/Desktop al abrir el bot (identidad UNIQUE(title) por perfil —
+  /// canonical-chat.ts:49). Esta app NUNCA crea sesiones: `session.resume`
+  /// es la única vía. Si el Bot Chat no existe todavía, devuelve null y el
+  /// chat lo dice (el usuario lo abre una vez en Desktop). Así móvil y
+  /// Desktop comparten SIEMPRE la misma sesión e historial.
   Future<String?> resumeCanonicalSession(String profile) async {
-    for (final method in const ['session.resume', 'session.create']) {
-      try {
-        final result = await _request(method, params: {
-          'title': 'Bot Chat',
-          'profile': profile,
-        });
-        if (result is! Map<String, Object?>) continue;
-        final id = result['session_id'] as String?;
-        if (id != null && id.isNotEmpty) return id;
-      } on JsonRpcError {
-        continue; // resume falló (no existe) → intentar crear.
-      } catch (e) {
-        _log.warning('canonical session $method falló', e);
-      }
-    }
-    // Último recurso HTTP (hermes-map §4): POST /api/sessions crea la sesión
-    // del perfil (el backend impone su propia política de título).
     try {
-      final created = await http
-          .postJson('/api/sessions', body: {'profile': profile});
-      final id = created is Map<String, Object?>
-          ? (created['session_id'] ?? created['id'])?.toString()
-          : null;
+      final result = await _request('session.resume', params: {
+        'title': 'Bot Chat',
+        'profile': profile,
+      });
+      if (result is! Map<String, Object?>) return null;
+      final id = result['session_id'] as String?;
       if (id != null && id.isNotEmpty) return id;
+    } on JsonRpcError {
+      return null; // no existe todavía (bot sin Bot Chat).
     } catch (e) {
-      _log.info('POST /api/sessions no disponible: $e');
+      _log.warning('canonical session resume falló', e);
     }
-    // Sin id real: devolver null evita enviar a una sesión inventada.
     return null;
   }
 
@@ -346,6 +334,20 @@ class HermesGatewayClient {
     }
   }
 
+  /// Lee la sección `ui_meta['hermes-bots']` de un perfil (grupos, título…).
+  /// null si el perfil no existe o no trae meta de roster.
+  Future<BotRosterMeta?> profileRosterMeta(String name) async {
+    try {
+      final profiles = await listProfiles();
+      for (final p in profiles) {
+        if (p['name'] == name) return BotRosterMeta.fromProfile(p);
+      }
+    } catch (e) {
+      _log.info('profileRosterMeta $name no disponible: $e');
+    }
+    return null;
+  }
+
   /// Edita metadatos de roster de un bot (hermes-map §4: profiles.configure;
   /// mismo contrato que Hy4ri/hermes-mobile BotsViewModel::wsClientConfigureBot):
   /// ui_meta.hermes-bots {title, description, avatar{shape,color,icon}}.
@@ -355,6 +357,7 @@ class HermesGatewayClient {
     String? title,
     String? description,
     BotAvatarMeta? avatar,
+    List<String> groups = const [],
   }) async {
     final metaMap = <String, Object?>{};
     if (title != null && title.isNotEmpty) metaMap['title'] = title;
@@ -367,6 +370,7 @@ class HermesGatewayClient {
             avatar.icon != null)) {
       metaMap['avatar'] = avatar.toJson();
     }
+    if (groups.isNotEmpty) metaMap['groups'] = groups;
     try {
       await _request('profiles.configure', params: {
         'name': name,

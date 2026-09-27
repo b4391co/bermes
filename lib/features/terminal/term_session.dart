@@ -156,7 +156,7 @@ class _HerdrPaneState extends State<HerdrPane> {
       _terminal,
       controller: _controller,
       theme: isDark ? TerminalThemes.whiteOnBlack : TerminalThemes.defaultTheme,
-      textStyle: const TerminalStyle(fontFamily: 'monospace', fontSize: 13.5),
+      textStyle: const TerminalStyle(fontFamily: 'JetBrainsMonoNerd', fontSize: 13.5),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       autofocus: true,
     );

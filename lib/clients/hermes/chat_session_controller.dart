@@ -19,6 +19,11 @@ class ChatSessionController {
   final HermesGatewayClient gateway;
   final String sessionId; // session del gateway (canónico del bot o room)
   final String? profile; // perfil del bot (routing ProfileParams) o null
+
+  /// Aviso cuando la sesión canónica se resuelve tras un intento de envío:
+  /// la UI re-adjunta el controller con la sesión real.
+  void Function(String sessionId)? onSessionResolved;
+
   final _log = Logger('ChatCtl');
 
   final _messages = <ChatMessage>[];
@@ -197,10 +202,20 @@ class ChatSessionController {
   /// Enviar texto. Estados de envío inequívocos; NO reenviar automático.
   Future<void> send(String text) async {
     if (sessionId.isEmpty) {
-      // Sin sesión canónica resuelta: no se inventa un destino.
+      // Sin sesión canónica: no se inventa destino. Reintento resolver AHORA
+      // (session.resume, NUNCA create); si aparece, la UI re-adjunta y reintenta.
+      final resolved = profile == null || profile!.isEmpty
+          ? null
+          : await gateway.resumeCanonicalSession(profile!);
+      if (resolved != null && resolved.isNotEmpty) {
+        onSessionResolved?.call(resolved);
+        throw const ChatSendException(
+          'Sesión "Bot Chat" recién disponible; vuelve a enviar.',
+        );
+      }
       throw const ChatSendException(
-        'El gateway no expone la sesión "Bot Chat" de este bot. '
-        'Reintentar la conexión desde Ajustes y volver a abrir el chat.',
+        'El gateway no tiene la sesión "Bot Chat" de este bot todavía. '
+        'Ábrela una vez en Hermes Desktop (o dale a Reintentar).',
       );
     }
     final optimistic = ChatMessage(

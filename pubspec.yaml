@@ -51,3 +51,15 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  fonts:
+    - family: JetBrainsMonoNerd
+      fonts:
+        - asset: fonts/JetBrainsMonoNerdFontMono-Regular.ttf
+        - asset: fonts/JetBrainsMonoNerdFontMono-Bold.ttf
+          weight: 700
+        - asset: fonts/JetBrainsMonoNerdFontMono-Italic.ttf
+          style: italic
+        - asset: fonts/JetBrainsMonoNerdFontMono-BoldItalic.ttf
+          weight: 700
+          style: italic

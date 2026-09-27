@@ -87,7 +87,7 @@ class _TerminalPaneState extends State<TerminalPane> {
             controller: _terminalController,
             theme: isDark ? TerminalThemes.whiteOnBlack : _lightTerminalTheme,
             textStyle: const TerminalStyle(
-              fontFamily: 'monospace',
+              fontFamily: 'JetBrainsMonoNerd',
               fontSize: 13.5,
             ),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -274,7 +274,7 @@ Future<bool> showFingerprintDialog(
           const SizedBox(height: 8),
           SelectableText(
             fp.sha256,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            style: const TextStyle(fontFamily: 'JetBrainsMonoNerd', fontSize: 12),
           ),
           if (knownFingerprint != null && !matches) ...[
             const SizedBox(height: 12),

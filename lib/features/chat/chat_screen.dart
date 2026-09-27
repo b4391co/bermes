@@ -129,7 +129,10 @@ class _ChatScreenState extends State<ChatScreen> {
     // Bots: la sesión de envío es la canónica "Bot Chat" del perfil
     // (resuelta en syncBots); el envío va scopiado con profile=<perfil>.
     // Grupos/sesiones: gatewayId ES el room/session id.
-    var sendSession = conv.canonicalSession;
+    // Grupos de Desktop (agrupación por ui_meta.groups): la conversación
+    // vive en Desktop; aquí se listan y se abren los bots miembros. No hay
+    // sesión de room que inventar: el envío directo está bloqueado.
+    var sendSession = conv.kind == 'group' ? null : conv.canonicalSession;
     if (sendSession == null && conv.kind == 'bot') {
       // En sync el gateway no dio id (o estaba caído). Reintento resolver
       // ahora, en abierto; si sigue sin id, NO creo una sesión inventada:
@@ -138,7 +141,8 @@ class _ChatScreenState extends State<ChatScreen> {
         runtime.gateway
             .resumeCanonicalSession(conv.gatewayId)
             .then((id) async {
-              if (id == null || !mounted) return;
+              if (!mounted) return;
+              if (id == null) return; // sin Bot Chat aún: el send dará causa.
               await (AppServices.db.update(AppServices.db.conversations)
                     ..where((c) => c.id.equals(conv.id)))
                   .write(
@@ -165,11 +169,26 @@ class _ChatScreenState extends State<ChatScreen> {
       path,
       runtime.gateway,
       // Sin id real NO se envía a una sesión inventada: el controller lo
-      // sabe (sessionId null → error claro en send).
+      // sabe (sessionId vacío → causa clara + reintento de resolución).
       sendSession ?? '',
       profile: conv.kind == 'bot' ? conv.gatewayId : null,
     );
-    controller.attach();
+    controller.onSessionResolved = (id) {
+      if (!mounted) return;
+      // Sesión recién publicada por el gateway/Desktop: persisto, re-adjunto
+      // y cargo historial; el usuario solo vuelve a pulsar Enviar.
+      AppServices.db
+          .into(AppServices.db.conversations)
+          .insertOnConflictUpdate(
+        db.ConversationsCompanion(
+          id: Value(conv.id),
+          canonicalSession: Value(id),
+        ),
+      );
+      _reattachWithSession(id);
+      _loadHistory();
+    };
+
     _liveSub?.cancel();
     _liveSub = controller.stream.listen(_onLive);
     setState(() {
@@ -452,10 +471,15 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // ── Envío ─────────────────────────────────────────────────────────────
-
   Future<void> _send() async {
     final text = _input.text.trim();
     if (text.isEmpty || _sending) return;
+    final conv = _conversation;
+    if (conv != null && conv.kind == 'group') {
+      // Grupo de Desktop (ui_meta.groups): no hay sesión de room que inventar.
+      _showGroupNotice();
+      return;
+    }
     setState(() {
       _sending = true;
       _hasError = false;
@@ -502,6 +526,18 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
     }
+  }
+
+  void _showGroupNotice() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Este grupo lo dirige Hermes Desktop. Escribe directamente a sus '
+          'bots en la lista de chats.',
+        ),
+      ),
+    );
   }
 
   Future<void> _interrupt() => _controller?.interrupt() ?? Future.value();

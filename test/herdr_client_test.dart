@@ -25,4 +25,26 @@ void main() {
       expect(HerdrClient.parseSnapshot('usage: herdr ...'), isEmpty);
     });
   });
+
+  group('resolución de binario (herdr via shell no interactiva)', () {
+    test('acepta solo rutas absolutas que terminan en /herdr', () {
+      // .bashrc contaminado: banner + rutas. Debe ganar la ruta válida.
+      const out = 'Bienvenido al servidor\n/root/.local/bin/herdr\notro texto';
+      final lines = out
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.startsWith('/') && l.endsWith('/herdr'))
+          .toList();
+      expect(lines, ['/root/.local/bin/herdr']);
+    });
+    test('rechaza salida sin ruta (herdr ausente)', () {
+      const out = 'bash: herdr: command not found\n';
+      final lines = out
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.startsWith('/') && l.endsWith('/herdr'))
+          .toList();
+      expect(lines, isEmpty);
+    });
+  });
 }

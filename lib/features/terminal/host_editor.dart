@@ -236,7 +236,7 @@ class _HostEditorState extends State<HostEditor> {
                 ),
                 maxLines: 5,
                 minLines: 3,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                style: const TextStyle(fontFamily: 'JetBrainsMonoNerd', fontSize: 12),
                 validator: _isEdit
                     ? null
                     : (v) => (v == null || v.trim().isEmpty)

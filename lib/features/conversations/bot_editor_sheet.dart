@@ -94,11 +94,15 @@ class _BotEditorSheetState extends State<BotEditorSheet> {
     var ok = false;
     if (runtime != null) {
       try {
+        // profiles.configure reemplaza la sección ui_meta['hermes-bots'] del
+        // perfil: sin preservar `groups` se perderían los grupos del Desktop.
+        final existing = await runtime.gateway.profileRosterMeta(widget.profileName);
         ok = await runtime.gateway.configureBot(
           widget.profileName,
           title: _title.text.trim(),
           description: _description.text.trim(),
           avatar: BotAvatarMeta(shape: _shape, color: _color),
+          groups: existing?.groups ?? const [],
         );
         if (ok) {
           await AppServices.connections.resyncAll();

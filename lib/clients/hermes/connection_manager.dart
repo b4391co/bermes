@@ -206,15 +206,19 @@ class ConnectionManager {
               'title=${botMeta?.title} display_name=${p['display_name']} '
               'avatar_meta=${botMeta?.avatar != null}');
         }
-        // Chat canónico: ProfileRow.canonical_session trae el session_id
-        // de la sesión "Bot Chat" del perfil (hermes-protocol §3, línea
-        // tui_gateway/methods_profiles.py::_canonical_session_row). Si el
-        // gateway no lo da, fallback session.resume SCOPISADO por perfil.
-        // canonical_session puede venir como id (string) o como SessionRow
-        // {session_id, title, …} según la versión del gateway.
+        // Chat canónico: la sesión la posee DESKTOP. La app NUNCA crea
+        // sesiones nuevas (session.create inventaría una sesión que Desktop
+        // no ve y partiría el historial en dos). Se usa la que el gateway
+        // publica en ProfileRow.canonical_session ({id, resolved_id}); si no
+        // hay, session.resume {title:'Bot Chat', profile} — que si el Bot
+        // Chat no existe aún, fallará y el chat lo reportará con causa.
         String? canonical = canonicalFromProfile(p);
-        // Fallback: session.resume/crea del Bot Chat scopiado por perfil.
         canonical ??= await runtime.gateway.resumeCanonicalSession(name);
+        // Grupos de Desktop: ui_meta['hermes-bots'].groups del perfil. Se
+        // registran como conversaciones locales tipo 'group' (agrupación
+        // miembro=bot). hermes-map §5: grupos hosted (rooms) vía groups.* no
+        // están expuestos por este gateway: la app NO inventa rooms.
+        final groupNames = botMeta?.groups ?? const <String>[];
         final id = '${row.id}/bot/$name';
         await db.into(db.conversations).insertOnConflictUpdate(
               ConversationsCompanion.insert(
@@ -237,6 +241,21 @@ class ConnectionManager {
               ),
             );
         _log.info('bot sync ${row.name}/$name canonical=${canonical ?? '??'}');
+        for (final g in groupNames) {
+          await db.into(db.conversations).insertOnConflictUpdate(
+                ConversationsCompanion.insert(
+                  id: '${row.id}/group/$g',
+                  connectionId: row.id,
+                  kind: 'group',
+                  gatewayId: g, // nombre del grupo: identidad compartida
+                  title: g,
+                  subtitle: Value('Grupo de ${row.name}'),
+                  avatarSeed: Value(g),
+                  isGroup: const Value(true),
+                  gatewayLabel: Value(row.name),
+                ),
+              );
+        }
       }
     } catch (e) {
       // Un gateway sin profiles.list (versión antigua) no bloquea nada.

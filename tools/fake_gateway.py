@@ -74,7 +74,8 @@ async def ws_ticket(request: web.Request) -> web.Response:
 
 
 BOT_META = {"title": "Compi", "description": "Bot con meta hermes-mobile",
-           "avatar": {"shape": "circle", "color": "#1a7f5a"}}
+           "avatar": {"shape": "circle", "color": "#1a7f5a"},
+           "groups": ["Equipo"], "group": "Equipo"}
 
 
 def rpc_result(method: str, params: dict) -> object:
@@ -96,7 +97,7 @@ def rpc_result(method: str, params: dict) -> object:
                 "display_name": "Default Bot",
                 "description": "Bot principal de pruebas",
                 "is_default": True,
-                "ui_meta": {"hermes-bots": dict(BOT_META)},
+                "ui_meta": {"hermes-bots": dict(BOT_META), "hermes-bots-groups": {"groups": [{"name": "Equipo", "bots": ["default", "researcher"]}]}},
                 "canonical_session": ({"id": "sess-canonical-default", "resolved_id": "sess-canonical-default-r", "title": "Bot Chat"} if MODE["canonical"] else None),
             },
             {
@@ -126,8 +127,6 @@ def rpc_result(method: str, params: dict) -> object:
             {"session_id": f"sess-{prof}-2", "title": "Ideas bot",
              "preview": "otra sesión", "message_count": 3},
         ]}
-    if method == "session.create":
-        return {"session_id": f"sess-created-{params.get('profile', 'default')}"}
     if method == "session.resume":
         if not MODE["canonical"]:
             return {"error": {"code": "not_found", "message": "no bot chat"}}
@@ -205,6 +204,11 @@ async def session_messages(request: web.Request) -> web.Response:
              "created_at": 1770000000},
             {"id": f"{sid}-m2", "role": "assistant", "text": "Hola, soy el bot de prueba.",
              "created_at": 1770000001},
+            # Historial "de Desktop": demuestra que la app ve la MISMA sesión
+            {"id": f"{sid}-m3", "role": "user", "text": "quien eres",
+             "created_at": 1770000002},
+            {"id": f"{sid}-m4", "role": "assistant", "text": "Soy Compi, tu bot.",
+             "created_at": 1770000003},
         ][:limit],
         "pagination": {"has_more": False, "offset": 0},
     })

@@ -53,8 +53,15 @@ class BotRosterMeta {
   final String? description;
   final BotAvatarMeta? avatar;
   final bool? hidden;
+  final List<String> groups;
 
-  const BotRosterMeta({this.title, this.description, this.avatar, this.hidden});
+  const BotRosterMeta({
+    this.title,
+    this.description,
+    this.avatar,
+    this.hidden,
+    this.groups = const [],
+  });
 
   /// `ui_meta['hermes-bots']` de una ProfileRow; null si no hay sección.
   static BotRosterMeta? fromProfile(Map<String, Object?> profile) {
@@ -67,11 +74,20 @@ class BotRosterMeta {
       return v is String && v.isNotEmpty ? v : null;
     }
 
+    final groups = <String>{
+      ...?switch (raw['groups']) {
+        final List<Object?> l => l.whereType<String>(),
+        _ => null,
+      },
+      if (raw['group'] is String && (raw['group'] as String).isNotEmpty)
+        raw['group'] as String,
+    }.where((g) => g.trim().isNotEmpty).map((g) => g.trim()).toList();
     return BotRosterMeta(
       title: s('title'),
       description: s('description'),
       avatar: BotAvatarMeta.fromJson(raw['avatar']),
       hidden: raw['hidden'] == true,
+      groups: groups,
     );
   }
 
@@ -80,5 +96,6 @@ class BotRosterMeta {
         if (description != null) 'description': description,
         if (avatar != null) 'avatar': avatar!.toJson(),
         if (hidden != null) 'hidden': hidden,
+        if (groups.isNotEmpty) 'groups': groups,
       };
 }

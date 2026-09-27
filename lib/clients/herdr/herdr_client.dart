@@ -44,14 +44,23 @@ class HerdrClient {
       '\$HOME/.local/bin:\$HOME/.cargo/bin:\$HOME/bin:/usr/local/bin:/opt/bin';
 
   Future<bool> isAvailable() async {
-    final r = await _run(
-      'PATH="\$PATH:$_pathFallback" command -v $binary 2>/dev/null || '
-      'bash -lc "command -v $binary" 2>/dev/null || true',
-    );
-    final found = r.trim().isNotEmpty;
-    if (found) _resolvedBinary = r.trim().split('\n').last.trim();
-    return found;
+    // Candidatos: PATH extendida (no-interactiva) y, si no, login shell.
+    // Comprobados con `test -x` en el REMOTO: la ruta solo vale si existe.
+    // La salida de `command -v` por sí sola no basta: un .bashrc con eco
+    final script = 'for p in \$PATH:$_pathFallback; do '
+        'for c in "\$p/$binary" \$(bash -lc "command -v $binary" 2>/dev/null); do '
+        'test -x "\$c" && echo "\$c" && exit 0; done; done; true';
+    final r = await _run(script);
+    String? path;
+    for (final line in r.split('\n')) {
+      final l = line.trim();
+      if (l.startsWith('/') && l.endsWith('/$binary')) path = l;
+    }
+    if (path == null) return false;
+    _resolvedBinary = path;
+    return true;
   }
+
 
 
   /// Versión (o cadena vacía si falla).
