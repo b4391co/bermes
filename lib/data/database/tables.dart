@@ -29,7 +29,8 @@ class Conversations extends Table {
   TextColumn get title => text()();
   TextColumn get subtitle => text().nullable()();
   TextColumn get avatarSeed => text().nullable()();
-  TextColumn get avatarUrl => text().nullable()(); // data-url del perfil
+  TextColumn get avatarUrl => text().nullable()(); // data-url o http(s)
+  TextColumn get botAvatarMeta => text().nullable()(); // JSON hermes-bots.avatar
   TextColumn get canonicalSession => text().nullable()(); // sesión canónica Bot Chat
   BoolColumn get isGroup => boolean().withDefault(const Constant(false))();
   TextColumn get gatewayLabel => text().nullable()();

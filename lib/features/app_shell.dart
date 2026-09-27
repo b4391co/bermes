@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../core/app_services.dart';
+
+import '../clients/hermes/bot_meta.dart';
 import '../core/logger.dart';
 import '../design/tokens.dart';
 import 'conversations/conversations_screen.dart';
@@ -126,13 +128,15 @@ class _AppShellState extends State<AppShell> {
     );
   }
 }
-
-/// Avatar con personalidad: color determinista por seed + iniciales,
-/// o imagen real del bot cuando existe.
+/// Avatar de bot con contrato hermes-mobile: formas geométricas (circle,
+/// square, rounded, hexagon), color hex, icono Material o imagen URL
+/// (http(s)/data:); fallback iniciales. BotAvatarMeta en
+/// lib/clients/hermes/bot_meta.dart (ui_meta.hermes-bots.avatar).
 class BotAvatar extends StatelessWidget {
   final String seed;
   final String label;
   final String? imageUrl;
+  final String? avatarMetaJson; // JSON BotAvatarMeta (ui_meta.hermes-bots.avatar)
   final double size;
   final bool isGroup;
 
@@ -141,59 +145,139 @@ class BotAvatar extends StatelessWidget {
     required this.seed,
     required this.label,
     this.imageUrl,
+    this.avatarMetaJson,
     this.size = 46,
     this.isGroup = false,
   });
 
+  static const _iconMap = <String, IconData>{
+    'smart_toy': Icons.smart_toy_rounded,
+    'science': Icons.science_rounded,
+    'psychology': Icons.psychology_rounded,
+    'code': Icons.code_rounded,
+    'build': Icons.build_rounded,
+    'bolt': Icons.bolt_rounded,
+    'extension': Icons.extension_rounded,
+    'sensors': Icons.sensors_rounded,
+  };
+
+  static const _hexShaper = <String, ShapeBorder?>{
+    'circle': CircleBorder(),
+    'square': null, // esquinas rectas: sin recorte
+    'rounded': null, // default del Container
+    'hexagon': null, // sin soporte nativo Material → rounded (fallback)
+  };
+
   @override
   Widget build(BuildContext context) {
-    final color = Hp.avatarColor(seed);
+    final meta = _meta();
+    final color = _colorOf(meta) ?? Hp.avatarColor(seed);
     final initials = _initials(label);
-    // El avatar llega como data-URL (hermes-map §4: profiles.get_asset).
-    // Image.network no soporta data: URIs — se decodifica a bytes.
-    Uint8List? bytes;
-    final url = imageUrl;
-    if (url != null && url.startsWith('data:')) {
-      final b64 = url.split(',').last;
-      bytes = base64Decode(b64);
+    final bytes = _bytesOf();
+    final remoteUrl = meta?.imageUrl;
+    Widget content;
+    if (bytes != null) {
+      content = Image.memory(
+        bytes,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => _iconOr(meta) ?? _initialsText(initials),
+      );
+    } else if (remoteUrl != null && remoteUrl.startsWith('http')) {
+      content = Image.network(
+        remoteUrl,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => _iconOr(meta) ?? _initialsText(initials),
+      );
+    } else if (meta?.icon != null) {
+      content = Icon(
+        _iconMap[meta!.icon] ?? Icons.smart_toy_rounded,
+        color: Colors.white,
+        size: size * 0.52,
+      );
+    } else {
+      content = _initialsText(initials);
     }
-    final image = bytes != null
-        ? Image.memory(
-            bytes,
-            width: size,
-            height: size,
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => Text(
-              initials,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: size * 0.38,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.5,
-              ),
-            ),
-          )
-        : Text(
-            initials,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: size * 0.38,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.5,
-            ),
-          );
+    final shape = _shapeOf(meta);
     return Container(
       width: size,
       height: size,
-      clipBehavior: Clip.antiAlias,
+      clipBehavior: shape == null ? Clip.antiAlias : Clip.antiAlias,
       decoration: BoxDecoration(
         color: color,
-        borderRadius: BorderRadius.circular(size * 0.32),
+        shape: shape is CircleBorder ? BoxShape.circle : BoxShape.rectangle,
+        borderRadius: shape is CircleBorder
+            ? null
+            : BorderRadius.circular(
+                meta?.shape == 'square' ? 0.0 : size * 0.32),
       ),
       alignment: Alignment.center,
-      child: image,
+      child: content,
     );
   }
+
+  ShapeBorder? _shapeOf(BotAvatarMeta? meta) {
+    final s = meta?.shape;
+    if (s == null || !_hexShaper.containsKey(s)) return null;
+    final b = _hexShaper[s];
+    if (s == 'square') return null; // radio 0
+    return b;
+  }
+
+  Color? _colorOf(BotAvatarMeta? meta) {
+    final hex = meta?.color;
+    if (hex == null || hex.length < 7) return null;
+    final v = int.tryParse(hex.replaceFirst('#', ''), radix: 16);
+    return v == null ? null : Color(0xFF000000 | v);
+  }
+
+  Widget? _iconOr(BotAvatarMeta? meta) =>
+      meta?.icon == null ? null : _icon(meta!.icon!);
+
+  Widget _icon(String name) => Icon(
+        _iconMap[name] ?? Icons.smart_toy_rounded,
+        color: Colors.white,
+        size: size * 0.52,
+      );
+
+  Widget _initialsText(String initials) => Text(
+        initials,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: size * 0.38,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.5,
+        ),
+      );
+
+  Uint8List? _bytesOf() {
+    final url = imageUrl;
+    if (url == null) return null;
+    if (url.startsWith('data:')) {
+      try {
+        return base64Decode(url.split(',').last);
+      } catch (_) {
+        return null;
+      }
+    }
+    return null; // http(s) se deja para una fase con cacheo de red
+  }
+
+  BotAvatarMeta? _meta() {
+    final j = avatarMetaJson;
+    if (j == null || j.isEmpty) return null;
+    try {
+      return BotAvatarMeta.fromJson(
+        const JsonDecoder().convert(j) as Map,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   String _initials(String text) {
     final clean = text.trim();
     if (clean.isEmpty) return '?';

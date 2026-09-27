@@ -72,6 +72,10 @@ async def ws_ticket(request: web.Request) -> web.Response:
     return web.json_response({"ticket": ticket, "ttl_seconds": 30})
 
 
+BOT_META = {"title": "Compi", "description": "Bot con meta hermes-mobile",
+           "avatar": {"shape": "circle", "color": "#1a7f5a"}}
+
+
 def rpc_result(method: str, params: dict) -> object:
     if method == "gateway.ping":
         return {"pong": True, "ts": now()}
@@ -88,7 +92,7 @@ def rpc_result(method: str, params: dict) -> object:
                 "display_name": "Default Bot",
                 "description": "Bot principal de pruebas",
                 "is_default": True,
-                "has_avatar": True,
+                "ui_meta": {"hermes-bots": dict(BOT_META)},
                 "canonical_session": "sess-canonical-default",
             },
             {
@@ -96,10 +100,13 @@ def rpc_result(method: str, params: dict) -> object:
                 "display_name": "Researcher",
                 "description": "Bot de investigación",
                 "is_default": False,
-                "has_avatar": False,
                 "canonical_session": "sess-canonical-researcher",
             },
         ]}
+    if method == "profiles.configure":
+        um = params.get("ui_meta", {}).get("hermes-bots", {})
+        BOT_META.update({k: v for k, v in um.items() if v})
+        return {"ok": True}
     if method == "profiles.get_asset":
         if params.get("name") != "default":
             raise ValueError("no avatar")

@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../core/logger.dart';
+import 'bot_meta.dart';
 import '../../domain/connection/connection_profile.dart';
 import 'http_client.dart';
 import 'rpc_types.dart';
@@ -326,6 +327,40 @@ class HermesGatewayClient {
       return raw.whereType<Map<String, Object?>>().toList();
     } on JsonRpcError {
       return const [];
+    }
+  }
+
+  /// Edita metadatos de roster de un bot (hermes-map §4: profiles.configure;
+  /// mismo contrato que Hy4ri/hermes-mobile BotsViewModel::wsClientConfigureBot):
+  /// ui_meta.hermes-bots {title, description, avatar{shape,color,icon}}.
+  /// CAS por ui_meta_expected_revisions omitido (igual que la referencia).
+  Future<bool> configureBot(
+    String name, {
+    String? title,
+    String? description,
+    BotAvatarMeta? avatar,
+  }) async {
+    final metaMap = <String, Object?>{};
+    if (title != null && title.isNotEmpty) metaMap['title'] = title;
+    if (description != null && description.isNotEmpty) {
+      metaMap['description'] = description;
+    }
+    if (avatar != null &&
+        (avatar.shape != null ||
+            avatar.color != null ||
+            avatar.icon != null)) {
+      metaMap['avatar'] = avatar.toJson();
+    }
+    try {
+      await _request('profiles.configure', params: {
+        'name': name,
+        'ui_meta': {
+          'hermes-bots': metaMap,
+        },
+      });
+      return true;
+    } on JsonRpcError {
+      return false;
     }
   }
 

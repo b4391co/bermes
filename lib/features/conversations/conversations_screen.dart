@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
@@ -8,6 +9,8 @@ import '../../core/app_services.dart';
 import '../../data/database/app_database.dart';
 import '../../design/tokens.dart';
 import '../app_shell.dart' show BotAvatar;
+import 'bot_editor_sheet.dart';
+import '../../clients/hermes/bot_meta.dart';
 import '../chat/chat_screen.dart';
 import '../connections/connection_editor.dart';
 
@@ -208,6 +211,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         size: 46,
         isGroup: c.isGroup,
         imageUrl: c.avatarUrl,
+        avatarMetaJson: c.botAvatarMeta,
       ),
       title: Row(
         children: [
@@ -292,9 +296,63 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           );
         }
       },
-      onLongPress: () => _confirmDelete(context, c),
+      onLongPress: () => _rowActions(context, c),
     );
   }
+  /// Acciones de fila: editar bot (perfil) o eliminar conversación local.
+  /// Editar solo para kind='bot': requiere el name del perfil + conexión.
+  Future<void> _rowActions(BuildContext context, Conversation c) async {
+    if (c.kind == 'bot') {
+      final action = await showModalBottomSheet<String>(
+        context: context,
+        builder: (context) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.edit_rounded),
+                title: const Text('Editar bot'),
+                onTap: () => Navigator.of(context).pop('edit'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded),
+                title: const Text('Eliminar'),
+                onTap: () => Navigator.of(context).pop('delete'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!mounted || action == null) return;
+      if (action == 'edit') {
+        await BotEditorSheet.show(
+          context,
+          connectionId: c.connectionId,
+          profileName: c.gatewayId,
+          currentTitle: c.title,
+          currentDescription: c.subtitle,
+          currentAvatar: _avatarMetaOf(c),
+        );
+      } else {
+        await _confirmDelete(context, c);
+      }
+    } else {
+      await _confirmDelete(context, c);
+    }
+  }
+
+  BotAvatarMeta? _avatarMetaOf(Conversation c) {
+    final j = c.botAvatarMeta;
+    if (j == null || j.isEmpty) return null;
+    try {
+      return BotAvatarMeta.fromJson(
+        const JsonDecoder().convert(j) as Map,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
 
   Widget _emptyState(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -491,6 +549,7 @@ class _NewChatSheet extends StatelessWidget {
                   size: 38,
                   isGroup: c.isGroup,
                   imageUrl: c.avatarUrl,
+                  avatarMetaJson: c.botAvatarMeta,
                 ),
                 title: Text(c.title),
                 subtitle: c.subtitle == null

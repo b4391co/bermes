@@ -740,6 +740,17 @@ class $ConversationsTable extends Conversations
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _botAvatarMetaMeta = const VerificationMeta(
+    'botAvatarMeta',
+  );
+  @override
+  late final GeneratedColumn<String> botAvatarMeta = GeneratedColumn<String>(
+    'bot_avatar_meta',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _canonicalSessionMeta = const VerificationMeta(
     'canonicalSession',
   );
@@ -833,6 +844,7 @@ class $ConversationsTable extends Conversations
     subtitle,
     avatarSeed,
     avatarUrl,
+    botAvatarMeta,
     canonicalSession,
     isGroup,
     gatewayLabel,
@@ -909,6 +921,15 @@ class $ConversationsTable extends Conversations
       context.handle(
         _avatarUrlMeta,
         avatarUrl.isAcceptableOrUnknown(data['avatar_url']!, _avatarUrlMeta),
+      );
+    }
+    if (data.containsKey('bot_avatar_meta')) {
+      context.handle(
+        _botAvatarMetaMeta,
+        botAvatarMeta.isAcceptableOrUnknown(
+          data['bot_avatar_meta']!,
+          _botAvatarMetaMeta,
+        ),
       );
     }
     if (data.containsKey('canonical_session')) {
@@ -1006,6 +1027,10 @@ class $ConversationsTable extends Conversations
         DriftSqlType.string,
         data['${effectivePrefix}avatar_url'],
       ),
+      botAvatarMeta: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}bot_avatar_meta'],
+      ),
       canonicalSession: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}canonical_session'],
@@ -1052,6 +1077,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
   final String? subtitle;
   final String? avatarSeed;
   final String? avatarUrl;
+  final String? botAvatarMeta;
   final String? canonicalSession;
   final bool isGroup;
   final String? gatewayLabel;
@@ -1068,6 +1094,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     this.subtitle,
     this.avatarSeed,
     this.avatarUrl,
+    this.botAvatarMeta,
     this.canonicalSession,
     required this.isGroup,
     this.gatewayLabel,
@@ -1092,6 +1119,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     }
     if (!nullToAbsent || avatarUrl != null) {
       map['avatar_url'] = Variable<String>(avatarUrl);
+    }
+    if (!nullToAbsent || botAvatarMeta != null) {
+      map['bot_avatar_meta'] = Variable<String>(botAvatarMeta);
     }
     if (!nullToAbsent || canonicalSession != null) {
       map['canonical_session'] = Variable<String>(canonicalSession);
@@ -1127,6 +1157,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       avatarUrl: avatarUrl == null && nullToAbsent
           ? const Value.absent()
           : Value(avatarUrl),
+      botAvatarMeta: botAvatarMeta == null && nullToAbsent
+          ? const Value.absent()
+          : Value(botAvatarMeta),
       canonicalSession: canonicalSession == null && nullToAbsent
           ? const Value.absent()
           : Value(canonicalSession),
@@ -1159,6 +1192,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       subtitle: serializer.fromJson<String?>(json['subtitle']),
       avatarSeed: serializer.fromJson<String?>(json['avatarSeed']),
       avatarUrl: serializer.fromJson<String?>(json['avatarUrl']),
+      botAvatarMeta: serializer.fromJson<String?>(json['botAvatarMeta']),
       canonicalSession: serializer.fromJson<String?>(json['canonicalSession']),
       isGroup: serializer.fromJson<bool>(json['isGroup']),
       gatewayLabel: serializer.fromJson<String?>(json['gatewayLabel']),
@@ -1180,6 +1214,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       'subtitle': serializer.toJson<String?>(subtitle),
       'avatarSeed': serializer.toJson<String?>(avatarSeed),
       'avatarUrl': serializer.toJson<String?>(avatarUrl),
+      'botAvatarMeta': serializer.toJson<String?>(botAvatarMeta),
       'canonicalSession': serializer.toJson<String?>(canonicalSession),
       'isGroup': serializer.toJson<bool>(isGroup),
       'gatewayLabel': serializer.toJson<String?>(gatewayLabel),
@@ -1199,6 +1234,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     Value<String?> subtitle = const Value.absent(),
     Value<String?> avatarSeed = const Value.absent(),
     Value<String?> avatarUrl = const Value.absent(),
+    Value<String?> botAvatarMeta = const Value.absent(),
     Value<String?> canonicalSession = const Value.absent(),
     bool? isGroup,
     Value<String?> gatewayLabel = const Value.absent(),
@@ -1215,6 +1251,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     subtitle: subtitle.present ? subtitle.value : this.subtitle,
     avatarSeed: avatarSeed.present ? avatarSeed.value : this.avatarSeed,
     avatarUrl: avatarUrl.present ? avatarUrl.value : this.avatarUrl,
+    botAvatarMeta: botAvatarMeta.present
+        ? botAvatarMeta.value
+        : this.botAvatarMeta,
     canonicalSession: canonicalSession.present
         ? canonicalSession.value
         : this.canonicalSession,
@@ -1239,6 +1278,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           ? data.avatarSeed.value
           : this.avatarSeed,
       avatarUrl: data.avatarUrl.present ? data.avatarUrl.value : this.avatarUrl,
+      botAvatarMeta: data.botAvatarMeta.present
+          ? data.botAvatarMeta.value
+          : this.botAvatarMeta,
       canonicalSession: data.canonicalSession.present
           ? data.canonicalSession.value
           : this.canonicalSession,
@@ -1268,6 +1310,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           ..write('subtitle: $subtitle, ')
           ..write('avatarSeed: $avatarSeed, ')
           ..write('avatarUrl: $avatarUrl, ')
+          ..write('botAvatarMeta: $botAvatarMeta, ')
           ..write('canonicalSession: $canonicalSession, ')
           ..write('isGroup: $isGroup, ')
           ..write('gatewayLabel: $gatewayLabel, ')
@@ -1289,6 +1332,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     subtitle,
     avatarSeed,
     avatarUrl,
+    botAvatarMeta,
     canonicalSession,
     isGroup,
     gatewayLabel,
@@ -1309,6 +1353,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           other.subtitle == this.subtitle &&
           other.avatarSeed == this.avatarSeed &&
           other.avatarUrl == this.avatarUrl &&
+          other.botAvatarMeta == this.botAvatarMeta &&
           other.canonicalSession == this.canonicalSession &&
           other.isGroup == this.isGroup &&
           other.gatewayLabel == this.gatewayLabel &&
@@ -1327,6 +1372,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
   final Value<String?> subtitle;
   final Value<String?> avatarSeed;
   final Value<String?> avatarUrl;
+  final Value<String?> botAvatarMeta;
   final Value<String?> canonicalSession;
   final Value<bool> isGroup;
   final Value<String?> gatewayLabel;
@@ -1344,6 +1390,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     this.subtitle = const Value.absent(),
     this.avatarSeed = const Value.absent(),
     this.avatarUrl = const Value.absent(),
+    this.botAvatarMeta = const Value.absent(),
     this.canonicalSession = const Value.absent(),
     this.isGroup = const Value.absent(),
     this.gatewayLabel = const Value.absent(),
@@ -1362,6 +1409,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     this.subtitle = const Value.absent(),
     this.avatarSeed = const Value.absent(),
     this.avatarUrl = const Value.absent(),
+    this.botAvatarMeta = const Value.absent(),
     this.canonicalSession = const Value.absent(),
     this.isGroup = const Value.absent(),
     this.gatewayLabel = const Value.absent(),
@@ -1384,6 +1432,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     Expression<String>? subtitle,
     Expression<String>? avatarSeed,
     Expression<String>? avatarUrl,
+    Expression<String>? botAvatarMeta,
     Expression<String>? canonicalSession,
     Expression<bool>? isGroup,
     Expression<String>? gatewayLabel,
@@ -1402,6 +1451,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
       if (subtitle != null) 'subtitle': subtitle,
       if (avatarSeed != null) 'avatar_seed': avatarSeed,
       if (avatarUrl != null) 'avatar_url': avatarUrl,
+      if (botAvatarMeta != null) 'bot_avatar_meta': botAvatarMeta,
       if (canonicalSession != null) 'canonical_session': canonicalSession,
       if (isGroup != null) 'is_group': isGroup,
       if (gatewayLabel != null) 'gateway_label': gatewayLabel,
@@ -1422,6 +1472,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     Value<String?>? subtitle,
     Value<String?>? avatarSeed,
     Value<String?>? avatarUrl,
+    Value<String?>? botAvatarMeta,
     Value<String?>? canonicalSession,
     Value<bool>? isGroup,
     Value<String?>? gatewayLabel,
@@ -1440,6 +1491,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
       subtitle: subtitle ?? this.subtitle,
       avatarSeed: avatarSeed ?? this.avatarSeed,
       avatarUrl: avatarUrl ?? this.avatarUrl,
+      botAvatarMeta: botAvatarMeta ?? this.botAvatarMeta,
       canonicalSession: canonicalSession ?? this.canonicalSession,
       isGroup: isGroup ?? this.isGroup,
       gatewayLabel: gatewayLabel ?? this.gatewayLabel,
@@ -1477,6 +1529,9 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     }
     if (avatarUrl.present) {
       map['avatar_url'] = Variable<String>(avatarUrl.value);
+    }
+    if (botAvatarMeta.present) {
+      map['bot_avatar_meta'] = Variable<String>(botAvatarMeta.value);
     }
     if (canonicalSession.present) {
       map['canonical_session'] = Variable<String>(canonicalSession.value);
@@ -1516,6 +1571,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
           ..write('subtitle: $subtitle, ')
           ..write('avatarSeed: $avatarSeed, ')
           ..write('avatarUrl: $avatarUrl, ')
+          ..write('botAvatarMeta: $botAvatarMeta, ')
           ..write('canonicalSession: $canonicalSession, ')
           ..write('isGroup: $isGroup, ')
           ..write('gatewayLabel: $gatewayLabel, ')
@@ -3482,6 +3538,7 @@ typedef $$ConversationsTableCreateCompanionBuilder =
       Value<String?> subtitle,
       Value<String?> avatarSeed,
       Value<String?> avatarUrl,
+      Value<String?> botAvatarMeta,
       Value<String?> canonicalSession,
       Value<bool> isGroup,
       Value<String?> gatewayLabel,
@@ -3501,6 +3558,7 @@ typedef $$ConversationsTableUpdateCompanionBuilder =
       Value<String?> subtitle,
       Value<String?> avatarSeed,
       Value<String?> avatarUrl,
+      Value<String?> botAvatarMeta,
       Value<String?> canonicalSession,
       Value<bool> isGroup,
       Value<String?> gatewayLabel,
@@ -3557,6 +3615,11 @@ class $$ConversationsTableFilterComposer
 
   ColumnFilters<String> get avatarUrl => $composableBuilder(
     column: $table.avatarUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get botAvatarMeta => $composableBuilder(
+    column: $table.botAvatarMeta,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3645,6 +3708,11 @@ class $$ConversationsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get botAvatarMeta => $composableBuilder(
+    column: $table.botAvatarMeta,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get canonicalSession => $composableBuilder(
     column: $table.canonicalSession,
     builder: (column) => ColumnOrderings(column),
@@ -3718,6 +3786,11 @@ class $$ConversationsTableAnnotationComposer
   GeneratedColumn<String> get avatarUrl =>
       $composableBuilder(column: $table.avatarUrl, builder: (column) => column);
 
+  GeneratedColumn<String> get botAvatarMeta => $composableBuilder(
+    column: $table.botAvatarMeta,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get canonicalSession => $composableBuilder(
     column: $table.canonicalSession,
     builder: (column) => column,
@@ -3787,6 +3860,7 @@ class $$ConversationsTableTableManager
                 Value<String?> subtitle = const Value.absent(),
                 Value<String?> avatarSeed = const Value.absent(),
                 Value<String?> avatarUrl = const Value.absent(),
+                Value<String?> botAvatarMeta = const Value.absent(),
                 Value<String?> canonicalSession = const Value.absent(),
                 Value<bool> isGroup = const Value.absent(),
                 Value<String?> gatewayLabel = const Value.absent(),
@@ -3804,6 +3878,7 @@ class $$ConversationsTableTableManager
                 subtitle: subtitle,
                 avatarSeed: avatarSeed,
                 avatarUrl: avatarUrl,
+                botAvatarMeta: botAvatarMeta,
                 canonicalSession: canonicalSession,
                 isGroup: isGroup,
                 gatewayLabel: gatewayLabel,
@@ -3823,6 +3898,7 @@ class $$ConversationsTableTableManager
                 Value<String?> subtitle = const Value.absent(),
                 Value<String?> avatarSeed = const Value.absent(),
                 Value<String?> avatarUrl = const Value.absent(),
+                Value<String?> botAvatarMeta = const Value.absent(),
                 Value<String?> canonicalSession = const Value.absent(),
                 Value<bool> isGroup = const Value.absent(),
                 Value<String?> gatewayLabel = const Value.absent(),
@@ -3840,6 +3916,7 @@ class $$ConversationsTableTableManager
                 subtitle: subtitle,
                 avatarSeed: avatarSeed,
                 avatarUrl: avatarUrl,
+                botAvatarMeta: botAvatarMeta,
                 canonicalSession: canonicalSession,
                 isGroup: isGroup,
                 gatewayLabel: gatewayLabel,

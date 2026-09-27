@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:drift/drift.dart' show Value;
+
+import 'bot_meta.dart';
 
 import '../../data/database/app_database.dart'
     show AppDatabase, Connection, ConversationsCompanion;
@@ -168,25 +171,39 @@ class ConnectionManager {
     AppDatabase db,
   ) async {
     try {
+      // Decisión del usuario (27/09): SOLO bots en la lista — las sesiones
+      // de Desktop se vieron aquí por error y se purgan al primer sync.
+      await (db.delete(db.conversations)
+            ..where((x) => x.kind.equals('session')))
+          .go();
       final profiles = await runtime.gateway.listProfiles();
       for (final p in profiles) {
         final name = p['name'] as String?;
         if (name == null || name.isEmpty) continue;
-        final displayName = (p['display_name'] as String?) ?? name;
-        // Avatar REAL del perfil (igual que Hermes Desktop): data-url.
-        // has_avatar puede faltar en versiones antiguas del REST: si no dice
-        // false explícito, se intenta get_asset (barato; falla → iniciales).
-        String? avatarUrl;
-        if (p['has_avatar'] != false) {
+        // Contrato de nombres hermes-mobile (Profile.kt::effectiveTitle):
+        // ui_meta.hermes-bots.title > display_name > name.
+        final botMeta = BotRosterMeta.fromProfile(p);
+        if (botMeta?.hidden == true) continue; // bot oculto por Desktop
+        final displayName = (botMeta?.title?.isNotEmpty ?? false)
+            ? botMeta!.title!
+            : ((p['display_name'] as String?)?.isNotEmpty ?? false)
+                ? p['display_name'] as String
+                : name;
+        // Avatar (hermes-mobile BotAvatar): ui_meta.hermes-bots.avatar
+        // {shape,color,icon,image_url} render nativo; data-url de
+        // profiles.get_asset como ÚLTIMO recurso (más barato: solo si no
+        // hay meta). image_url del meta puede ser data: o http(s):.
+        String? avatarUrl = botMeta?.avatar?.imageUrl;
+        if (avatarUrl == null && p['has_avatar'] == true) {
           try {
             avatarUrl = await runtime.gateway.profileAvatar(name);
           } catch (_) {}
         }
-        // Diagnóstico (2): si un gateway manda otra forma, el log muestra
-        // las claves crudas del primer perfil para depurarlo sin ciegas.
+        // Diagnóstico: claves crudas del primer perfil (gateways reales).
         if (profiles.indexOf(p) == 0) {
           _log.info('profiles[0] keys=${p.keys.toList()} '
-              'display_name=${p['display_name']} has_avatar=${p['has_avatar']}');
+              'title=${botMeta?.title} display_name=${p['display_name']} '
+              'avatar_meta=${botMeta?.avatar != null}');
         }
         // Chat canónico: ProfileRow.canonical_session trae el session_id
         // de la sesión "Bot Chat" del perfil (hermes-protocol §3, línea
@@ -211,48 +228,19 @@ class ConnectionManager {
                 kind: 'bot',
                 gatewayId: name, // identidad estable: nombre del perfil
                 title: displayName,
-                subtitle: Value(p['description'] as String?),
+                subtitle: Value((botMeta?.description?.isNotEmpty ?? false)
+                    ? botMeta!.description
+                    : p['description'] as String?),
                 avatarSeed: Value(name),
                 avatarUrl: Value(avatarUrl),
-                canonicalSession: Value(canonical),
+                botAvatarMeta: Value(botMeta?.avatar == null
+                    ? null
+                    : const JsonEncoder().convert(botMeta!.avatar!.toJson())),
                 isGroup: const Value(false),
                 gatewayLabel: Value(row.name),
               ),
             );
         _log.info('bot sync ${row.name}/$name canonical=${canonical ?? '??'}');
-        // Sesiones de Hermes Desktop para este perfil (hermes-map §2/§3):
-        // la barra lateral del Desktop es session.list por perfil. Cada fila
-        // se refleja como conversación kind='session' reutilizable: identidad
-        // estable = session_id si llega; si no, title (session.resume por
-        // título funciona igual al abrir). NO borra filas locales.
-        try {
-          final sessions = await runtime.gateway.listSessions(name);
-          for (final s in sessions) {
-            final sid = (s['session_id'] ?? s['id'])?.toString();
-            final stitle = (s['title'] as String?) ?? 'Sesión';
-            if (stitle == 'Bot Chat') continue; // ya es la fila del bot
-            final key = sid ?? stitle;
-            await db.into(db.conversations).insertOnConflictUpdate(
-                  ConversationsCompanion.insert(
-                    id: '${row.id}/session/$key',
-                    connectionId: row.id,
-                    kind: 'session',
-                    gatewayId: name,
-                    title: stitle,
-                    // Las sesiones viven DENTRO de un perfil: en la lista
-                    // se desambiguan con el perfil delante del preview.
-                    subtitle: Value('$name · ${s['preview'] ?? ''}'),
-                    avatarUrl: Value(avatarUrl),
-                    canonicalSession: Value(sid),
-                    isGroup: const Value(false),
-                    gatewayLabel: Value(row.name),
-                  ),
-                );
-          }
-          _log.info('sessions sync ${row.name}/$name: ${sessions.length} filas');
-        } catch (e) {
-          _log.warning('session.list ${row.name}/$name falló', e);
-        }
       }
     } catch (e) {
       // Un gateway sin profiles.list (versión antigua) no bloquea nada.
