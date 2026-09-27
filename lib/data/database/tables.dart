@@ -30,6 +30,7 @@ class Conversations extends Table {
   TextColumn get subtitle => text().nullable()();
   TextColumn get avatarSeed => text().nullable()();
   TextColumn get avatarUrl => text().nullable()(); // data-url del perfil
+  TextColumn get canonicalSession => text().nullable()(); // sesión canónica Bot Chat
   BoolColumn get isGroup => boolean().withDefault(const Constant(false))();
   TextColumn get gatewayLabel => text().nullable()();
   DateTimeColumn get lastActivity => dateTime().nullable()();

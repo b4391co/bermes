@@ -20,7 +20,7 @@ class SecureStore {
   String _key(String connectionId) => 'session/$connectionId';
 
   Future<StoredSession?> readSession(String connectionId) async {
-    final raw = await _storage.read(key: _key(connectionId));
+    final raw = await _readSafe(_key(connectionId));
     if (raw == null) return null;
     try {
       return StoredSession.fromJson(Map<String, Object?>.from(_decode(raw)));
@@ -47,14 +47,23 @@ class SecureStore {
   Future<void> deleteRememberedPassword(String connectionId) =>
       _storage.delete(key: '$_rememberPrefix$connectionId');
 
+  /// El keystore de Android puede colgar indefinidamente en el PRIMER
+  /// acceso tras un arranque en frío (race conocido en algunos emuladores
+  /// y dispositivos). Cada acceso lleva timeout y UN reintento; el fallo
+  /// degrada a null (no bloquea el bootstrap ni la UI).
   Future<String?> _readSafe(String key) async {
+    Future<String?> attempt() => _storage
+        .read(key: key)
+        .timeout(const Duration(seconds: 6), onTimeout: () => null);
     try {
-      return await _storage.read(key: key);
+      final first = await attempt();
+      if (first != null) return first;
+      return await attempt(); // el keystore tardío suele responder al 2º.
     } catch (e) {
       _log.warning('lectura segura falló; reseteando keystore', e);
       await _tryReset();
       try {
-        return await _storage.read(key: key);
+        return await attempt();
       } catch (e2) {
         _log.error('keystore irrecuperable', e2);
         return null;
@@ -64,11 +73,15 @@ class SecureStore {
 
   Future<void> _writeSafe(String key, String value) async {
     try {
-      await _storage.write(key: key, value: value);
+      await _storage
+          .write(key: key, value: value)
+          .timeout(const Duration(seconds: 6));
     } catch (e) {
       _log.warning('escritura segura falló; reseteando keystore', e);
       await _tryReset();
-      await _storage.write(key: key, value: value);
+      await _storage
+          .write(key: key, value: value)
+          .timeout(const Duration(seconds: 6));
     }
   }
 

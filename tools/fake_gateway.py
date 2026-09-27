@@ -81,6 +81,37 @@ def rpc_result(method: str, params: dict) -> object:
         return {"interrupted": True}
     if method == "messages.history":
         return {"messages": [], "pagination": {"has_more": False}}
+    if method == "profiles.list":
+        return {"profiles": [
+            {
+                "name": "default",
+                "display_name": "Default Bot",
+                "description": "Bot principal de pruebas",
+                "is_default": True,
+                "has_avatar": True,
+                "canonical_session": "sess-canonical-default",
+            },
+            {
+                "name": "researcher",
+                "display_name": "Researcher",
+                "description": "Bot de investigación",
+                "is_default": False,
+                "has_avatar": False,
+                "canonical_session": "sess-canonical-researcher",
+            },
+        ]}
+    if method == "profiles.get_asset":
+        if params.get("name") != "default":
+            raise ValueError("no avatar")
+        png = base64.b64encode(bytes.fromhex(
+            "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
+            "890000000d49444154789c6260f8ffff3f0005fe02fea735c9d4000000004945"
+            "4e44ae426082")).decode()
+        return {"data_url": f"data:image/png;base64,{png}"}
+    if method == "session.resume":
+        if params.get("profile") == "researcher":
+            return {"session_id": "sess-canonical-researcher"}
+        return {"session_id": "sess-canonical-default"}
     if method == "groups.capabilities":
         return {"groups": True, "approval": ["once", "session", "always", "deny"]}
     if method == "groups.state":

@@ -176,12 +176,32 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
       }
       final runtime = connections.ensureRuntime(profile);
       // Login + WS inmediato con la password del formulario: el chat queda
-      // en línea sin esperar al bootstrap del siguiente arranque.
+      // en línea sin esperar al bootstrap; y roster de bots al día tras
+      // guardar (descubrimiento compatible con Desktop).
       if (_password.text.isNotEmpty) {
         try {
           final result = await runtime.http
               .login(profile.username, _password.text);
-          if (result.ok) await runtime.gateway.connect();
+          if (result.ok) {
+            await runtime.gateway.connect();
+            await connections.syncBots(
+              Connection(
+                id: id,
+                name: profile.name,
+                scheme: profile.scheme,
+                host: profile.host,
+                port: profile.port,
+                basePath: profile.basePath,
+                authKind: profile.authKind.name,
+                username: profile.username,
+                allowInsecureTls: profile.allowInsecureTls,
+                enabled: profile.enabled,
+                createdAt: DateTime.now(),
+              ),
+              runtime,
+              db,
+            );
+          }
         } catch (e) {
           _log.warning('post-save connect falló', e);
         }

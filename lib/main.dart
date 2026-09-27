@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
+import 'core/logger.dart';
+
 import 'design/theme.dart';
 import 'features/app_shell.dart';
 import 'features/settings/appearance_section.dart';
 
 void main() {
+  Logger('Main').info('Hermes Pocket arrancando');
   runApp(const HermesPocketApp());
 }
 

@@ -740,6 +740,17 @@ class $ConversationsTable extends Conversations
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _canonicalSessionMeta = const VerificationMeta(
+    'canonicalSession',
+  );
+  @override
+  late final GeneratedColumn<String> canonicalSession = GeneratedColumn<String>(
+    'canonical_session',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _isGroupMeta = const VerificationMeta(
     'isGroup',
   );
@@ -822,6 +833,7 @@ class $ConversationsTable extends Conversations
     subtitle,
     avatarSeed,
     avatarUrl,
+    canonicalSession,
     isGroup,
     gatewayLabel,
     lastActivity,
@@ -897,6 +909,15 @@ class $ConversationsTable extends Conversations
       context.handle(
         _avatarUrlMeta,
         avatarUrl.isAcceptableOrUnknown(data['avatar_url']!, _avatarUrlMeta),
+      );
+    }
+    if (data.containsKey('canonical_session')) {
+      context.handle(
+        _canonicalSessionMeta,
+        canonicalSession.isAcceptableOrUnknown(
+          data['canonical_session']!,
+          _canonicalSessionMeta,
+        ),
       );
     }
     if (data.containsKey('is_group')) {
@@ -985,6 +1006,10 @@ class $ConversationsTable extends Conversations
         DriftSqlType.string,
         data['${effectivePrefix}avatar_url'],
       ),
+      canonicalSession: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}canonical_session'],
+      ),
       isGroup: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}is_group'],
@@ -1027,6 +1052,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
   final String? subtitle;
   final String? avatarSeed;
   final String? avatarUrl;
+  final String? canonicalSession;
   final bool isGroup;
   final String? gatewayLabel;
   final DateTime? lastActivity;
@@ -1042,6 +1068,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     this.subtitle,
     this.avatarSeed,
     this.avatarUrl,
+    this.canonicalSession,
     required this.isGroup,
     this.gatewayLabel,
     this.lastActivity,
@@ -1065,6 +1092,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     }
     if (!nullToAbsent || avatarUrl != null) {
       map['avatar_url'] = Variable<String>(avatarUrl);
+    }
+    if (!nullToAbsent || canonicalSession != null) {
+      map['canonical_session'] = Variable<String>(canonicalSession);
     }
     map['is_group'] = Variable<bool>(isGroup);
     if (!nullToAbsent || gatewayLabel != null) {
@@ -1097,6 +1127,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       avatarUrl: avatarUrl == null && nullToAbsent
           ? const Value.absent()
           : Value(avatarUrl),
+      canonicalSession: canonicalSession == null && nullToAbsent
+          ? const Value.absent()
+          : Value(canonicalSession),
       isGroup: Value(isGroup),
       gatewayLabel: gatewayLabel == null && nullToAbsent
           ? const Value.absent()
@@ -1126,6 +1159,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       subtitle: serializer.fromJson<String?>(json['subtitle']),
       avatarSeed: serializer.fromJson<String?>(json['avatarSeed']),
       avatarUrl: serializer.fromJson<String?>(json['avatarUrl']),
+      canonicalSession: serializer.fromJson<String?>(json['canonicalSession']),
       isGroup: serializer.fromJson<bool>(json['isGroup']),
       gatewayLabel: serializer.fromJson<String?>(json['gatewayLabel']),
       lastActivity: serializer.fromJson<DateTime?>(json['lastActivity']),
@@ -1146,6 +1180,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       'subtitle': serializer.toJson<String?>(subtitle),
       'avatarSeed': serializer.toJson<String?>(avatarSeed),
       'avatarUrl': serializer.toJson<String?>(avatarUrl),
+      'canonicalSession': serializer.toJson<String?>(canonicalSession),
       'isGroup': serializer.toJson<bool>(isGroup),
       'gatewayLabel': serializer.toJson<String?>(gatewayLabel),
       'lastActivity': serializer.toJson<DateTime?>(lastActivity),
@@ -1164,6 +1199,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     Value<String?> subtitle = const Value.absent(),
     Value<String?> avatarSeed = const Value.absent(),
     Value<String?> avatarUrl = const Value.absent(),
+    Value<String?> canonicalSession = const Value.absent(),
     bool? isGroup,
     Value<String?> gatewayLabel = const Value.absent(),
     Value<DateTime?> lastActivity = const Value.absent(),
@@ -1179,6 +1215,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     subtitle: subtitle.present ? subtitle.value : this.subtitle,
     avatarSeed: avatarSeed.present ? avatarSeed.value : this.avatarSeed,
     avatarUrl: avatarUrl.present ? avatarUrl.value : this.avatarUrl,
+    canonicalSession: canonicalSession.present
+        ? canonicalSession.value
+        : this.canonicalSession,
     isGroup: isGroup ?? this.isGroup,
     gatewayLabel: gatewayLabel.present ? gatewayLabel.value : this.gatewayLabel,
     lastActivity: lastActivity.present ? lastActivity.value : this.lastActivity,
@@ -1200,6 +1239,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           ? data.avatarSeed.value
           : this.avatarSeed,
       avatarUrl: data.avatarUrl.present ? data.avatarUrl.value : this.avatarUrl,
+      canonicalSession: data.canonicalSession.present
+          ? data.canonicalSession.value
+          : this.canonicalSession,
       isGroup: data.isGroup.present ? data.isGroup.value : this.isGroup,
       gatewayLabel: data.gatewayLabel.present
           ? data.gatewayLabel.value
@@ -1226,6 +1268,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           ..write('subtitle: $subtitle, ')
           ..write('avatarSeed: $avatarSeed, ')
           ..write('avatarUrl: $avatarUrl, ')
+          ..write('canonicalSession: $canonicalSession, ')
           ..write('isGroup: $isGroup, ')
           ..write('gatewayLabel: $gatewayLabel, ')
           ..write('lastActivity: $lastActivity, ')
@@ -1246,6 +1289,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     subtitle,
     avatarSeed,
     avatarUrl,
+    canonicalSession,
     isGroup,
     gatewayLabel,
     lastActivity,
@@ -1265,6 +1309,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           other.subtitle == this.subtitle &&
           other.avatarSeed == this.avatarSeed &&
           other.avatarUrl == this.avatarUrl &&
+          other.canonicalSession == this.canonicalSession &&
           other.isGroup == this.isGroup &&
           other.gatewayLabel == this.gatewayLabel &&
           other.lastActivity == this.lastActivity &&
@@ -1282,6 +1327,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
   final Value<String?> subtitle;
   final Value<String?> avatarSeed;
   final Value<String?> avatarUrl;
+  final Value<String?> canonicalSession;
   final Value<bool> isGroup;
   final Value<String?> gatewayLabel;
   final Value<DateTime?> lastActivity;
@@ -1298,6 +1344,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     this.subtitle = const Value.absent(),
     this.avatarSeed = const Value.absent(),
     this.avatarUrl = const Value.absent(),
+    this.canonicalSession = const Value.absent(),
     this.isGroup = const Value.absent(),
     this.gatewayLabel = const Value.absent(),
     this.lastActivity = const Value.absent(),
@@ -1315,6 +1362,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     this.subtitle = const Value.absent(),
     this.avatarSeed = const Value.absent(),
     this.avatarUrl = const Value.absent(),
+    this.canonicalSession = const Value.absent(),
     this.isGroup = const Value.absent(),
     this.gatewayLabel = const Value.absent(),
     this.lastActivity = const Value.absent(),
@@ -1336,6 +1384,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     Expression<String>? subtitle,
     Expression<String>? avatarSeed,
     Expression<String>? avatarUrl,
+    Expression<String>? canonicalSession,
     Expression<bool>? isGroup,
     Expression<String>? gatewayLabel,
     Expression<DateTime>? lastActivity,
@@ -1353,6 +1402,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
       if (subtitle != null) 'subtitle': subtitle,
       if (avatarSeed != null) 'avatar_seed': avatarSeed,
       if (avatarUrl != null) 'avatar_url': avatarUrl,
+      if (canonicalSession != null) 'canonical_session': canonicalSession,
       if (isGroup != null) 'is_group': isGroup,
       if (gatewayLabel != null) 'gateway_label': gatewayLabel,
       if (lastActivity != null) 'last_activity': lastActivity,
@@ -1372,6 +1422,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     Value<String?>? subtitle,
     Value<String?>? avatarSeed,
     Value<String?>? avatarUrl,
+    Value<String?>? canonicalSession,
     Value<bool>? isGroup,
     Value<String?>? gatewayLabel,
     Value<DateTime?>? lastActivity,
@@ -1389,6 +1440,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
       subtitle: subtitle ?? this.subtitle,
       avatarSeed: avatarSeed ?? this.avatarSeed,
       avatarUrl: avatarUrl ?? this.avatarUrl,
+      canonicalSession: canonicalSession ?? this.canonicalSession,
       isGroup: isGroup ?? this.isGroup,
       gatewayLabel: gatewayLabel ?? this.gatewayLabel,
       lastActivity: lastActivity ?? this.lastActivity,
@@ -1426,6 +1478,9 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     if (avatarUrl.present) {
       map['avatar_url'] = Variable<String>(avatarUrl.value);
     }
+    if (canonicalSession.present) {
+      map['canonical_session'] = Variable<String>(canonicalSession.value);
+    }
     if (isGroup.present) {
       map['is_group'] = Variable<bool>(isGroup.value);
     }
@@ -1461,6 +1516,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
           ..write('subtitle: $subtitle, ')
           ..write('avatarSeed: $avatarSeed, ')
           ..write('avatarUrl: $avatarUrl, ')
+          ..write('canonicalSession: $canonicalSession, ')
           ..write('isGroup: $isGroup, ')
           ..write('gatewayLabel: $gatewayLabel, ')
           ..write('lastActivity: $lastActivity, ')
@@ -3426,6 +3482,7 @@ typedef $$ConversationsTableCreateCompanionBuilder =
       Value<String?> subtitle,
       Value<String?> avatarSeed,
       Value<String?> avatarUrl,
+      Value<String?> canonicalSession,
       Value<bool> isGroup,
       Value<String?> gatewayLabel,
       Value<DateTime?> lastActivity,
@@ -3444,6 +3501,7 @@ typedef $$ConversationsTableUpdateCompanionBuilder =
       Value<String?> subtitle,
       Value<String?> avatarSeed,
       Value<String?> avatarUrl,
+      Value<String?> canonicalSession,
       Value<bool> isGroup,
       Value<String?> gatewayLabel,
       Value<DateTime?> lastActivity,
@@ -3499,6 +3557,11 @@ class $$ConversationsTableFilterComposer
 
   ColumnFilters<String> get avatarUrl => $composableBuilder(
     column: $table.avatarUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get canonicalSession => $composableBuilder(
+    column: $table.canonicalSession,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3582,6 +3645,11 @@ class $$ConversationsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get canonicalSession => $composableBuilder(
+    column: $table.canonicalSession,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get isGroup => $composableBuilder(
     column: $table.isGroup,
     builder: (column) => ColumnOrderings(column),
@@ -3650,6 +3718,11 @@ class $$ConversationsTableAnnotationComposer
   GeneratedColumn<String> get avatarUrl =>
       $composableBuilder(column: $table.avatarUrl, builder: (column) => column);
 
+  GeneratedColumn<String> get canonicalSession => $composableBuilder(
+    column: $table.canonicalSession,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<bool> get isGroup =>
       $composableBuilder(column: $table.isGroup, builder: (column) => column);
 
@@ -3714,6 +3787,7 @@ class $$ConversationsTableTableManager
                 Value<String?> subtitle = const Value.absent(),
                 Value<String?> avatarSeed = const Value.absent(),
                 Value<String?> avatarUrl = const Value.absent(),
+                Value<String?> canonicalSession = const Value.absent(),
                 Value<bool> isGroup = const Value.absent(),
                 Value<String?> gatewayLabel = const Value.absent(),
                 Value<DateTime?> lastActivity = const Value.absent(),
@@ -3730,6 +3804,7 @@ class $$ConversationsTableTableManager
                 subtitle: subtitle,
                 avatarSeed: avatarSeed,
                 avatarUrl: avatarUrl,
+                canonicalSession: canonicalSession,
                 isGroup: isGroup,
                 gatewayLabel: gatewayLabel,
                 lastActivity: lastActivity,
@@ -3748,6 +3823,7 @@ class $$ConversationsTableTableManager
                 Value<String?> subtitle = const Value.absent(),
                 Value<String?> avatarSeed = const Value.absent(),
                 Value<String?> avatarUrl = const Value.absent(),
+                Value<String?> canonicalSession = const Value.absent(),
                 Value<bool> isGroup = const Value.absent(),
                 Value<String?> gatewayLabel = const Value.absent(),
                 Value<DateTime?> lastActivity = const Value.absent(),
@@ -3764,6 +3840,7 @@ class $$ConversationsTableTableManager
                 subtitle: subtitle,
                 avatarSeed: avatarSeed,
                 avatarUrl: avatarUrl,
+                canonicalSession: canonicalSession,
                 isGroup: isGroup,
                 gatewayLabel: gatewayLabel,
                 lastActivity: lastActivity,

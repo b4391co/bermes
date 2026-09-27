@@ -18,12 +18,14 @@ class ChatSessionController {
   final EntityRefPath path;
   final HermesGatewayClient gateway;
   final String sessionId; // session del gateway (canónico del bot o room)
+  final String? profile; // perfil del bot (routing ProfileParams) o null
   final _log = Logger('ChatCtl');
 
   final _messages = <ChatMessage>[];
   final _messagesController = StreamController<List<ChatMessage>>.broadcast();
 
-  ChatSessionController(this.path, this.gateway, this.sessionId);
+  ChatSessionController(this.path, this.gateway, this.sessionId,
+      {this.profile});
 
   List<ChatMessage> get messages => List.unmodifiable(_messages);
   Stream<List<ChatMessage>> get stream => _messagesController.stream;
@@ -208,7 +210,11 @@ class ChatSessionController {
     try {
       final result = await gateway.rawCall(
         'prompt.submit',
-        params: {'session_id': sessionId, 'text': text},
+        params: {
+          'session_id': sessionId,
+          'text': text,
+          if (profile != null) 'profile': profile,
+        },
       );
       final status = result is Map<String, Object?> ? result['status'] : null;
       final idx = _messages.indexOf(optimistic);
@@ -232,7 +238,10 @@ class ChatSessionController {
     try {
       await gateway.rawCall(
         'session.interrupt',
-        params: {'session_id': sessionId},
+        params: {
+          'session_id': sessionId,
+          if (profile != null) 'profile': profile,
+        },
       );
     } on JsonRpcError catch (e) {
       _log.warning('interrupt failed ${e.code}');

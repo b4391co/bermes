@@ -264,6 +264,22 @@ class HermesHttpClient {
     }
   }
 
+  /// GET JSON genérico autenticado con cookies de la conexión (para los
+  /// pocos endpoints REST que el WS no refleja, p. ej. /api/profiles).
+  Future<dynamic> getJson(String path) async {
+    final headers = <String, String>{};
+    final cookie = _cookies?.header();
+    if (cookie != null) headers['cookie'] = cookie;
+    final r = await _dio.get<Object?>(
+      path,
+      options: dio.Options(
+        headers: headers,
+        responseType: dio.ResponseType.json,
+      ),
+    );
+    return r.data;
+  }
+
   void dispose() => _dio.close();
 }
 

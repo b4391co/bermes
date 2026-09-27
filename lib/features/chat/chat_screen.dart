@@ -126,10 +126,15 @@ class _ChatScreenState extends State<ChatScreen> {
       kind: kind,
       gatewayId: conv.gatewayId,
     );
+    // Bots: la sesión de envío es la canónica "Bot Chat" del perfil
+    // (resuelta en syncBots); el envío va scopiado con profile=<perfil>.
+    // Grupos/sesiones: gatewayId ES el room/session id.
+    final sendSession = conv.canonicalSession ?? conv.gatewayId;
     final controller = ChatSessionController(
       path,
       runtime.gateway,
-      conv.gatewayId,
+      sendSession,
+      profile: conv.kind == 'bot' ? conv.gatewayId : null,
     );
     controller.attach();
     _liveSub = controller.stream.listen(_onLive);
@@ -153,11 +158,14 @@ class _ChatScreenState extends State<ChatScreen> {
     if (conv == null) return;
     try {
       await database.batch((b) {
+        // Los optimistic persistidos de envíos previos colisionarían con
+        // los live que reutilizan el mismo id local: se limpian ambos y
+        // el batch reescribe el estado en vivo completo. 'history' intacto.
         b.deleteWhere<db.$MessagesTable, db.Message>(
           database.messages,
           (m) =>
               m.conversationId.equals(conv.id) &
-              m.origin.equals('live'),
+              (m.origin.equals('live') | m.origin.equals('optimistic')),
         );
         b.insertAll(database.messages, live.map(_rowFrom).toList());
       });
@@ -211,7 +219,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ..where(
         (m) =>
             m.conversationId.equals(widget.conversationId) &
-            m.origin.equals('history'),
+            (m.origin.equals('history') | m.origin.equals('live')),
       )
       ..orderBy([
         (m) => OrderingTerm.desc(m.timestamp),

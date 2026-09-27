@@ -243,9 +243,21 @@ class HermesGatewayClient {
   Future<Object?> rawCall(String method, {Map<String, Object?>? params}) =>
       _request(method, params: params);
 
-  /// Roster de bots del gateway (contrato hermes-map §4): profiles.list.
+  /// Roster de bots del gateway (contrato hermes-map §4): profiles.list
+  /// por JSON-RPC. Si el gateway no lo expone por WS (versión antigua),
+  /// fallback REST GET /api/profiles (hermes-protocol §1, mismo contrato).
   Future<List<Map<String, Object?>>> listProfiles() async {
-    final result = await _request('profiles.list');
+    Object? result;
+    try {
+      result = await _request('profiles.list');
+    } on JsonRpcError {
+      final decoded = await http.getJson('/api/profiles');
+      result = decoded is List
+          ? {'profiles': decoded}
+          : decoded is Map<String, Object?> && decoded['profiles'] is List
+              ? decoded
+              : null;
+    }
     // Acepta {profiles:[...]} o lista plana.
     final List raw = switch (result) {
       {'profiles': final List p} => p,
@@ -255,7 +267,28 @@ class HermesGatewayClient {
     return raw.whereType<Map<String, Object?>>().toList();
   }
 
-  /// Avatar de un perfil como data-URL (hermes-map §4).
+  /// Resuelve la sesión canónica "Bot Chat" de UN perfil (hermes-protocol
+  /// §3). Los métodos por-perfil viajan con `profile` en los params (ProfileParams).
+  /// Orden: 1) session.resume {title:'Bot Chat'} (el canónico YA existe en
+  /// Desktop); 2) si no existe, session.create {title:'Bot Chat'} — misma
+  /// identidad UNIQUE(title) del perfil que usa Desktop (canonical-chat.ts:49).
+  Future<String?> resumeCanonicalSession(String profile) async {
+    for (final method in const ['session.resume', 'session.create']) {
+      try {
+        final result = await _request(method, params: {
+          'title': 'Bot Chat',
+          'profile': profile,
+        });
+        if (result is! Map<String, Object?>) return null;
+        return result['session_id'] as String?;
+      } on JsonRpcError {
+        continue; // resume falló (no existe) → crear.
+      }
+    }
+    return null;
+  }
+
+  /// Avatar de un perfil como data-URL (hermes-map §4: profiles.get_asset).
   Future<String?> profileAvatar(String name) async {
     final result = await _request(
       'profiles.get_asset',
@@ -264,6 +297,7 @@ class HermesGatewayClient {
     final url = (result as Map<String, Object?>?)?['data_url'] ?? result;
     return url is String && url.startsWith('data:') ? url : null;
   }
+
 
   void _scheduleReconnect() {
     if (_manuallyClosed) return;

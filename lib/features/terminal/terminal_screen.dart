@@ -55,11 +55,13 @@ class _TerminalScreenState extends State<TerminalScreen> {
     super.dispose();
   }
 
-  Future<void> _connectHost(SshHost host) async {
-    // Ya activa: solo cambia de pestaña.
-    final existing = _sessions.indexWhere(
-      (s) => !s.isHerdrBridge && s.hostId == host.id,
-    );
+  Future<void> _connectHost(SshHost host, {bool forceNew = false}) async {
+    // Ya activa: solo cambia de pestaña (salvo "nueva sesión" explícita).
+    final existing = forceNew
+        ? -1
+        : _sessions.indexWhere(
+            (s) => !s.isHerdrBridge && s.hostId == host.id,
+          );
     if (existing >= 0) {
       setState(() => _activeIndex = existing);
       return;
@@ -242,7 +244,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
             connected: _sessions.any(
               (s) => !s.isHerdrBridge && s.hostId == hosts[i].id,
             ),
-            onConnect: () => _connectHost(hosts[i]),
+            // "Nueva sesión": SIEMPRE abre otra pestaña, aunque ya haya
+            // una sesión viva con el mismo host (multi-pestaña real).
+            onConnect: () => _connectHost(hosts[i], forceNew: true),
             onEdit: () => _openEditor(hosts[i]),
             onDelete: () => _deleteHost(hosts[i]),
           ),

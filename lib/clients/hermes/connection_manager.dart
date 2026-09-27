@@ -83,6 +83,7 @@ class ConnectionManager {
     required SecureStore secrets,
     required AppDatabase db,
   }) async {
+    _log.info('bootstrap: ${rows.length} conexiones');
     for (final row in rows) {
       if (!row.enabled) continue;
       if (_runtimes.containsKey(row.id)) continue;
@@ -106,6 +107,7 @@ class ConnectionManager {
         final result = await runtime.http.login(profile.username, password);
         _log.info('bootstrap login ${row.name}: ok=${result.ok}');
         if (result.ok) {
+          await runtime.gateway.connect(); // WS ready antes de profiles.list
           await syncBots(row, runtime, db);
         }
       } catch (e) {
@@ -135,37 +137,30 @@ class ConnectionManager {
             avatarUrl = await runtime.gateway.profileAvatar(name);
           } catch (_) {}
         }
+        // Chat canónico: ProfileRow.canonical_session trae el session_id
+        // de la sesión "Bot Chat" del perfil (hermes-protocol §3, línea
+        // tui_gateway/methods_profiles.py::_canonical_session_row). Si el
+        // gateway no lo da, fallback session.resume SCOPISADO por perfil.
+        String? canonical = p['canonical_session'] as String?;
+        canonical ??= await runtime.gateway
+            .resumeCanonicalSession(name);
         final id = '${row.id}/bot/$name';
-        // Chat canónico del bot (hermes-map §4): sesión con título exacto
-        // "Bot Chat". session.resume trae el session_id runtime REAL que
-        // exige prompt.submit; sin él el envío falla (sesión inexistente).
-        String? canonicalSessionId;
-        try {
-          final resumed = await runtime.gateway.rawCall(
-            'session.resume',
-            params: {'title': 'Bot Chat'},
-          );
-          if (resumed is Map<String, Object?>) {
-            canonicalSessionId = resumed['session_id'] as String?;
-          }
-        } catch (_) {}
         await db.into(db.conversations).insertOnConflictUpdate(
               ConversationsCompanion.insert(
                 id: id,
                 connectionId: row.id,
                 kind: 'bot',
-                gatewayId: canonicalSessionId ?? name,
+                gatewayId: name, // identidad estable: nombre del perfil
                 title: displayName,
                 subtitle: Value(p['description'] as String?),
                 avatarSeed: Value(name),
                 avatarUrl: Value(avatarUrl),
+                canonicalSession: Value(canonical),
                 isGroup: const Value(false),
                 gatewayLabel: Value(row.name),
               ),
             );
-        _log.info(
-          'bot sync ${row.name}/$name session=${canonicalSessionId ?? '??'}',
-        );
+        _log.info('bot sync ${row.name}/$name canonical=${canonical ?? '??'}');
       }
     } catch (e) {
       // Un gateway sin profiles.list (versión antigua) no bloquea nada.
