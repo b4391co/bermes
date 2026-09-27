@@ -305,16 +305,16 @@ class _TerminalScreenState extends State<TerminalScreen> {
         title: const Text('Terminal'),
         actions: [
           IconButton(
+            tooltip: 'Añadir host SSH',
+            icon: const Icon(Icons.add_rounded),
+            onPressed: () => _openEditor(null),
+          ),
+          IconButton(
             tooltip: 'Flota Herdr (todos los hosts)',
             icon: const Icon(Icons.hub_outlined),
             onPressed: _openHerdrFleet,
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openEditor(null),
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Añadir host SSH'),
       ),
       body: StreamBuilder<List<SshHost>>(
         stream: _hosts$,

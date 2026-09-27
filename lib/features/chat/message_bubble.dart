@@ -73,13 +73,48 @@ class MessageBubble extends StatelessWidget {
 
   Widget _bubble(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = _isUser
-        ? (isDark ? cs.surfaceContainerLow : cs.primary)
-        : cs.surfaceContainerLow;
-    final fg = _isUser
-        ? (isDark ? cs.onSurface : Colors.white)
-        : cs.onSurface;
+    // Tema hermes-mobile: usuario = burbuja primary sólida a la derecha;
+    // asistente = prose full-bleed sobre el background del chat (sin card),
+    // avatar inline a la izquierda.
+    final fg = _isUser ? cs.onPrimary : cs.onSurface;
+
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (message.tools.isNotEmpty)
+          ToolsChips(tools: message.tools, foreground: fg),
+        if (message.text.isNotEmpty)
+          GptMarkdown(
+            message.text,
+            style: TextStyle(color: fg, fontSize: 15, height: 1.5),
+            // Streaming en vivo: nada de animación por carácter
+            // (coste por token plano); el texto crece del stream.
+            animation: GptMarkdownAnimation.none,
+            isStreaming: message.streaming,
+          ),
+        _meta(context, fg),
+      ],
+    );
+
+    final body = _isUser
+        ? Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Hp.s4,
+              vertical: Hp.s3,
+            ),
+            decoration: BoxDecoration(
+              color: cs.primary,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(Hp.rBubble),
+                topRight: Radius.circular(Hp.rBubble),
+                bottomLeft: Radius.circular(Hp.rBubble),
+                bottomRight: Radius.circular(Hp.rSm),
+              ),
+            ),
+            child: content,
+          )
+        : content;
 
     return Row(
       mainAxisAlignment: _isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
@@ -96,41 +131,7 @@ class MessageBubble extends StatelessWidget {
         Flexible(
           child: Container(
             constraints: const BoxConstraints(maxWidth: 520),
-            padding: const EdgeInsets.symmetric(
-              horizontal: Hp.s4,
-              vertical: Hp.s3,
-            ),
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(Hp.rBubble),
-                topRight: Radius.circular(Hp.rBubble),
-                bottomLeft: Radius.circular(
-                  _isUser ? Hp.rBubble : Hp.rSm,
-                ),
-                bottomRight: Radius.circular(
-                  _isUser ? Hp.rSm : Hp.rBubble,
-                ),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (message.tools.isNotEmpty)
-                  ToolsChips(tools: message.tools, foreground: fg),
-                if (message.text.isNotEmpty)
-                  GptMarkdown(
-                    message.text,
-                    style: TextStyle(color: fg, fontSize: 14.5, height: 1.45),
-                    // Streaming en vivo: nada de animación por carácter
-                    // (coste por token plano); el texto crece del stream.
-                    animation: GptMarkdownAnimation.none,
-                    isStreaming: message.streaming,
-                  ),
-                _meta(context, fg),
-              ],
-            ),
+            child: body,
           ),
         ),
         if (_isUser) const SizedBox(width: Hp.s2),
