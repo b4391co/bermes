@@ -224,34 +224,45 @@ class _TerminalScreenState extends State<TerminalScreen> {
   // ── Lista de hosts (estado vacío incluido) ────────────────────────────
 
   Widget _buildHostList() {
-    return StreamBuilder<List<SshHost>>(
-      stream: _hosts$,
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final hosts = (snap.data ?? const <SshHost>[])
-            .where((h) => h.enabled)
-            .toList(growable: false);
-        if (hosts.isEmpty) {
-          return _EmptyState(onAdd: () => _openEditor(null));
-        }
-        return ListView.separated(
-          itemCount: hosts.length,
-          separatorBuilder: (_, _) => const Divider(indent: Hp.s4),
-          itemBuilder: (context, i) => HostTile(
-            host: hosts[i],
-            connected: _sessions.any(
-              (s) => !s.isHerdrBridge && s.hostId == hosts[i].id,
+    // Lista de hosts SIEMPRE con botón para crear/añadir (antes solo
+    // existía en el estado vacío: con hosts guardados no había forma
+    // de añadir otro — el bug del usuario).
+    return Scaffold(
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _openEditor(null),
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('Añadir host SSH'),
+      ),
+      body: StreamBuilder<List<SshHost>>(
+        stream: _hosts$,
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final hosts = (snap.data ?? const <SshHost>[])
+              .where((h) => h.enabled)
+              .toList(growable: false);
+          if (hosts.isEmpty) {
+            return _EmptyState(onAdd: () => _openEditor(null));
+          }
+          return ListView.separated(
+            padding: const EdgeInsets.only(bottom: Hp.s8),
+            itemCount: hosts.length,
+            separatorBuilder: (_, _) => const Divider(indent: Hp.s4),
+            itemBuilder: (context, i) => HostTile(
+              host: hosts[i],
+              connected: _sessions.any(
+                (s) => !s.isHerdrBridge && s.hostId == hosts[i].id,
+              ),
+              // "Nueva sesión": SIEMPRE abre otra pestaña, aunque ya haya
+              // una sesión viva con el mismo host (multi-pestaña real).
+              onConnect: () => _connectHost(hosts[i], forceNew: true),
+              onEdit: () => _openEditor(hosts[i]),
+              onDelete: () => _deleteHost(hosts[i]),
             ),
-            // "Nueva sesión": SIEMPRE abre otra pestaña, aunque ya haya
-            // una sesión viva con el mismo host (multi-pestaña real).
-            onConnect: () => _connectHost(hosts[i], forceNew: true),
-            onEdit: () => _openEditor(hosts[i]),
-            onDelete: () => _deleteHost(hosts[i]),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 

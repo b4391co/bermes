@@ -141,7 +141,15 @@ class ConnectionManager {
         // de la sesión "Bot Chat" del perfil (hermes-protocol §3, línea
         // tui_gateway/methods_profiles.py::_canonical_session_row). Si el
         // gateway no lo da, fallback session.resume SCOPISADO por perfil.
-        String? canonical = p['canonical_session'] as String?;
+        // canonical_session puede venir como id (string) o como SessionRow
+        // {session_id, title, …} según la versión del gateway.
+        String? canonical;
+        final rawCanonical = p['canonical_session'];
+        if (rawCanonical is String) {
+          canonical = rawCanonical;
+        } else if (rawCanonical is Map) {
+          canonical = rawCanonical['session_id']?.toString();
+        }
         canonical ??= await runtime.gateway
             .resumeCanonicalSession(name);
         final id = '${row.id}/bot/$name';

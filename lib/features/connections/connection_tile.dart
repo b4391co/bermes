@@ -1,5 +1,9 @@
 import 'dart:async';
 
+import 'package:drift/drift.dart' hide Column;
+
+import '../../core/app_services.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../clients/hermes/connection_manager.dart';
@@ -40,6 +44,7 @@ class _ConnectionTileState extends State<ConnectionTile> {
     super.initState();
     widget.connections.stream.listen(_onRuntimesChanged);
     _track();
+    _refreshBotCount();
   }
 
   @override
@@ -48,11 +53,25 @@ class _ConnectionTileState extends State<ConnectionTile> {
     if (old.data.id != widget.data.id) _track();
   }
 
+  int _botCount = 0;
+
   void _onRuntimesChanged(Map<String, ConnectionRuntime> runtimes) {
     if (!mounted) return;
     // Un runtime puede haber aparecido o desaparecido para esta conexión.
     _track(runtimes);
+    _refreshBotCount();
     setState(() {});
+  }
+
+  Future<void> _refreshBotCount() async {
+    final db = AppServices.db;
+    final n = await (db.select(db.conversations)
+          ..where((c) =>
+              c.connectionId.equals(widget.data.id) & c.kind.equals('bot')))
+        .get();
+    if (mounted && n.length != _botCount) {
+      setState(() => _botCount = n.length);
+    }
   }
 
   void _track([Map<String, ConnectionRuntime>? runtimes]) {
@@ -145,7 +164,8 @@ class _ConnectionTileState extends State<ConnectionTile> {
         style: Theme.of(context).textTheme.titleMedium,
       ),
       subtitle: Text(
-        '${profile.host}:${profile.port}${profile.basePath}  ·  $label',
+        '${profile.host}:${profile.port}${profile.basePath}  ·  $label'
+        '  ·  $_botCount bots',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: Theme.of(context).textTheme.bodySmall,
