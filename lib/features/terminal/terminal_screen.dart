@@ -333,7 +333,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: _sessions.isEmpty ? AppBar(title: const Text('Terminal')) : null,
+      // _buildHostList ya trae su AppBar 'Terminal' (con acciones): el
+      // Scaffold exterior no debe duplicar el título.
+      appBar: null,
       body: _sessions.isEmpty ? _buildHostList() : _buildSessionView(),
     );
   }
