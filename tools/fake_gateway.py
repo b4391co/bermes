@@ -209,6 +209,12 @@ async def session_messages(request: web.Request) -> web.Response:
         "pagination": {"has_more": False, "offset": 0},
     })
 
+async def session_create(request: web.Request) -> web.Response:
+    body = await request.json()
+    return web.json_response(
+        {"session_id": f"sess-created-{body.get('profile', 'default')}"})
+
+
 async def set_mode(request: web.Request) -> web.Response:
     if "canonical" in request.query:
         MODE["canonical"] = request.query["canonical"] == "1"
@@ -230,6 +236,7 @@ def main() -> None:
     app.router.add_get("/api/health", health)
     app.router.add_get("/api/profiles", rest_profiles)
     app.router.add_get("/api/mode", set_mode)
+    app.router.add_post("/api/sessions", session_create)
     app.router.add_get("/api/sessions/{sid}/messages", session_messages)
     app.router.add_post("/auth/password-login", password_login)
     app.router.add_post("/auth/native/refresh", native_refresh)

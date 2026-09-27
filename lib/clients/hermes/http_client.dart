@@ -280,6 +280,23 @@ class HermesHttpClient {
     return r.data;
   }
 
+  /// POST JSON autenticado (p. ej. session.create por REST si el WS no lo
+  /// resuelve). Lanza en error HTTP: el llamador decide.
+  Future<dynamic> postJson(String path, {Map<String, Object?>? body}) async {
+    final headers = <String, String>{'content-type': 'application/json'};
+    final cookie = _cookies?.header();
+    if (cookie != null) headers['cookie'] = cookie;
+    final r = await _dio.post<Object?>(
+      path,
+      data: body,
+      options: dio.Options(
+        headers: headers,
+        responseType: dio.ResponseType.json,
+      ),
+    );
+    return r.data;
+  }
+
   void dispose() => _dio.close();
 }
 

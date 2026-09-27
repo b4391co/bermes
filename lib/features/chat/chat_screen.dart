@@ -147,6 +147,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               );
               _reattachWithSession(id);
+              _loadHistory();
             }),
       );
       sendSession = null;
@@ -311,9 +312,17 @@ class _ChatScreenState extends State<ChatScreen> {
           (m) =>
               m.conversationId.equals(conv.id) & m.origin.equals('history'),
         );
+        final seen = {
+          for (final t in _history.map((m) => m.text_)) t,
+          for (final t in _live.map((m) => m.text)) t,
+        };
         b.insertAll(
           database.messages,
-          msgs.reversed.map((m) => _rowFromRemote(m, conv)).nonNulls.toList(),
+          msgs.reversed
+              .map((m) => _rowFromRemote(m, conv))
+              .nonNulls
+              .where((r) => !seen.contains(r.text_.value))
+              .toList(),
         );
       });
     } catch (e) {

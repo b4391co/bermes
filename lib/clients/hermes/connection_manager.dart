@@ -11,6 +11,7 @@ import '../../core/logger.dart';
 import '../../data/secure/secure_store.dart';
 import '../../domain/connection/connection_profile.dart';
 import 'gateway_client.dart';
+import 'profile_canonical.dart';
 import 'http_client.dart';
 
 /// Instancia viva de UNA conexión: su cliente HTTP, su cliente WS y su estado.
@@ -211,18 +212,7 @@ class ConnectionManager {
         // gateway no lo da, fallback session.resume SCOPISADO por perfil.
         // canonical_session puede venir como id (string) o como SessionRow
         // {session_id, title, …} según la versión del gateway.
-        String? canonical;
-        final rawCanonical = p['canonical_session'];
-        if (rawCanonical is String) {
-          canonical = rawCanonical;
-        } else if (rawCanonical is Map) {
-          // CanonicalSessionInfo real (hermes-mobile Profile.kt):
-          // {id, resolved_id, title, preview, …}. resolved_id > id.
-          canonical = (rawCanonical['resolved_id'] ??
-                  rawCanonical['id'] ??
-                  rawCanonical['session_id'])
-              ?.toString();
-        }
+        String? canonical = canonicalFromProfile(p);
         // Fallback: session.resume/crea del Bot Chat scopiado por perfil.
         canonical ??= await runtime.gateway.resumeCanonicalSession(name);
         final id = '${row.id}/bot/$name';

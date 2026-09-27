@@ -132,9 +132,11 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
         if (_host.text.trim().isEmpty) 'host',
         if (int.tryParse(_port.text.trim()) == null) 'puerto válido',
       ];
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Falta por completar: ${missing.join(', ')}')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Falta por completar: ${missing.join(', ')}')),
+        );
+      }
       return;
     }
     final db = AppServices.db;

@@ -65,11 +65,8 @@ class HerdrClient {
     // La CLI `herdr api snapshot` espera al daemon: si no está levantado, el
     // comando CUELGA (verificado aquí: sin daemon no termina nunca). `timeout`
     // (coreutils) lo remata en el host; si no existe, el techo de _run cubre.
-    final raw = await _run(
-      'timeout -k 2 10 $binary api snapshot 2>/dev/null '
-      '|| $binary api snapshot 2>/dev/null',
-      timeout: const Duration(seconds: 12),
-    );
+    final raw = await _run('$binary api snapshot 2>/dev/null',
+        timeout: const Duration(seconds: 12));
     if (raw.trim().isEmpty) {
       // Fallback a session list --json (formato {"sessions":[...]}, cli.rs:459).
       final sessionsRaw = await _run('$binary session list --json 2>/dev/null');

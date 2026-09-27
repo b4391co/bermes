@@ -298,6 +298,18 @@ class HermesGatewayClient {
         _log.warning('canonical session $method falló', e);
       }
     }
+    // Último recurso HTTP (hermes-map §4): POST /api/sessions crea la sesión
+    // del perfil (el backend impone su propia política de título).
+    try {
+      final created = await http
+          .postJson('/api/sessions', body: {'profile': profile});
+      final id = created is Map<String, Object?>
+          ? (created['session_id'] ?? created['id'])?.toString()
+          : null;
+      if (id != null && id.isNotEmpty) return id;
+    } catch (e) {
+      _log.info('POST /api/sessions no disponible: $e');
+    }
     // Sin id real: devolver null evita enviar a una sesión inventada.
     return null;
   }
