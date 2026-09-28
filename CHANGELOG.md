@@ -1,6 +1,14 @@
 # Release 0.1.14 (2026-09-28)
 Alineación con Hermes Desktop (historial compartido) + correcciones de flota y UI.
 
+## APKs por arquitectura
+- `app-arm64-v8a-release.apk` (~31 MB) — móviles modernos (recomendado).
+- `app-armeabi-v7a-release.apk` (~29 MB) — móviles antiguos 32 bits.
+- `app-x86_64-release.apk` (~33 MB) — emulador Android x86_64.
+- `app-release.apk` (~79 MB) — universal (todas las ABIs), por si necesitas una sola build.
+
+Todos firmados con la clave de distribución (`CN=Hermes Pocket, O=Bermes`).
+
 ## Cambios
 - **Sesión canónica compartida**: el móvil se une a la sesión "Bot Chat" del
   gateway vía `session.resume{title}`; nunca crea sesiones paralelas. Abre un
