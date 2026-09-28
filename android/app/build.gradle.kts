@@ -1,3 +1,12 @@
+import java.util.Properties
+
+// Firma de distribución: android/key.properties (gitignoreado) apunta al
+// keystore real. Sin él se cae a clave debug (solo para pruebas locales).
+val keystoreProperties = Properties().apply {
+    val f = rootProject.file("key.properties")
+    if (f.exists()) load(f.inputStream())
+}
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -38,9 +47,17 @@ android {
 
     buildTypes {
         release {
-            // Firma con clave debug para compilación de prueba.
-            // La distribución release tendrá su propio secreto, nunca en el repo.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (keystoreProperties.getProperty("storeFile") != null) {
+                signingConfigs.create("release").apply {
+                    storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                    storePassword = keystoreProperties.getProperty("storePassword")
+                    keyAlias = keystoreProperties.getProperty("keyAlias")
+                    keyPassword = keystoreProperties.getProperty("keyPassword")
+                }
+            } else {
+                // Sin key.properties: firma debug (build de prueba).
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }
