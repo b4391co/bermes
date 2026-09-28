@@ -198,6 +198,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
               username: profile.username,
               allowInsecureTls: profile.allowInsecureTls,
               enabled: profile.enabled,
+              displayOrder: await _nextDisplayOrder(db),
               createdAt: DateTime.now(),
             );
             connections.registerRows([savedRow], db);
@@ -633,4 +634,11 @@ class SwitchListTileLike extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Próximo orden de sección para una conexión nueva (máx+1).
+Future<int> _nextDisplayOrder(AppDatabase db) async {
+  final rows = await db.select(db.connections).get();
+  if (rows.isEmpty) return 0;
+  return rows.map((r) => r.displayOrder).reduce((a, b) => a > b ? a : b) + 1;
 }

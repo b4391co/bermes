@@ -13,6 +13,8 @@ class Connections extends Table {
   BoolColumn get allowInsecureTls =>
       boolean().withDefault(const Constant(false))();
   BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+  // Orden de las secciones de gateway en la lista de chats (v6).
+  IntColumn get displayOrder => integer().withDefault(const Constant(0))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 
   @override
@@ -38,6 +40,11 @@ class Conversations extends Table {
   TextColumn get preview => text().nullable()();
   IntColumn get unreadCount => integer().withDefault(const Constant(0))();
   IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+  // Organización local de la lista (nunca viaja al gateway):
+  // pinned global (arriba de todo) y pinnedGateway (destacado dentro de
+  // la sección de su gateway). v6.
+  BoolColumn get pinned => boolean().withDefault(const Constant(false))();
+  BoolColumn get pinnedGateway => boolean().withDefault(const Constant(false))();
 
   @override
   Set<Column> get primaryKey => {id};

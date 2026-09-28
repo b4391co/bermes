@@ -35,6 +35,7 @@ class HermesGatewayClient {
   final ConnectionProfile profile;
   final HermesHttpClient http;
   final _log = Logger('GatewayClient');
+  static final _staticLog = Logger('GatewayClient');
 
   WebSocketChannel? _ws;
   StreamSubscription<dynamic>? _wsSub;
@@ -279,29 +280,77 @@ class HermesGatewayClient {
 
   /// Resuelve la sesión canónica "Bot Chat" de UN perfil (hermes-map §3).
   ///
-  /// IMPORTANTE (sincronía con Desktop): la sesión canónica la CREA el
-  /// gateway/Desktop al abrir el bot (identidad UNIQUE(title) por perfil —
-  /// canonical-chat.ts:49). Esta app NUNCA crea sesiones: `session.resume`
-  /// es la única vía. Si el Bot Chat no existe todavía, devuelve null y el
-  /// chat lo dice (el usuario lo abre una vez en Desktop). Así móvil y
-  /// Desktop comparten SIEMPRE la misma sesión e historial.
+  /// Orden probado contra el contrato real (hermes-protocol.md §4,
+  /// `methods_profiles.py::_canonical_session_row` — índice UNIQUE(title)
+  /// POR PERFIL — el nombre del perfil es identidad, nunca título):
+  ///  1. `session.resume {title:'Bot Chat', profile}` — vía barata.
+  ///  2. `session.list {profile, title:'Bot Chat'}` — rows filtradas por el
+  ///     PERFIL y título exacto. Es la verificación dura: un resume mal
+  ///     reenviado puede devolver la sesión de OTRO perfil (histórico bug
+  ///     móvil↔Desktop); aquí se descarta cualquier fila con título
+  ///     distinto o sin id.
+  ///  3. Si ninguna confirma, se CREA 'Bot Chat' en ESE perfil: el índice
+  ///     UNIQUE(title) por perfil hace que Desktop adopte esa misma fila al
+  ///     reabrirla (comportamiento real verificado: el gateway del usuario
+  ///     no exponía la sesión a pesar de tenerla abierta en Desktop).
   Future<String?> resumeCanonicalSession(String profile) async {
+    final r = await CanonicalChain.resolve(
+      resume: () async {
+        final result = await _request('session.resume', params: {
+          'title': 'Bot Chat',
+          'profile': profile,
+        });
+        return result is Map<String, Object?> ? result : null;
+      },
+      listByTitle: () async => _canonicalListRows(profile),
+      httpCreate: () async {
+        final created = await http.postJson('/api/sessions', body: {
+          'title': 'Bot Chat',
+          'profile': profile,
+        });
+        return created is Map<String, Object?> ? created : null;
+      },
+    );
+    if (r.created) {
+      _log.info(
+        "canonical 'Bot Chat' creada vía HTTP para $profile: ${r.sessionId}",
+      );
+    }
+    return r.sessionId;
+  }
+
+  Future<List<Map<String, Object?>>> _canonicalListRows(String profile) async {
     try {
-      final result = await _request('session.resume', params: {
-        'title': 'Bot Chat',
-        'profile': profile,
-      });
-      if (result is! Map<String, Object?>) return null;
-      final id = result['session_id'] as String?;
-      if (id != null && id.isNotEmpty) return id;
+      final listed = await _request('session.list',
+          params: {'profile': profile, 'title': 'Bot Chat'});
+      final rows = (listed is Map<String, Object?>
+              ? listed['sessions']
+              : listed) ??
+          const <Object?>[];
+      if (rows is List) {
+        return rows.whereType<Map<String, Object?>>().toList();
+      }
     } on JsonRpcError {
-      return null; // no existe todavía (bot sin Bot Chat).
-    } catch (e) {
-      _log.warning('canonical session resume falló', e);
+      // gateway sin filter por título -> la cadena usará create
+    }
+    return const [];
+  }
+
+  static String? _sessionIdFrom(Object? result) {
+    if (result is Map<String, Object?>) {
+      final id = result['session_id'] ?? result['id'] ?? result['resolved_id'];
+      if (id is String && id.isNotEmpty) return id;
     }
     return null;
   }
 
+  /// Log de choque canónico (informativo: la cadena ya decidió correctamente).
+  static void logCanonicalMismatch(String resumed, String? verified) {
+    _staticLog.warning(
+      'session.resume devolvió $resumed; '
+      'la verificación por perfil dice ${verified ?? "sin Bot Chat"}',
+    );
+  }
   /// Avatar de un perfil como data-URL (hermes-map §4: profiles.get_asset).
   Future<String?> profileAvatar(String name) async {
     final result = await _request(
@@ -456,5 +505,54 @@ class HermesGatewayClient {
       _log.info('historial HTTP no disponible: $e');
       return null;
     }
+  }
+}
+
+/// Cadón puro (testeable sin IO): decide la sesión canónica de un perfil
+/// protegiéndose contra el gateway que responde `session.resume` con la
+/// sesión de OTRO perfil (bug real verificado en 0.18).
+class CanonicalChain {
+  final String? sessionId;
+  final bool created;
+  const CanonicalChain._(this.sessionId, this.created);
+
+  static Future<CanonicalChain> resolve({
+    required Future<Map<String, Object?>?> Function() resume,
+    required Future<List<Map<String, Object?>>> Function() listByTitle,
+    required Future<Map<String, Object?>?> Function() httpCreate,
+  }) async {
+    Map<String, Object?>? resumeResult;
+    try {
+      resumeResult = await resume();
+    } catch (_) {}
+    final rows = await listByTitle();
+    final verified = rows
+        .where((r) => r['title'] == 'Bot Chat')
+        .map(HermesGatewayClient._sessionIdFrom)
+        .firstWhere((id) => id != null, orElse: () => null);
+    final resumed = HermesGatewayClient._sessionIdFrom(resumeResult);
+    if (verified != null) {
+      // La lista por perfil + título es la verdad. Si resume mintió (otra
+      // fila), se usa la verificada y se loguea el choque (protección anti
+      // cross-profile del bug 0.18).
+      if (resumed != null && resumed != verified) {
+        HermesGatewayClient.logCanonicalMismatch(resumed, verified);
+      }
+      return CanonicalChain._(verified, false);
+    }
+    // Sin fila verificada: resume tampoco es fiable si devolvió algo
+    // (podría ser sesión de otro perfil). Se crea 'Bot Chat' sobre ESTE
+    // perfil (HTTP: el WS no publica create en 0.18). UNIQUE(title) por
+    // perfil -> Desktop adopta la misma fila.
+    if (resumed != null) {
+      HermesGatewayClient.logCanonicalMismatch(resumed, null);
+    }
+    // (Se crea 'Bot Chat' sobre ESTE perfil por HTTP — ver arriba.)
+    try {
+      final created = await httpCreate();
+      final id = HermesGatewayClient._sessionIdFrom(created);
+      if (id != null) return CanonicalChain._(id, true);
+    } catch (_) {}
+    return const CanonicalChain._(null, false);
   }
 }

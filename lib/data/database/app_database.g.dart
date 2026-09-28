@@ -119,6 +119,18 @@ class $ConnectionsTable extends Connections
     ),
     defaultValue: const Constant(true),
   );
+  static const VerificationMeta _displayOrderMeta = const VerificationMeta(
+    'displayOrder',
+  );
+  @override
+  late final GeneratedColumn<int> displayOrder = GeneratedColumn<int>(
+    'display_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -143,6 +155,7 @@ class $ConnectionsTable extends Connections
     username,
     allowInsecureTls,
     enabled,
+    displayOrder,
     createdAt,
   ];
   @override
@@ -229,6 +242,15 @@ class $ConnectionsTable extends Connections
         enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
       );
     }
+    if (data.containsKey('display_order')) {
+      context.handle(
+        _displayOrderMeta,
+        displayOrder.isAcceptableOrUnknown(
+          data['display_order']!,
+          _displayOrderMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -284,6 +306,10 @@ class $ConnectionsTable extends Connections
         DriftSqlType.bool,
         data['${effectivePrefix}enabled'],
       )!,
+      displayOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}display_order'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -308,6 +334,7 @@ class Connection extends DataClass implements Insertable<Connection> {
   final String username;
   final bool allowInsecureTls;
   final bool enabled;
+  final int displayOrder;
   final DateTime createdAt;
   const Connection({
     required this.id,
@@ -320,6 +347,7 @@ class Connection extends DataClass implements Insertable<Connection> {
     required this.username,
     required this.allowInsecureTls,
     required this.enabled,
+    required this.displayOrder,
     required this.createdAt,
   });
   @override
@@ -335,6 +363,7 @@ class Connection extends DataClass implements Insertable<Connection> {
     map['username'] = Variable<String>(username);
     map['allow_insecure_tls'] = Variable<bool>(allowInsecureTls);
     map['enabled'] = Variable<bool>(enabled);
+    map['display_order'] = Variable<int>(displayOrder);
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
   }
@@ -351,6 +380,7 @@ class Connection extends DataClass implements Insertable<Connection> {
       username: Value(username),
       allowInsecureTls: Value(allowInsecureTls),
       enabled: Value(enabled),
+      displayOrder: Value(displayOrder),
       createdAt: Value(createdAt),
     );
   }
@@ -371,6 +401,7 @@ class Connection extends DataClass implements Insertable<Connection> {
       username: serializer.fromJson<String>(json['username']),
       allowInsecureTls: serializer.fromJson<bool>(json['allowInsecureTls']),
       enabled: serializer.fromJson<bool>(json['enabled']),
+      displayOrder: serializer.fromJson<int>(json['displayOrder']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
   }
@@ -388,6 +419,7 @@ class Connection extends DataClass implements Insertable<Connection> {
       'username': serializer.toJson<String>(username),
       'allowInsecureTls': serializer.toJson<bool>(allowInsecureTls),
       'enabled': serializer.toJson<bool>(enabled),
+      'displayOrder': serializer.toJson<int>(displayOrder),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
   }
@@ -403,6 +435,7 @@ class Connection extends DataClass implements Insertable<Connection> {
     String? username,
     bool? allowInsecureTls,
     bool? enabled,
+    int? displayOrder,
     DateTime? createdAt,
   }) => Connection(
     id: id ?? this.id,
@@ -415,6 +448,7 @@ class Connection extends DataClass implements Insertable<Connection> {
     username: username ?? this.username,
     allowInsecureTls: allowInsecureTls ?? this.allowInsecureTls,
     enabled: enabled ?? this.enabled,
+    displayOrder: displayOrder ?? this.displayOrder,
     createdAt: createdAt ?? this.createdAt,
   );
   Connection copyWithCompanion(ConnectionsCompanion data) {
@@ -431,6 +465,9 @@ class Connection extends DataClass implements Insertable<Connection> {
           ? data.allowInsecureTls.value
           : this.allowInsecureTls,
       enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      displayOrder: data.displayOrder.present
+          ? data.displayOrder.value
+          : this.displayOrder,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -448,6 +485,7 @@ class Connection extends DataClass implements Insertable<Connection> {
           ..write('username: $username, ')
           ..write('allowInsecureTls: $allowInsecureTls, ')
           ..write('enabled: $enabled, ')
+          ..write('displayOrder: $displayOrder, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -465,6 +503,7 @@ class Connection extends DataClass implements Insertable<Connection> {
     username,
     allowInsecureTls,
     enabled,
+    displayOrder,
     createdAt,
   );
   @override
@@ -481,6 +520,7 @@ class Connection extends DataClass implements Insertable<Connection> {
           other.username == this.username &&
           other.allowInsecureTls == this.allowInsecureTls &&
           other.enabled == this.enabled &&
+          other.displayOrder == this.displayOrder &&
           other.createdAt == this.createdAt);
 }
 
@@ -495,6 +535,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
   final Value<String> username;
   final Value<bool> allowInsecureTls;
   final Value<bool> enabled;
+  final Value<int> displayOrder;
   final Value<DateTime> createdAt;
   final Value<int> rowid;
   const ConnectionsCompanion({
@@ -508,6 +549,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
     this.username = const Value.absent(),
     this.allowInsecureTls = const Value.absent(),
     this.enabled = const Value.absent(),
+    this.displayOrder = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -522,6 +564,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
     this.username = const Value.absent(),
     this.allowInsecureTls = const Value.absent(),
     this.enabled = const Value.absent(),
+    this.displayOrder = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
@@ -541,6 +584,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
     Expression<String>? username,
     Expression<bool>? allowInsecureTls,
     Expression<bool>? enabled,
+    Expression<int>? displayOrder,
     Expression<DateTime>? createdAt,
     Expression<int>? rowid,
   }) {
@@ -555,6 +599,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
       if (username != null) 'username': username,
       if (allowInsecureTls != null) 'allow_insecure_tls': allowInsecureTls,
       if (enabled != null) 'enabled': enabled,
+      if (displayOrder != null) 'display_order': displayOrder,
       if (createdAt != null) 'created_at': createdAt,
       if (rowid != null) 'rowid': rowid,
     });
@@ -571,6 +616,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
     Value<String>? username,
     Value<bool>? allowInsecureTls,
     Value<bool>? enabled,
+    Value<int>? displayOrder,
     Value<DateTime>? createdAt,
     Value<int>? rowid,
   }) {
@@ -585,6 +631,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
       username: username ?? this.username,
       allowInsecureTls: allowInsecureTls ?? this.allowInsecureTls,
       enabled: enabled ?? this.enabled,
+      displayOrder: displayOrder ?? this.displayOrder,
       createdAt: createdAt ?? this.createdAt,
       rowid: rowid ?? this.rowid,
     );
@@ -623,6 +670,9 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
     if (enabled.present) {
       map['enabled'] = Variable<bool>(enabled.value);
     }
+    if (displayOrder.present) {
+      map['display_order'] = Variable<int>(displayOrder.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -645,6 +695,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
           ..write('username: $username, ')
           ..write('allowInsecureTls: $allowInsecureTls, ')
           ..write('enabled: $enabled, ')
+          ..write('displayOrder: $displayOrder, ')
           ..write('createdAt: $createdAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -834,6 +885,34 @@ class $ConversationsTable extends Conversations
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _pinnedMeta = const VerificationMeta('pinned');
+  @override
+  late final GeneratedColumn<bool> pinned = GeneratedColumn<bool>(
+    'pinned',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("pinned" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _pinnedGatewayMeta = const VerificationMeta(
+    'pinnedGateway',
+  );
+  @override
+  late final GeneratedColumn<bool> pinnedGateway = GeneratedColumn<bool>(
+    'pinned_gateway',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("pinned_gateway" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -852,6 +931,8 @@ class $ConversationsTable extends Conversations
     preview,
     unreadCount,
     sortOrder,
+    pinned,
+    pinnedGateway,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -986,6 +1067,21 @@ class $ConversationsTable extends Conversations
         sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
       );
     }
+    if (data.containsKey('pinned')) {
+      context.handle(
+        _pinnedMeta,
+        pinned.isAcceptableOrUnknown(data['pinned']!, _pinnedMeta),
+      );
+    }
+    if (data.containsKey('pinned_gateway')) {
+      context.handle(
+        _pinnedGatewayMeta,
+        pinnedGateway.isAcceptableOrUnknown(
+          data['pinned_gateway']!,
+          _pinnedGatewayMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -1059,6 +1155,14 @@ class $ConversationsTable extends Conversations
         DriftSqlType.int,
         data['${effectivePrefix}sort_order'],
       )!,
+      pinned: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}pinned'],
+      )!,
+      pinnedGateway: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}pinned_gateway'],
+      )!,
     );
   }
 
@@ -1085,6 +1189,8 @@ class Conversation extends DataClass implements Insertable<Conversation> {
   final String? preview;
   final int unreadCount;
   final int sortOrder;
+  final bool pinned;
+  final bool pinnedGateway;
   const Conversation({
     required this.id,
     required this.connectionId,
@@ -1102,6 +1208,8 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     this.preview,
     required this.unreadCount,
     required this.sortOrder,
+    required this.pinned,
+    required this.pinnedGateway,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1138,6 +1246,8 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     }
     map['unread_count'] = Variable<int>(unreadCount);
     map['sort_order'] = Variable<int>(sortOrder);
+    map['pinned'] = Variable<bool>(pinned);
+    map['pinned_gateway'] = Variable<bool>(pinnedGateway);
     return map;
   }
 
@@ -1175,6 +1285,8 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           : Value(preview),
       unreadCount: Value(unreadCount),
       sortOrder: Value(sortOrder),
+      pinned: Value(pinned),
+      pinnedGateway: Value(pinnedGateway),
     );
   }
 
@@ -1200,6 +1312,8 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       preview: serializer.fromJson<String?>(json['preview']),
       unreadCount: serializer.fromJson<int>(json['unreadCount']),
       sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      pinned: serializer.fromJson<bool>(json['pinned']),
+      pinnedGateway: serializer.fromJson<bool>(json['pinnedGateway']),
     );
   }
   @override
@@ -1222,6 +1336,8 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       'preview': serializer.toJson<String?>(preview),
       'unreadCount': serializer.toJson<int>(unreadCount),
       'sortOrder': serializer.toJson<int>(sortOrder),
+      'pinned': serializer.toJson<bool>(pinned),
+      'pinnedGateway': serializer.toJson<bool>(pinnedGateway),
     };
   }
 
@@ -1242,6 +1358,8 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     Value<String?> preview = const Value.absent(),
     int? unreadCount,
     int? sortOrder,
+    bool? pinned,
+    bool? pinnedGateway,
   }) => Conversation(
     id: id ?? this.id,
     connectionId: connectionId ?? this.connectionId,
@@ -1263,6 +1381,8 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     preview: preview.present ? preview.value : this.preview,
     unreadCount: unreadCount ?? this.unreadCount,
     sortOrder: sortOrder ?? this.sortOrder,
+    pinned: pinned ?? this.pinned,
+    pinnedGateway: pinnedGateway ?? this.pinnedGateway,
   );
   Conversation copyWithCompanion(ConversationsCompanion data) {
     return Conversation(
@@ -1296,6 +1416,10 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           ? data.unreadCount.value
           : this.unreadCount,
       sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      pinned: data.pinned.present ? data.pinned.value : this.pinned,
+      pinnedGateway: data.pinnedGateway.present
+          ? data.pinnedGateway.value
+          : this.pinnedGateway,
     );
   }
 
@@ -1317,7 +1441,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           ..write('lastActivity: $lastActivity, ')
           ..write('preview: $preview, ')
           ..write('unreadCount: $unreadCount, ')
-          ..write('sortOrder: $sortOrder')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('pinned: $pinned, ')
+          ..write('pinnedGateway: $pinnedGateway')
           ..write(')'))
         .toString();
   }
@@ -1340,6 +1466,8 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     preview,
     unreadCount,
     sortOrder,
+    pinned,
+    pinnedGateway,
   );
   @override
   bool operator ==(Object other) =>
@@ -1360,7 +1488,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           other.lastActivity == this.lastActivity &&
           other.preview == this.preview &&
           other.unreadCount == this.unreadCount &&
-          other.sortOrder == this.sortOrder);
+          other.sortOrder == this.sortOrder &&
+          other.pinned == this.pinned &&
+          other.pinnedGateway == this.pinnedGateway);
 }
 
 class ConversationsCompanion extends UpdateCompanion<Conversation> {
@@ -1380,6 +1510,8 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
   final Value<String?> preview;
   final Value<int> unreadCount;
   final Value<int> sortOrder;
+  final Value<bool> pinned;
+  final Value<bool> pinnedGateway;
   final Value<int> rowid;
   const ConversationsCompanion({
     this.id = const Value.absent(),
@@ -1398,6 +1530,8 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     this.preview = const Value.absent(),
     this.unreadCount = const Value.absent(),
     this.sortOrder = const Value.absent(),
+    this.pinned = const Value.absent(),
+    this.pinnedGateway = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ConversationsCompanion.insert({
@@ -1417,6 +1551,8 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     this.preview = const Value.absent(),
     this.unreadCount = const Value.absent(),
     this.sortOrder = const Value.absent(),
+    this.pinned = const Value.absent(),
+    this.pinnedGateway = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        connectionId = Value(connectionId),
@@ -1440,6 +1576,8 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     Expression<String>? preview,
     Expression<int>? unreadCount,
     Expression<int>? sortOrder,
+    Expression<bool>? pinned,
+    Expression<bool>? pinnedGateway,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1459,6 +1597,8 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
       if (preview != null) 'preview': preview,
       if (unreadCount != null) 'unread_count': unreadCount,
       if (sortOrder != null) 'sort_order': sortOrder,
+      if (pinned != null) 'pinned': pinned,
+      if (pinnedGateway != null) 'pinned_gateway': pinnedGateway,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1480,6 +1620,8 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     Value<String?>? preview,
     Value<int>? unreadCount,
     Value<int>? sortOrder,
+    Value<bool>? pinned,
+    Value<bool>? pinnedGateway,
     Value<int>? rowid,
   }) {
     return ConversationsCompanion(
@@ -1499,6 +1641,8 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
       preview: preview ?? this.preview,
       unreadCount: unreadCount ?? this.unreadCount,
       sortOrder: sortOrder ?? this.sortOrder,
+      pinned: pinned ?? this.pinned,
+      pinnedGateway: pinnedGateway ?? this.pinnedGateway,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1554,6 +1698,12 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     if (sortOrder.present) {
       map['sort_order'] = Variable<int>(sortOrder.value);
     }
+    if (pinned.present) {
+      map['pinned'] = Variable<bool>(pinned.value);
+    }
+    if (pinnedGateway.present) {
+      map['pinned_gateway'] = Variable<bool>(pinnedGateway.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1579,6 +1729,8 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
           ..write('preview: $preview, ')
           ..write('unreadCount: $unreadCount, ')
           ..write('sortOrder: $sortOrder, ')
+          ..write('pinned: $pinned, ')
+          ..write('pinnedGateway: $pinnedGateway, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3215,6 +3367,7 @@ typedef $$ConnectionsTableCreateCompanionBuilder =
       Value<String> username,
       Value<bool> allowInsecureTls,
       Value<bool> enabled,
+      Value<int> displayOrder,
       Value<DateTime> createdAt,
       Value<int> rowid,
     });
@@ -3230,6 +3383,7 @@ typedef $$ConnectionsTableUpdateCompanionBuilder =
       Value<String> username,
       Value<bool> allowInsecureTls,
       Value<bool> enabled,
+      Value<int> displayOrder,
       Value<DateTime> createdAt,
       Value<int> rowid,
     });
@@ -3290,6 +3444,11 @@ class $$ConnectionsTableFilterComposer
 
   ColumnFilters<bool> get enabled => $composableBuilder(
     column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get displayOrder => $composableBuilder(
+    column: $table.displayOrder,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3358,6 +3517,11 @@ class $$ConnectionsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get displayOrder => $composableBuilder(
+    column: $table.displayOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -3405,6 +3569,11 @@ class $$ConnectionsTableAnnotationComposer
   GeneratedColumn<bool> get enabled =>
       $composableBuilder(column: $table.enabled, builder: (column) => column);
 
+  GeneratedColumn<int> get displayOrder => $composableBuilder(
+    column: $table.displayOrder,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 }
@@ -3450,6 +3619,7 @@ class $$ConnectionsTableTableManager
                 Value<String> username = const Value.absent(),
                 Value<bool> allowInsecureTls = const Value.absent(),
                 Value<bool> enabled = const Value.absent(),
+                Value<int> displayOrder = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ConnectionsCompanion(
@@ -3463,6 +3633,7 @@ class $$ConnectionsTableTableManager
                 username: username,
                 allowInsecureTls: allowInsecureTls,
                 enabled: enabled,
+                displayOrder: displayOrder,
                 createdAt: createdAt,
                 rowid: rowid,
               ),
@@ -3478,6 +3649,7 @@ class $$ConnectionsTableTableManager
                 Value<String> username = const Value.absent(),
                 Value<bool> allowInsecureTls = const Value.absent(),
                 Value<bool> enabled = const Value.absent(),
+                Value<int> displayOrder = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ConnectionsCompanion.insert(
@@ -3491,6 +3663,7 @@ class $$ConnectionsTableTableManager
                 username: username,
                 allowInsecureTls: allowInsecureTls,
                 enabled: enabled,
+                displayOrder: displayOrder,
                 createdAt: createdAt,
                 rowid: rowid,
               ),
@@ -3546,6 +3719,8 @@ typedef $$ConversationsTableCreateCompanionBuilder =
       Value<String?> preview,
       Value<int> unreadCount,
       Value<int> sortOrder,
+      Value<bool> pinned,
+      Value<bool> pinnedGateway,
       Value<int> rowid,
     });
 typedef $$ConversationsTableUpdateCompanionBuilder =
@@ -3566,6 +3741,8 @@ typedef $$ConversationsTableUpdateCompanionBuilder =
       Value<String?> preview,
       Value<int> unreadCount,
       Value<int> sortOrder,
+      Value<bool> pinned,
+      Value<bool> pinnedGateway,
       Value<int> rowid,
     });
 
@@ -3655,6 +3832,16 @@ class $$ConversationsTableFilterComposer
 
   ColumnFilters<int> get sortOrder => $composableBuilder(
     column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get pinned => $composableBuilder(
+    column: $table.pinned,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get pinnedGateway => $composableBuilder(
+    column: $table.pinnedGateway,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -3747,6 +3934,16 @@ class $$ConversationsTableOrderingComposer
     column: $table.sortOrder,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get pinned => $composableBuilder(
+    column: $table.pinned,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get pinnedGateway => $composableBuilder(
+    column: $table.pinnedGateway,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ConversationsTableAnnotationComposer
@@ -3819,6 +4016,14 @@ class $$ConversationsTableAnnotationComposer
 
   GeneratedColumn<int> get sortOrder =>
       $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<bool> get pinned =>
+      $composableBuilder(column: $table.pinned, builder: (column) => column);
+
+  GeneratedColumn<bool> get pinnedGateway => $composableBuilder(
+    column: $table.pinnedGateway,
+    builder: (column) => column,
+  );
 }
 
 class $$ConversationsTableTableManager
@@ -3868,6 +4073,8 @@ class $$ConversationsTableTableManager
                 Value<String?> preview = const Value.absent(),
                 Value<int> unreadCount = const Value.absent(),
                 Value<int> sortOrder = const Value.absent(),
+                Value<bool> pinned = const Value.absent(),
+                Value<bool> pinnedGateway = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ConversationsCompanion(
                 id: id,
@@ -3886,6 +4093,8 @@ class $$ConversationsTableTableManager
                 preview: preview,
                 unreadCount: unreadCount,
                 sortOrder: sortOrder,
+                pinned: pinned,
+                pinnedGateway: pinnedGateway,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -3906,6 +4115,8 @@ class $$ConversationsTableTableManager
                 Value<String?> preview = const Value.absent(),
                 Value<int> unreadCount = const Value.absent(),
                 Value<int> sortOrder = const Value.absent(),
+                Value<bool> pinned = const Value.absent(),
+                Value<bool> pinnedGateway = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ConversationsCompanion.insert(
                 id: id,
@@ -3924,6 +4135,8 @@ class $$ConversationsTableTableManager
                 preview: preview,
                 unreadCount: unreadCount,
                 sortOrder: sortOrder,
+                pinned: pinned,
+                pinnedGateway: pinnedGateway,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

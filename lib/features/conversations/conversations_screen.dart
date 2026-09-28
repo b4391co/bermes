@@ -116,10 +116,22 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                 final filtered = _filter(rows);
                 if (rows.isEmpty) return _emptyState(context);
                 if (filtered.isEmpty) return _noResults(context);
-                return ListView.builder(
-                  itemCount: filtered.length,
-                  itemBuilder: (context, index) =>
-                      _tile(context, filtered[index]),
+                return FutureBuilder<List<Connection>>(
+                  future: _connections(),
+                  builder: (context, cs) {
+                    final sections = _sections(
+                      filtered,
+                      cs.data ?? const <Connection>[],
+                    );
+                    return ListView.builder(
+                      itemCount: sections.length,
+                      itemBuilder: (context, index) => switch (sections[index]) {
+                        _Header(:final label, :final reorderable) =>
+                          _sectionHeader(context, label, reorderable),
+                        _Row(:final conv) => _tile(context, conv),
+                      },
+                    );
+                  },
                 );
               },
             ),
@@ -127,6 +139,123 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         ],
       )),
     );
+  }
+
+  Future<List<Connection>> _connections() =>
+      AppServices.db.select(AppServices.db.connections).get();
+
+  /// Orden de la lista unificada:
+  /// 1) grupos (encabezado "Grupos"), 2) fijados globales ("Fijados"),
+  /// 3) una sección por gateway en el orden elegido por el usuario.
+  /// Dentro de cada sección: fijados al gateway primero, luego actividad.
+  /// Al buscar, la agrupación desaparece (resultado plano por actividad).
+  List<_Line> _sections(List<Conversation> rows, List<Connection> conns) {
+    if (_search.text.trim().isNotEmpty) {
+      return rows.map((c) => _Line.row(c)).toList(growable: false);
+    }
+    int cmp(Conversation a, Conversation b) {
+      final byPinned = (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+      if (byPinned != 0) return byPinned;
+      final byActivity = (b.lastActivity ?? DateTime(0)).compareTo(
+        a.lastActivity ?? DateTime(0),
+      );
+      if (byActivity != 0) return byActivity;
+      return a.title.compareTo(b.title);
+    }
+
+    final sorted = [...rows]..sort(cmp);
+    final groups = sorted.where((c) => c.isGroup).toList(growable: false);
+    final pinnedGlobal = sorted
+        .where((c) => !c.isGroup && c.pinned)
+        .toList(growable: false);
+    final rest = sorted
+        .where((c) => !c.isGroup && !c.pinned)
+        .toList(growable: false);
+    final byConn = <String, List<Conversation>>{};
+    for (final c in rest) {
+      byConn.putIfAbsent(c.connectionId, () => []).add(c);
+    }
+    for (final l in byConn.values) {
+      l.sort((a, b) {
+        final gp = (b.pinnedGateway ? 1 : 0) - (a.pinnedGateway ? 1 : 0);
+        if (gp != 0) return gp;
+        final byA = (b.lastActivity ?? DateTime(0)).compareTo(
+          a.lastActivity ?? DateTime(0),
+        );
+        if (byA != 0) return byA;
+        return a.title.compareTo(b.title);
+      });
+    }
+    // Secciones en el orden guardado de conexiones; conexiones inexistentes
+    // (p. ej. borradas) al final.
+    final connOrder = [...conns]
+      ..sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
+    final out = <_Line>[];
+    if (groups.isNotEmpty) {
+      out.add(const _Line.header('Grupos', false));
+      out.addAll(groups.map((c) => _Line.row(c)));
+    }
+    if (pinnedGlobal.isNotEmpty) {
+      out.add(const _Line.header('Fijados', false));
+      out.addAll(pinnedGlobal.map((c) => _Line.row(c)));
+    }
+    for (final conn in connOrder) {
+      final list = byConn.remove(conn.id);
+      if (list == null || list.isEmpty) continue;
+      out.add(_Line.header(conn.name, conns.length > 1));
+      out.addAll(list.map((c) => _Line.row(c)));
+    }
+    for (final entry in byConn.entries) {
+      if (entry.value.isEmpty) continue;
+      final label = entry.value.first.gatewayLabel ?? 'Otro gateway';
+      out.add(_Line.header(label, conns.length > 1));
+      out.addAll(entry.value.map((c) => _Line.row(c)));
+    }
+    return out;
+  }
+
+  Widget _sectionHeader(BuildContext context, String label, bool reorderable) {
+    final cs = Theme.of(context).colorScheme;
+    return ListTile(
+      dense: true,
+      visualDensity: const VisualDensity(vertical: -2),
+      contentPadding: const EdgeInsets.symmetric(horizontal: Hp.s4),
+      leading: Icon(Icons.folder_outlined, size: 18, color: cs.onSurfaceVariant),
+      title: Text(
+        label,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          color: cs.onSurfaceVariant,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      trailing: reorderable
+          ? IconButton(
+              tooltip: 'Subir / mover gateway',
+              icon: const Icon(Icons.swap_vert_rounded, size: 20),
+              onPressed: () => _reorderGateway(label),
+            )
+          : null,
+    );
+  }
+
+  /// Mueve la sección de gateway [label] un puesto hacia arriba.
+  Future<void> _reorderGateway(String label) async {
+    final db = AppServices.db;
+    final conns = (await db.select(db.connections).get())
+      ..sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
+    final idx = conns.indexWhere((c) => c.name == label);
+    if (idx <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ese gateway ya está primero')),
+        );
+      }
+      return;
+    }
+    final ids = conns.map((c) => c.id).toList();
+    ids[idx - 1] = conns[idx].id;
+    ids[idx] = conns[idx - 1].id;
+    await db.setConnectionOrders(ids);
   }
 
   /// Fold 6 desplegado / tablet: lista a la izquierda, chat a la derecha.
@@ -302,29 +431,64 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   /// Acciones de fila: editar bot (perfil) o eliminar conversación local.
   /// Editar solo para kind='bot': requiere el name del perfil + conexión.
   Future<void> _rowActions(BuildContext context, Conversation c) async {
-    if (c.kind == 'bot') {
-      final action = await showModalBottomSheet<String>(
-        context: context,
-        builder: (context) => SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(
+                c.pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+              ),
+              title: Text(
+                c.pinned ? 'Quitar de Fijados' : 'Fijar arriba de todo',
+              ),
+              onTap: () => Navigator.of(context).pop('pin'),
+            ),
+            ListTile(
+              leading: Icon(
+                c.pinnedGateway
+                    ? Icons.push_pin_rounded
+                    : Icons.push_pin_outlined,
+              ),
+              title: Text(
+                c.pinnedGateway
+                    ? 'Quitar de "${c.gatewayLabel ?? 'su gateway'}"'
+                    : 'Fijar en "${c.gatewayLabel ?? 'su gateway'}"',
+              ),
+              onTap: () => Navigator.of(context).pop('pinGateway'),
+            ),
+            if (c.kind == 'bot')
               ListTile(
                 leading: const Icon(Icons.edit_rounded),
                 title: const Text('Editar bot'),
                 onTap: () => Navigator.of(context).pop('edit'),
               ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline_rounded),
-                title: const Text('Eliminar'),
-                onTap: () => Navigator.of(context).pop('delete'),
-              ),
-            ],
-          ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded),
+              title: const Text('Eliminar'),
+              onTap: () => Navigator.of(context).pop('delete'),
+            ),
+          ],
         ),
-      );
-      if (!mounted || action == null) return;
-      if (action == 'edit') {
+      ),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'pin':
+        await AppServices.db.setPinned(
+          c.id,
+          pinned: !c.pinned,
+          pinnedGateway: c.pinnedGateway,
+        );
+      case 'pinGateway':
+        await AppServices.db.setPinned(
+          c.id,
+          pinned: c.pinned,
+          pinnedGateway: !c.pinnedGateway,
+        );
+      case 'edit':
         await BotEditorSheet.show(
           context,
           connectionId: c.connectionId,
@@ -333,11 +497,8 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           currentDescription: c.subtitle,
           currentAvatar: _avatarMetaOf(c),
         );
-      } else {
+      case 'delete':
         await _confirmDelete(context, c);
-      }
-    } else {
-      await _confirmDelete(context, c);
     }
   }
 
@@ -607,4 +768,22 @@ String relativeTime(DateTime? time, {DateTime? now}) {
   if (today.difference(day) == const Duration(days: 1)) return 'Ayer';
   if (time.year == ref.year) return DateFormat('dd/MM').format(time);
   return DateFormat('dd/MM/yy').format(time);
+}
+
+/// Línea de la lista: encabezado de sección o fila de conversación.
+sealed class _Line {
+  const _Line();
+  const factory _Line.row(Conversation conv) = _Row;
+  const factory _Line.header(String label, bool reorderable) = _Header;
+}
+
+final class _Row extends _Line {
+  final Conversation conv;
+  const _Row(this.conv);
+}
+
+final class _Header extends _Line {
+  final String label;
+  final bool reorderable;
+  const _Header(this.label, this.reorderable);
 }

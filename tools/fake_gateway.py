@@ -15,7 +15,7 @@ import asyncio, json, time, uuid, base64
 from aiohttp import web, WSMsgType
 
 USERS = {"test": "hermespass"}
-MODE = {"canonical": True, "prompt_error": False}
+MODE = {"canonical": True, "prompt_error": False, "researcher_canonical": False}
 SESSION_COOKIE = "hermes_session_at"
 REFRESH_COOKIE = "hermes_session_rt"
 TICKETS: dict[str, float] = {}
@@ -105,7 +105,7 @@ def rpc_result(method: str, params: dict) -> object:
                 "display_name": "Researcher",
                 "description": "Bot de investigación",
                 "is_default": False,
-                "canonical_session": ({"id": "sess-canonical-researcher", "title": "Bot Chat"} if MODE["canonical"] else None),
+                "canonical_session": ({"id": "sess-canonical-researcher", "title": "Bot Chat"} if MODE["canonical"] and MODE.get("researcher_canonical") else None),
             },
         ]}
     if method == "profiles.configure":
@@ -130,9 +130,13 @@ def rpc_result(method: str, params: dict) -> object:
     if method == "session.resume":
         if not MODE["canonical"]:
             return {"error": {"code": "not_found", "message": "no bot chat"}}
-        if params.get("profile") == "researcher":
-            return {"session_id": "sess-canonical-researcher"}
-        return {"session_id": "sess-canonical-default"}
+        prof = params.get("profile", "default")
+        # El bug REAL reportado por el usuario: el gateway resume la sesión
+        # por TÍTULO GLOBALLY y puede devolver la de OTRO perfil. Se simula:
+        # researcher sin su propio Bot Chat -> recibe la de default.
+        if prof == "researcher" and not MODE.get("researcher_canonical"):
+            return {"session_id": "sess-canonical-default"}
+        return {"session_id": f"sess-canonical-{prof}"}
     if method == "groups.capabilities":
         return {"groups": True, "approval": ["once", "session", "always", "deny"]}
     if method == "groups.state":
@@ -183,6 +187,23 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
         if method == "prompt.fail_test":
             await ws.send_str(json.dumps({"id": rid, "error": {"code": 500, "message": "boom"}}))
             continue
+        # (El gateway real 0.18 no publica session.create/session.list por WS
+        #  -> rpc_result cae en {"ok": true}, que el cliente descarta por
+        #  no traer session_id. Solo HTTP publica la sesión.)
+        if method == "session.list":
+            # El contrato real admite {profile, title} como filtro.
+            if "title" in p:
+                # La lista filtrada dice la VERDAD por perfil: 'Bot Chat'
+                # existe solo si resume no mintió con otro perfil (se usa el
+                # mismo modo researcher_canonical que controla resume).
+                prof = p.get("profile", "default")
+                exists = (prof != "researcher") or MODE.get("researcher_canonical")
+                if p["title"] == "Bot Chat" and MODE["canonical"] and exists:
+                    await ws.send_str(json.dumps({"id": rid, "result": {"sessions": [
+                        {"session_id": f"sess-canonical-{prof}", "title": "Bot Chat"}]}}))
+                else:
+                    await ws.send_str(json.dumps({"id": rid, "result": {"sessions": []}}))
+                continue
         res = rpc_result(method, params)
         if isinstance(res, dict) and "error" in res:
             await ws.send_str(json.dumps({"id": rid, "error": {
@@ -215,8 +236,11 @@ async def session_messages(request: web.Request) -> web.Response:
 
 async def session_create(request: web.Request) -> web.Response:
     body = await request.json()
-    return web.json_response(
-        {"session_id": f"sess-created-{body.get('profile', 'default')}"})
+    prof = body.get("profile", "default")
+    sid = f"sess-canonical-{prof}"
+    # UNIQUE(title) por perfil: la misma fila que ya ve Desktop (canonical=1).
+    return web.json_response({"session_id": sid, "id": sid,
+                              "title": body.get("title", "Bot Chat")})
 
 
 async def set_mode(request: web.Request) -> web.Response:
@@ -224,6 +248,8 @@ async def set_mode(request: web.Request) -> web.Response:
         MODE["canonical"] = request.query["canonical"] == "1"
     if "prompt_error" in request.query:
         MODE["prompt_error"] = request.query["prompt_error"] == "1"
+    if "researcher" in request.query:
+        MODE["researcher_canonical"] = request.query["researcher"] == "1"
     return web.json_response(dict(MODE))
 
 

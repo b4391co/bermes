@@ -88,6 +88,10 @@ class _TerminalPaneState extends State<TerminalPane> {
             theme: isDark ? TerminalThemes.whiteOnBlack : _lightTerminalTheme,
             textStyle: const TerminalStyle(
               fontFamily: 'JetBrainsMonoNerd',
+              // Roboto detrás: el paquete NerdFontMono no cubre todo el
+              // BMP (p. ej. U+280F braille); sin fallback, Flutter pinta
+              // cajas/tofu. Los glifos privados de icons SÍ están delante.
+              fontFamilyFallback: ['Roboto', 'monospace'],
               fontSize: 13.5,
             ),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
