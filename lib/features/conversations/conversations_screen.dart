@@ -431,6 +431,11 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   /// Acciones de fila: editar bot (perfil) o eliminar conversación local.
   /// Editar solo para kind='bot': requiere el name del perfil + conexión.
   Future<void> _rowActions(BuildContext context, Conversation c) async {
+    // El menú lee SIEMPRE la fila viva de la BD (no el objeto que el tile
+    // tenía en memoria: el upsert de sync puede entregar copias viejas).
+    final live = await (AppServices.db.select(AppServices.db.conversations)
+          ..where((x) => x.id.equals(c.id)))
+        .getSingle();
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (context) => SafeArea(
@@ -439,27 +444,33 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           children: [
             ListTile(
               leading: Icon(
-                c.pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
-              ),
-              title: Text(
-                c.pinned ? 'Quitar de Fijados' : 'Fijar arriba de todo',
-              ),
-              onTap: () => Navigator.of(context).pop('pin'),
-            ),
-            ListTile(
-              leading: Icon(
-                c.pinnedGateway
+                live.pinned
                     ? Icons.push_pin_rounded
                     : Icons.push_pin_outlined,
               ),
               title: Text(
-                c.pinnedGateway
-                    ? 'Quitar de "${c.gatewayLabel ?? 'su gateway'}"'
-                    : 'Fijar en "${c.gatewayLabel ?? 'su gateway'}"',
+                live.pinned ? 'Quitar de Fijados' : 'Fijar arriba de todo',
+              ),
+              onTap: () => Navigator.of(context).pop('pin'),
+            ),
+            // El pin de gateway siempre disponible: fijar un bot ARRIBA DE
+            // TODO y fijarlo en su gateway no son mutuamente excluyentes
+            // (la sección 'Fijados' no lo oculta; en su gateway también
+            // queda destacado). El gate !pinned era un error de diseño.
+            ListTile(
+              leading: Icon(
+                live.pinnedGateway
+                    ? Icons.push_pin_rounded
+                    : Icons.push_pin_outlined,
+              ),
+              title: Text(
+                live.pinnedGateway
+                    ? 'Quitar de "${live.gatewayLabel ?? 'su gateway'}"'
+                    : 'Fijar en "${live.gatewayLabel ?? 'su gateway'}"',
               ),
               onTap: () => Navigator.of(context).pop('pinGateway'),
             ),
-            if (c.kind == 'bot')
+            if (live.kind == 'bot')
               ListTile(
                 leading: const Icon(Icons.edit_rounded),
                 title: const Text('Editar bot'),
@@ -479,14 +490,14 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       case 'pin':
         await AppServices.db.setPinned(
           c.id,
-          pinned: !c.pinned,
-          pinnedGateway: c.pinnedGateway,
+          pinned: !live.pinned,
+          pinnedGateway: live.pinnedGateway,
         );
       case 'pinGateway':
         await AppServices.db.setPinned(
           c.id,
-          pinned: c.pinned,
-          pinnedGateway: !c.pinnedGateway,
+          pinned: live.pinned,
+          pinnedGateway: !live.pinnedGateway,
         );
       case 'edit':
         await BotEditorSheet.show(

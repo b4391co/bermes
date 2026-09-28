@@ -172,10 +172,24 @@ class ConnectionManager {
     AppDatabase db,
   ) async {
     try {
+      // El PIN es preferencia LOCAL: se preserva a través del upsert de sync
+      // (insertOnConflictUpdate escribiría el default false si no lo llevamos).
+      final priorPins = {
+        for (final r in await db.select(db.conversations).get())
+          r.id: (r.pinned, r.pinnedGateway),
+      };
       // Decisión del usuario (27/09): SOLO bots en la lista — las sesiones
       // de Desktop se vieron aquí por error y se purgan al primer sync.
       await (db.delete(db.conversations)
             ..where((x) => x.kind.equals('session')))
+          .go();
+      // Limpieza de huérfanas: conversaciones de conexiones ya eliminadas
+      // (el alta de una conexión nueva no debe dejar filas fantasma duplicadas).
+      final live = (await db.select(db.connections).get())
+          .map((c) => c.id)
+          .toSet();
+      await (db.delete(db.conversations)
+            ..where((x) => x.connectionId.isNotIn(live.isEmpty ? ['@'] : live.toList())))
           .go();
       final profiles = await runtime.gateway.listProfiles();
       for (final p in profiles) {
@@ -238,6 +252,8 @@ class ConnectionManager {
                 isGroup: const Value(false),
                 gatewayLabel: Value(row.name),
                 canonicalSession: Value(canonical),
+                pinned: Value(priorPins[id]?.$1 ?? false),
+                pinnedGateway: Value(priorPins[id]?.$2 ?? false),
               ),
             );
         _log.info('bot sync ${row.name}/$name canonical=${canonical ?? '??'}');
@@ -253,6 +269,10 @@ class ConnectionManager {
                   avatarSeed: Value(g),
                   isGroup: const Value(true),
                   gatewayLabel: Value(row.name),
+                  pinned: Value(priorPins['${row.id}/group/$g']?.$1 ?? false),
+                  pinnedGateway: Value(
+                    priorPins['${row.id}/group/$g']?.$2 ?? false,
+                  ),
                 ),
               );
         }

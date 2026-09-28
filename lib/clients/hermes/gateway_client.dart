@@ -295,6 +295,14 @@ class HermesGatewayClient {
   ///     no exponía la sesión a pesar de tenerla abierta en Desktop).
   Future<String?> resumeCanonicalSession(String profile) async {
     final r = await CanonicalChain.resolve(
+      // 1) La VERDAD por perfil: session.list {profile, title:'Bot Chat'}.
+      //    (El gateway 0.18 no aplica el perfil al resume por título: devuelve
+      //    la sesión de OTRO perfil si la pide por título global. Verificado
+      //    E2E con el log 'session.resume devolvió sess-canonical-default'
+      //    al sincronizar 'researcher'.)
+      listByTitle: () async => _canonicalListRows(profile),
+      // 2) Fallback resume {title,profile} (para gateways que sí respeten
+      //    el perfil en el resume).
       resume: () async {
         final result = await _request('session.resume', params: {
           'title': 'Bot Chat',
@@ -302,7 +310,7 @@ class HermesGatewayClient {
         });
         return result is Map<String, Object?> ? result : null;
       },
-      listByTitle: () async => _canonicalListRows(profile),
+      // 3) Última: crear por HTTP sobre ESTE perfil (WS create no existe).
       httpCreate: () async {
         final created = await http.postJson('/api/sessions', body: {
           'title': 'Bot Chat',
@@ -521,29 +529,24 @@ class CanonicalChain {
     required Future<List<Map<String, Object?>>> Function() listByTitle,
     required Future<Map<String, Object?>?> Function() httpCreate,
   }) async {
-    Map<String, Object?>? resumeResult;
-    try {
-      resumeResult = await resume();
-    } catch (_) {}
+    // 1) La VERDAD por perfil: session.list {profile, title:'Bot Chat'}.
+    //    Un resume por título global NO es fiable en 0.18 (devuelve la sesión
+    //    de otro perfil: bug E2E 'resume devolvió sess-canonical-default al
+    //    sincronizar researcher').
     final rows = await listByTitle();
     final verified = rows
         .where((r) => r['title'] == 'Bot Chat')
         .map(HermesGatewayClient._sessionIdFrom)
         .firstWhere((id) => id != null, orElse: () => null);
+    if (verified != null) return CanonicalChain._(verified, false);
+    // 2) Fallback resume (para gateways que sí respeten el perfil): si la
+    //    lista no encontró 'Bot Chat' en ESTE perfil, NO se usa lo que devuelva
+    //    el resume (puede ser de otro perfil); se registra y se pasa a create.
+    Map<String, Object?>? resumeResult;
+    try {
+      resumeResult = await resume();
+    } catch (_) {}
     final resumed = HermesGatewayClient._sessionIdFrom(resumeResult);
-    if (verified != null) {
-      // La lista por perfil + título es la verdad. Si resume mintió (otra
-      // fila), se usa la verificada y se loguea el choque (protección anti
-      // cross-profile del bug 0.18).
-      if (resumed != null && resumed != verified) {
-        HermesGatewayClient.logCanonicalMismatch(resumed, verified);
-      }
-      return CanonicalChain._(verified, false);
-    }
-    // Sin fila verificada: resume tampoco es fiable si devolvió algo
-    // (podría ser sesión de otro perfil). Se crea 'Bot Chat' sobre ESTE
-    // perfil (HTTP: el WS no publica create en 0.18). UNIQUE(title) por
-    // perfil -> Desktop adopta la misma fila.
     if (resumed != null) {
       HermesGatewayClient.logCanonicalMismatch(resumed, null);
     }
