@@ -1,6 +1,5 @@
-import 'package:bermes_pocket/clients/herdr/herdr_client.dart';
-import 'package:bermes_pocket/clients/herdr/herdr_fleet.dart';
-import 'package:bermes_pocket/clients/herdr/herdr_fleet.dart';
+import 'package:hermes_pocket/clients/herdr/herdr_client.dart';
+import 'package:hermes_pocket/clients/herdr/herdr_fleet.dart';
 import 'package:dartssh2/dartssh2.dart';
 import 'dart:io';
 
