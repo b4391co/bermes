@@ -307,7 +307,20 @@ class ConnectionManager {
         runtime.http.forgetSession();
       }
     }
-    // 2) contraseña recordada → sesión de cookie.
+    // 2) session token de gateway loopback: estático, no rotable; la
+    //    comprobación de vida es la MISMA que el bearer (/api/auth/me).
+    if (row.authKind == 'sessionToken') {
+      final token = await store.readGatewayToken(row.id);
+      _log.info('restore ${row.name}: sessionToken presente=${token != null}');
+      if (token == null || token.isEmpty) return false;
+      runtime.http.adoptGatewayToken(token);
+      final me = await runtime.http.authMe();
+      _log.info('restore ${row.name}: authMe=${me != null}');
+      if (me != null) return true;
+      runtime.http.forgetGatewayToken();
+      return false;
+    }
+    // 3) contraseña recordada → sesión de cookie.
     final password = await store.readRememberedPassword(row.id);
     if (password == null || password.isEmpty) return false;
     final result = await login(

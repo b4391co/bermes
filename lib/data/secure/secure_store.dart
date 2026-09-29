@@ -46,6 +46,19 @@ class SecureStore {
   Future<void> deleteRememberedPassword(String connectionId) =>
       _storage.delete(key: '$_rememberPrefix$connectionId');
 
+  /// Session token de gateway loopback (`HERMES_DASHBOARD_SESSION_TOKEN`,
+  /// web_server.py:351-357). Secreto de larga vida: secure storage, jamás DB.
+  static const _tokenPrefix = 'gatewaytoken/';
+
+  Future<String?> readGatewayToken(String connectionId) =>
+      _readSafe('$_tokenPrefix$connectionId');
+
+  Future<void> writeGatewayToken(String connectionId, String token) =>
+      _writeSafe('$_tokenPrefix$connectionId', token);
+
+  Future<void> deleteGatewayToken(String connectionId) =>
+      _storage.delete(key: '$_tokenPrefix$connectionId');
+
   /// El keystore de Android puede colgar indefinidamente en el PRIMER
   /// acceso tras un arranque en frío (race conocido en algunos emuladores
   /// y dispositivos). Cada acceso lleva timeout y UN reintento; el fallo

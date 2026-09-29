@@ -575,6 +575,9 @@ class HermesHttpClient {
           ),
         ),
         read: (r) {
+          // 401 = sesión inexistente: null, no el body del error
+          // (un Map del 401 haría creer a la UI que hay sesión viva).
+          if ((r?.statusCode ?? 0) != 200) return null;
           final data = r?.data;
           return data is Map<String, Object?> ? data : null;
         },
@@ -597,6 +600,13 @@ class HermesHttpClient {
     if (cookie != null) headers['cookie'] = cookie;
     final bearer = _bearer;
     if (bearer != null) headers['authorization'] = 'Bearer $bearer';
+    final gw = _gatewayToken;
+    if (gw != null) {
+      // Header dedicado (web_server.py:441-445 evita colisiones con proxies
+      // que ya usan Authorization) + Bearer legacy (446-449).
+      headers['x-hermes-session-token'] = gw;
+      headers['authorization'] = 'Bearer $gw';
+    }
     return headers;
   }
 
@@ -657,6 +667,24 @@ class HermesHttpClient {
     _providerHint = provider;
     _onSessionRotated = onRotated;
   }
+
+  /// Session token de gateway loopback (`HERMES_DASHBOARD_SESSION_TOKEN`,
+  /// web_server.py:351-357). Enviado como `X-Hermes-Session-Token`
+  /// (web_routers/profiles.py:5-19: todas las /api/* lo aceptan en modo
+  /// loopback; el legacy `Authorization: Bearer <token>` se manda también
+  /// por compatibilidad con bundles antiguos, web_server.py:446-449).
+  String? _gatewayToken;
+
+  void adoptGatewayToken(String token) => _gatewayToken = token;
+
+  void forgetGatewayToken() => _gatewayToken = null;
+
+  /// Token activo (solo lectura para el WS `?token=`,
+  /// web_server_chat.py:291-297). null = modo gated por ticket.
+  String? get gatewayToken => _gatewayToken;
+
+  /// true = la identificación activa NO es rotable por la app (token fijo).
+  bool get hasGatewayToken => _gatewayToken != null;
 
   /// Refresh token en memoria (para persistirlo tras un giro).
   String? get refreshToken => _refreshToken;

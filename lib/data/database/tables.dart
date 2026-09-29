@@ -8,7 +8,7 @@ class Connections extends Table {
   TextColumn get host => text()();
   IntColumn get port => integer()();
   TextColumn get basePath => text().withDefault(const Constant(''))();
-  TextColumn get authKind => text()(); // password | bearerToken
+  TextColumn get authKind => text()(); // password | bearerToken | sessionToken
   TextColumn get username => text().withDefault(const Constant(''))();
   BoolColumn get allowInsecureTls =>
       boolean().withDefault(const Constant(false))();

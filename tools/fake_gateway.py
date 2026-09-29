@@ -17,7 +17,9 @@ from aiohttp import web, WSMsgType
 USERS = {"test": "hermespass"}
 INTERRUPTED = set()  # session_ids con session.interrupt en vuelo
 USERS_PROVIDERS = {"basic"}
-MODE = {"canonical": True, "prompt_error": False, "researcher_canonical": False, "approval": False}
+MODE = {"canonical": True, "prompt_error": False, "researcher_canonical": False, "approval": False,
+        "session_token": False}
+GATEWAY_TOKEN = "loopback-session-token-1"
 SRQ = {"id": "srq-test000000", "pending": None, "answered": None}
 SESSION_COOKIE = "hermes_session_at"
 REFRESH_COOKIE = "hermes_session_rt"
@@ -110,7 +112,15 @@ def now_ms() -> float:
 
 
 def authed(request: web.Request) -> bool:
-    return request.cookies.get(SESSION_COOKIE) == "valid-session"
+    if request.cookies.get(SESSION_COOKIE) == "valid-session":
+        return True
+    # Modo loopback (web_server.py:440-449): X-Hermes-Session-Token o Bearer.
+    if MODE["session_token"]:
+        header = request.headers.get("x-hermes-session-token") or ""
+        auth = request.headers.get("authorization") or ""
+        if header == GATEWAY_TOKEN or auth == f"Bearer {GATEWAY_TOKEN}":
+            return True
+    return False
 
 
 @web.middleware
@@ -119,6 +129,20 @@ async def log_middleware(request: web.Request, handler):
     print(f"GW {request.method} {request.path_qs} -> {resp.status}", flush=True)
     return resp
 
+
+async def auth_me(request: web.Request) -> web.Response:
+    """GET /api/auth/me (routes.py:449-455): identidad de la sesión vigente.
+    En modo loopback el session token basta (401 sin él)."""
+    print("AUTHME headers:",
+          {k: v[:22] for k, v in request.headers.items()
+           if k.lower() in ("x-hermes-session-token", "authorization",
+                            "cookie", "user-agent")},
+          flush=True)
+    if not authed(request):
+        return web.json_response({"detail": "Unauthorized"}, status=401)
+    return web.json_response({
+        "user_id": "user-1", "email": "test@local", "display_name": "Test",
+        "org_id": None, "provider": "basic", "expires_at": None})
 
 async def auth_providers(request: web.Request) -> web.Response:
     # Contrato real: GET /api/auth/providers (dashboard_auth/routes.py:183-192).
@@ -345,17 +369,20 @@ def rpc_result(method: str, params: dict) -> object:
                           {"name": params.get("name")})
             ROOM_LOGS.setdefault(rid, []).append(ev)
         return {"room": {**(ROOMS.get(rid) or {}), "revision": 2}}
-    if method in ("groups.disband", "groups.approve"):
-        return {"ok": True}
-    return {"ok": True}
-
-
 async def ws_handler(request: web.Request) -> web.WebSocketResponse:
-    ticket = request.query.get("ticket", "")
-    if ticket not in TICKETS or TICKETS[ticket] < time.time():
-        await request.send_str(json.dumps({"error": "invalid ticket"}))
-        return web.WebSocketResponse()
-    del TICKETS[ticket]  # single-use
+    # Modo loopback: ?token= vale como credencial de upgrade
+    # (web_server_chat.py:291-297). Modo gated: ticket single-use.
+    if MODE["session_token"]:
+        if request.query.get("token", "") != GATEWAY_TOKEN:
+            # Antes del upgrade no hay WS: rechazar la petición HTTP
+            # (el gateway real responde 401 en el handshake).
+            return web.Response(status=401, text="invalid token")
+    else:
+        ticket = request.query.get("ticket", "")
+        if ticket not in TICKETS or TICKETS[ticket] < time.time():
+            return web.Response(status=401, text="invalid ticket")
+        del TICKETS[ticket]  # single-use
+
     ws = web.WebSocketResponse()
     await ws.prepare(request)
     LIVE_WS.append(ws)
@@ -494,6 +521,8 @@ async def set_mode(request: web.Request) -> web.Response:
         MODE["researcher_canonical"] = request.query["researcher"] == "1"
     if "approval" in request.query:
         MODE["approval"] = request.query["approval"] == "1"
+    if "session_token" in request.query:
+        MODE["session_token"] = request.query["session_token"] == "1"
     return web.json_response(dict(MODE))
 
 async def test_srq(request: web.Request) -> web.Response:
@@ -543,13 +572,14 @@ def main() -> None:
     app.router.add_post("/api/sessions", session_create)
     app.router.add_get("/api/sessions/{sid}/messages", session_messages)
     app.router.add_get("/api/auth/providers", auth_providers)
-    app.router.add_get("/api/status", api_status)
+    app.router.add_get("/api/auth/me", auth_me)
     app.router.add_post("/auth/password-login", password_login)
     app.router.add_post("/auth/native/refresh", native_refresh)
     app.router.add_post("/api/auth/ws-ticket", ws_ticket)
     app.router.add_get("/api/ws", ws_handler)
     port = int(sys.argv[1] if len(sys.argv) > 1 else os.environ.get("FAKE_PORT", "9120"))
-    web.run_app(app, host="0.0.0.0", port=port, print=None)
+    web.run_app(app, host="0.0.0.0", port=port, print=None,
+                access_log_format='%r -> %s')
 
 if __name__ == "__main__":
     main()

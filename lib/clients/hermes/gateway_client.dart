@@ -117,15 +117,21 @@ class HermesGatewayClient {
 
   Future<void> _openSocket() async {
     try {
-      final ticket = await http.mintWsTicket();
-      if (ticket == null) {
-        _setState(GatewayLinkState.authExpired);
-        return;
-      }
-      final uri = Uri.parse(
-        '${profile.wsUrl}?ticket=${Uri.encodeQueryComponent(ticket)}',
+      // Dos credenciales de upgrade según el modo del gateway:
+      // - Gated (panel tras proveedor OAuth): ticket single-use de
+      //   POST /api/auth/ws-ticket (routes.py:458-466), `?ticket=`.
+      // - Loopback (sin gate): el session token vale directamente como
+      //   `?token=` (web_server_chat.py:291-297). El endpoint del ticket no
+      //   existe en ese modo (es ruta del gate), así que el mint fallaría
+      //   siempre; se consulta hasGatewayToken para bifurcar.
+      final uri = Uri.parse(profile.wsUrl).replace(
+        queryParameters: http.hasGatewayToken
+            ? {'token': http.gatewayToken!}
+            : {'ticket': await _mintTicketOrExpire()},
       );
       final ws = WebSocketChannel.connect(uri);
+
+
       _ws = ws;
 
       // Un solo listener: el primer frame ES el ready; el resto pasa a _onFrame.
@@ -229,6 +235,17 @@ class HermesGatewayClient {
       _setState(GatewayLinkState.error);
       _scheduleReconnect();
     }
+  }
+
+  /// Mint del ticket WS (gated). null → el estado ya quedó en authExpired
+  /// y el caller devuelve sin abrir socket.
+  Future<String> _mintTicketOrExpire() async {
+    final ticket = await http.mintWsTicket();
+    if (ticket == null) {
+      _setState(GatewayLinkState.authExpired);
+      throw StateError('sin ticket WS (sesión caducada)');
+    }
+    return ticket;
   }
 
   void _onFrame(dynamic raw) {

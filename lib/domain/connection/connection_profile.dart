@@ -14,6 +14,14 @@ enum HermesAuthKind {
   /// (dashboard_auth/middleware.py:166-174) pero NO la rota por nosotros: la
   /// app debe llamar `POST /auth/native/refresh` (routes.py:496-519).
   bearerToken,
+
+  /// Session token de gateway en modo loopback: el valor de
+  /// `HERMES_DASHBOARD_SESSION_TOKEN` (web_server.py:351-357). Se envía como
+  /// `X-Hermes-Session-Token` en REST (todas las /api/* lo aceptan,
+  /// web_routers/profiles.py:5-19) y `?token=` en el WS
+  /// (web_server_chat.py:291-297). SOLO vale en gateways sin gate OAuth:
+  /// en modo gated el token ni se inyecta ni se acepta.
+  sessionToken,
 }
 
 class ConnectionProfile {

@@ -38,10 +38,11 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
   late final TextEditingController _password;
   late String _scheme;
   late bool _insecureTls;
+  late HermesAuthKind _authKind;
+  late final TextEditingController _gatewayToken;
   bool _rememberPassword = true;
   bool _testing = false;
   AuthResult? _testResult;
-
   bool _diagLoading = false;
   Map<String, Object?>? _rosterDiag;
 
@@ -58,7 +59,11 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
     _username = TextEditingController(text: e?.username ?? '');
     _scheme = e?.scheme ?? 'http';
     _insecureTls = e?.allowInsecureTls ?? false;
+    _authKind =
+        HermesAuthKind.values.asNameMap()[e?.authKind] ??
+        HermesAuthKind.password;
     _password = TextEditingController();
+    _gatewayToken = TextEditingController();
     _loadRemembered();
   }
 
@@ -72,6 +77,11 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
         _rememberPassword = true;
       });
     }
+    final token = await AppServices.secrets
+        .readGatewayToken(widget.existing!.id);
+    if (token != null && mounted) {
+      setState(() => _gatewayToken.text = token);
+    }
   }
 
   @override
@@ -82,6 +92,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
     _basePath.dispose();
     _username.dispose();
     _password.dispose();
+    _gatewayToken.dispose();
     super.dispose();
   }
 
@@ -97,7 +108,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
     host: _host.text.trim(),
     port: int.parse(_port.text.trim()),
     basePath: _basePath.text.trim(),
-    authKind: HermesAuthKind.password,
+    authKind: _authKind,
     username: _username.text.trim(),
     allowInsecureTls: _insecureTls,
     enabled: widget.existing?.enabled ?? true,
@@ -169,6 +180,13 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
         await AppServices.secrets.deleteRememberedPassword(id);
       }
 
+      final gwToken = _gatewayToken.text.trim();
+      if (_authKind == HermesAuthKind.sessionToken && gwToken.isNotEmpty) {
+        await AppServices.secrets.writeGatewayToken(id, gwToken);
+      } else {
+        // Contraseña, o método token con campo vacío: no arrastrar viejo.
+        await AppServices.secrets.deleteGatewayToken(id);
+      }
       // Runtime actualizado: si ya existía, se reemplaza; si no, se crea.
       final existingRuntime = connections.runtimeFor(id);
       if (existingRuntime != null &&
@@ -177,15 +195,38 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
               existingRuntime.profile.port != profile.port ||
               existingRuntime.profile.basePath != profile.basePath ||
               existingRuntime.profile.allowInsecureTls !=
-                  profile.allowInsecureTls)) {
+                  profile.allowInsecureTls ||
+              existingRuntime.profile.authKind != profile.authKind)) {
         await connections.removeRuntime(id);
       }
       final runtime = connections.ensureRuntime(profile);
       connections.registerRows(const [], db, secrets: AppServices.secrets);
-      // Login + WS inmediato con la password del formulario: el chat queda
-      // en línea sin esperar al bootstrap; y roster de bots al día tras
-      // guardar (descubrimiento compatible con Desktop).
-      if (_password.text.isNotEmpty) {
+      if (_authKind == HermesAuthKind.sessionToken &&
+          _gatewayToken.text.trim().isNotEmpty) {
+        // Modo token: NO hay password-login. Sembrar el token en el cliente
+        // del runtime y conectar (WS con ?token=). La comprobación de vida
+        // real es el propio sync contra /api (authMe la hace el gestor).
+        try {
+          runtime.http.adoptGatewayToken(_gatewayToken.text.trim());
+          final savedRow = Connection(
+            id: id,
+            name: profile.name,
+            scheme: profile.scheme,
+            host: profile.host,
+            port: profile.port,
+            basePath: profile.basePath,
+            authKind: profile.authKind.name,
+            username: profile.username,
+            allowInsecureTls: profile.allowInsecureTls,
+            enabled: profile.enabled,
+            displayOrder: await _nextDisplayOrder(db),
+            createdAt: DateTime.now(),
+          );
+          await connections.connectAndSync(runtime, savedRow);
+        } catch (e) {
+          _log.warning('post-save token connect falló', e);
+        }
+      } else if (_password.text.isNotEmpty) {
         try {
           // El gestor resuelve el nombre real del proveedor y CONFIRMA la
           // sesión minteando un ticket WS (routes.py:458-466), en vez de
@@ -330,19 +371,62 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
               ),
             ),
             _field(_basePath, 'Ruta base', hint: '/hermes'),
-            _field(_username, 'Usuario', hint: 'opcional'),
-            _field(
-              _password,
-              'Contraseña',
-              hint: _rememberPassword ? '' : 'opcional',
-              obscure: true,
-              trailing: SwitchListTileLike(
-                title: 'Recordar en este dispositivo',
-                value: _rememberPassword,
-                onChanged: (v) =>
-                    setState(() => _rememberPassword = v),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Hp.s4, Hp.s2, Hp.s4, Hp.s2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const _Label('Método de acceso'),
+                  const SizedBox(height: Hp.s1),
+                  SegmentedButton<HermesAuthKind>(
+                    segments: const [
+                      ButtonSegment(
+                        value: HermesAuthKind.password,
+                        label: Text('Usuario'),
+                      ),
+                      ButtonSegment(
+                        value: HermesAuthKind.sessionToken,
+                        label: Text('Token'),
+                      ),
+                    ],
+                    selected: {_authKind},
+                    onSelectionChanged: (s) =>
+                        setState(() => _authKind = s.first),
+                    showSelectedIcon: false,
+                    style: const ButtonStyle(
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                  Text(
+                    _authKind == HermesAuthKind.sessionToken
+                        ? 'Pega el session token del gateway '
+                            '(HERMES_DASHBOARD_SESSION_TOKEN en su .env). '
+                            'Válido solo en gateways sin portal OAuth.'
+                        : 'Inicio de sesión con usuario y contraseña '
+                            '(sesión renovada automáticamente).',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
               ),
             ),
+            if (_authKind == HermesAuthKind.sessionToken)
+              _field(_gatewayToken, 'Session token',
+                  hint: 'Pega el token del gateway', obscure: true),
+            if (_authKind == HermesAuthKind.password) ...[
+              _field(_username, 'Usuario', hint: 'opcional'),
+              _field(
+                _password,
+                'Contraseña',
+                hint: _rememberPassword ? '' : 'opcional',
+                obscure: true,
+                trailing: SwitchListTileLike(
+                  title: 'Recordar en este dispositivo',
+                  value: _rememberPassword,
+                  onChanged: (v) =>
+                      setState(() => _rememberPassword = v),
+                ),
+              ),
+            ],
           ]),
           if (_insecureTlsBannerVisible) _insecureBanner(cs),
           SettingsCard(
