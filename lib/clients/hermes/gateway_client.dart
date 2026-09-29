@@ -466,11 +466,14 @@ class HermesGatewayClient {
   Future<Object?> rawCall(String method, {Map<String, Object?>? params}) =>
       _request(method, params: params);
 
-  /// Roster de bots del gateway. Hermes Desktop lista los perfiles con
-  /// REST GET /api/profiles (hermes-protocol §1), que es el camino que
-  /// SIEMPRE existe; profiles.list por JSON-RPC es el fallback (contrato
-  /// hermes-map §4, gateway moderno). Un WS que responde vacío también
-  /// cae al REST antes de devolver lista vacía.
+  /// Roster de bots del gateway. FUENTE PRIMARIA: `profiles.list` por WS
+  /// (methods_profiles.py:267-284) — es lo que consume Desktop y trae las
+  /// filas completas: `ui_meta` (+ espejo de grupos), `ui_meta_revisions`,
+  /// `canonical_session`, `previous_names`. El REST GET /api/profiles
+  /// (web_routers/profiles.py:83-99) NO trae esos campos: con él la app no
+  /// ve grupos ni sesión canónica ni avatar meta. Queda como FALLBACK para
+  /// un gateway sin `profiles.list` (versiones viejas). Un WS que responde
+  /// vacío también cae al REST antes de devolver lista vacía.
   Future<List<Map<String, Object?>>> listProfiles() async {
     Object? decode(Object? data) => data is List
         ? {'profiles': data}
@@ -480,15 +483,15 @@ class HermesGatewayClient {
 
     Object? result;
     try {
-      result = decode(await http.getJson('/api/profiles'));
-    } catch (_) {
-      result = null; // red/HTTP cae al WS; el login ya validó credenciales.
+      result = decode(await _request('profiles.list'));
+    } on JsonRpcError {
+      result = null;
     }
     if (result == null) {
       try {
-        result = decode(await _request('profiles.list'));
-      } on JsonRpcError {
-        result = null;
+        result = decode(await http.getJson('/api/profiles'));
+      } catch (_) {
+        result = null; // red/HTTP; el login ya validó credenciales.
       }
     }
     final List raw = switch (result) {
