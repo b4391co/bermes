@@ -86,3 +86,20 @@ Todos firmados con la clave de distribución (`CN=Hermes Pocket, O=Bermes`).
 ## Notas
 - La renderización de la terminal SSH se verificó en emulador (mono, UTF-8,
   prompt); si tu caso concreto sigue "viéndose mal", necesito una captura.
+
+# Release 0.1.17 (2026-09-29)
+
+## Inicio de sesión por session token
+- Nuevo método «Token» en el editor de conexión, junto a «Usuario»:
+  pega el session token del gateway (el valor de
+  `HERMES_DASHBOARD_SESSION_TOKEN` en el `.env` del gateway; el mismo que
+  acepta Hermes Desktop en «Paste session token»).
+- Válido para gateways en modo loopback (sin portal OAuth). REST usa el
+  header `X-Hermes-Session-Token` (y `Bearer` como compatibilidad) y el
+  WebSocket `?token=` — el mismo contrato que Desktop.
+- El token se guarda en el almacenamiento seguro del dispositivo, nunca
+  en la base de datos.
+- El método por usuario y contraseña queda exactamente como estaba.
+
+## Corrección
+- `/api/auth/me` con 401 ya no se interpreta como sesión válida.
