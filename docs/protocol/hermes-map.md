@@ -127,6 +127,12 @@ desmiente o matiza:
   primer frame o no llegar; la app no bloquea sobre él. No existe
   `prompt.event_subscribe` en el backend (0 coincidencias en todo el repo): los
   eventos de sesión llegan por el canal del WS de chat sin declaración previa.
+- **§1/§2 credencial WS según modo del gate** (`web_server_chat.py:220-241`):
+  con `auth_required=True` (gated, el caso del usuario) sólo vale `?ticket=` (o
+  `?internal=`); en loopback/`--insecure` el gate IGNORA el ticket y exige el
+  `?token=` legado. Pocket asume modo gated; contra un `hermes serve` local sin
+  auth habría que sondear `/api/status.auth_required` y elegir credencial
+  (pendiente, no aplica al caso del usuario).
 - **§2 close codes:** 4401/4403 sí (`chat_ws.py:139-151`); 4400 sólo aplica a
   `/api/pub`/`/api/events`, no a `/api/ws`. Implementado (2026-09-29):
   `gateway_client.dart` trata 4401 como `authExpired` y 4403 como error
