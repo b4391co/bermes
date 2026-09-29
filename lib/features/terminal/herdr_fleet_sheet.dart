@@ -33,13 +33,15 @@ class HerdrFleetSheet extends StatefulWidget {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => FractionallySizedBox(
-        heightFactor: 0.8,
-        child: HerdrFleetSheet(
-          hosts: hosts,
-          credentialsFor: credentialsFor,
-          onFingerprint: onFingerprint,
-          onOpenAgent: onOpenAgent,
+      builder: (_) => SafeArea(
+        child: FractionallySizedBox(
+          heightFactor: 0.8,
+          child: HerdrFleetSheet(
+            hosts: hosts,
+            credentialsFor: credentialsFor,
+            onFingerprint: onFingerprint,
+            onOpenAgent: onOpenAgent,
+          ),
         ),
       ),
     );

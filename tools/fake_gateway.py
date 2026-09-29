@@ -180,6 +180,7 @@ async def ws_ticket(request: web.Request) -> web.Response:
 BOT_META = {"title": "Compi", "description": "Bot con meta hermes-mobile",
            "avatar": {"shape": "circle", "color": "#1a7f5a"},
            "groups": ["Equipo"], "group": "Equipo"}
+BOT_META_REV = {"hermes-bots": 1}
 
 
 def rpc_result(method: str, params: dict) -> object:
@@ -216,13 +217,12 @@ def rpc_result(method: str, params: dict) -> object:
                         "deleted": {},
                     },
                 },
-                "ui_meta_revisions": {"hermes-bots-groups": 1},
+                "ui_meta_revisions": dict(BOT_META_REV, **{"hermes-bots-groups": 1}),
                 "canonical_session": ({"id": "sess-canonical-default", "resolved_id": "sess-canonical-default-r", "title": "Bot Chat"} if MODE["canonical"] else None),
             },
             {
                 "name": "researcher",
                 "display_name": "Researcher",
-                "description": "Bot de investigación",
                 "is_default": False,
                 "ui_meta": {"hermes-bots": {"description": "Bot de investigación", "avatar": {"shape": "square", "color": "#7a3fd0"}}},
                 "canonical_session": ({"id": "sess-canonical-researcher", "resolved_id": "sess-canonical-researcher-r", "title": "Bot Chat"} if MODE["canonical"] else None),
@@ -230,8 +230,20 @@ def rpc_result(method: str, params: dict) -> object:
         ]}
     if method == "profiles.configure":
         um = params.get("ui_meta", {}).get("hermes-bots", {})
+        expected = params.get("ui_meta_expected_revisions")
+        if isinstance(expected, dict):
+            want = expected.get("hermes-bots")
+            actual = BOT_META_REV.get("hermes-bots", 0)
+            if want != actual:
+                # Contrato real (methods_profiles.py:587-594): conflicto ->
+                # applied.ui_meta=false + revisiones actuales, sin escribir.
+                return {"ok": False,
+                        "applied": {"ui_meta": False, "ui_meta_conflicts":
+                                    {"hermes-bots": {"expected": want, "actual": actual}},
+                                    "ui_meta_revisions": dict(BOT_META_REV)}}
         BOT_META.update({k: v for k, v in um.items() if v})
-        return {"ok": True}
+        BOT_META_REV["hermes-bots"] = BOT_META_REV.get("hermes-bots", 0) + 1
+        return {"ok": True, "applied": {"ui_meta": True}}
     if method == "profiles.get_asset":
         if params.get("name") != "default":
             raise ValueError("no avatar")
@@ -359,6 +371,7 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
         except Exception:
             continue
         rid, method, params = frame.get("id"), frame.get("method", ""), frame.get("params") or {}
+        print(f"GW-RPC {method} {json.dumps(params)[:400]}", flush=True)
         if method == "client.capabilities":
             # El gateway real CONTESTA el rpc (response con el id) además de
             # habilitar server-requests: sin respuesta, el await del cliente

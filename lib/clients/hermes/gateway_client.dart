@@ -53,6 +53,10 @@ class HermesGatewayClient {
   GatewayReady? _ready;
   int _reconnectAttempts = 0;
   int _nextRequestId = 1;
+
+  /// Pings `gateway.ping` sin respuesta: 3 seguidos (45 s) fuerzan
+  /// reconexión — socket half-open sin onError/onDone.
+  int _unansweredPings = 0;
   bool _manuallyClosed = false;
 
   final _stateController = StreamController<GatewayLinkState>.broadcast();
@@ -200,9 +204,25 @@ class HermesGatewayClient {
         ),
       );
 
-      _pingTimer?.cancel();
+      // Heartbeat con deadline (convención Desktop json-rpc-channel.ts:143-144,
+      // 490-536): un socket half-open (p. ej. adb reverse o NAT que traga
+      // writes sin RST) acepta los pings en silencio y el canal queda mudo sin
+      // onError/onDone. Si 3 pings seguidos no responden (45 s), se fuerza la
+      // reconexión: el estado vuelve a `reconnecting` y las peticiones en
+      // vuelo fallan con 'not connected' en vez de colgar 30 s por RPC.
+      _unansweredPings = 0;
       _pingTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-        _request('gateway.ping').ignore();
+        _unansweredPings++;
+        if (_unansweredPings >= 3) {
+          _log.warning('sin respuesta a 3 pings (45 s): socket half-open, '
+              'forzando reconexión');
+          _unansweredPings = 0;
+          _scheduleReconnect();
+          return;
+        }
+        _request('gateway.ping')
+            .whenComplete(() => _unansweredPings = 0)
+            .ignore();
       });
     } catch (e, st) {
       _log.warning('connect failed', e, st);
@@ -636,30 +656,43 @@ class HermesGatewayClient {
     }
   }
 
-  /// Lee la sección `ui_meta['hermes-bots']` de un perfil (grupos, título…).
-  /// null si el perfil no existe o no trae meta de roster.
-  Future<BotRosterMeta?> profileRosterMeta(String name) async {
+  /// `ui_meta['hermes-bots']` + revision CAS de un perfil (hermes-map §4).
+  /// Devuelve también `revision` (`ui_meta_revisions['hermes-bots']`, siempre
+  /// presente en gateways con CAS — methods_profiles.py:242-251) para que el
+  /// guardado pueda ir con `ui_meta_expected_revisions`.
+  Future<({BotRosterMeta? meta, int revision})> profileRosterMeta(
+    String name,
+  ) async {
     try {
       final profiles = await listProfiles();
       for (final p in profiles) {
-        if (p['name'] == name) return BotRosterMeta.fromProfile(p);
+        if (p['name'] != name) continue;
+        final revs = p['ui_meta_revisions'];
+        final rev = revs is Map ? (revs['hermes-bots'] as int? ?? 0) : 0;
+        return (meta: BotRosterMeta.fromProfile(p), revision: rev);
       }
     } catch (e) {
       _log.info('profileRosterMeta $name no disponible: $e');
     }
-    return null;
+    return (meta: null, revision: 0);
   }
 
-  /// Edita metadatos de roster de un bot (hermes-map §4: profiles.configure;
-  /// mismo contrato que Hy4ri/hermes-mobile BotsViewModel::wsClientConfigureBot):
-  /// ui_meta.hermes-bots {title, description, avatar{shape,color,icon}}.
-  /// CAS por ui_meta_expected_revisions omitido (igual que la referencia).
+  /// Edita metadatos de roster de un bot (hermes-map §4: profiles.configure):
+  /// ui_meta.hermes-bots {title, description, avatar{shape,color,icon}, groups}.
+  /// `expectedRevision` activa el CAS por clave
+  /// (`ui_meta_expected_revisions`, methods_profiles.py:575-600): si otro
+  /// cliente (Desktop) tocó la sección desde que se leyó, el gateway rechaza
+  /// la escritura y `applied.ui_meta` sale false → devolvemos false, así la
+  /// UI avisa en vez de pisar el cambio ajeno.
+  /// Nota: el merge del gateway es POR CLAVE de ui_meta — la sección
+  /// `hermes-bots` se reemplaza entera, por eso `groups` se preserva arriba.
   Future<bool> configureBot(
     String name, {
     String? title,
     String? description,
     BotAvatarMeta? avatar,
     List<String> groups = const [],
+    int? expectedRevision,
   }) async {
     final metaMap = <String, Object?>{};
     if (title != null && title.isNotEmpty) metaMap['title'] = title;
@@ -674,12 +707,20 @@ class HermesGatewayClient {
     }
     if (groups.isNotEmpty) metaMap['groups'] = groups;
     try {
-      await _request('profiles.configure', params: {
+      final result = await _request('profiles.configure', params: {
         'name': name,
         'ui_meta': {
           'hermes-bots': metaMap,
         },
+        if (expectedRevision != null)
+          'ui_meta_expected_revisions': {'hermes-bots': expectedRevision},
       });
+      // applied.ui_meta dice si la sección se escribió (false = conflicto CAS
+      // o fallo best-effort, methods_profiles.py:579, :391).
+      if (result is Map) {
+        final applied = result['applied'];
+        if (applied is Map && applied['ui_meta'] == false) return false;
+      }
       return true;
     } on JsonRpcError {
       return false;
@@ -693,6 +734,15 @@ class HermesGatewayClient {
     _pingTimer?.cancel();
     _wsSub?.cancel();
     _ws = null;
+    // Las peticiones en vuelo no pueden esperar al reintento: el socket está
+    // muerto (o half-open) y sus futures colgarían hasta el timeout. Fallan
+    // AHORA con 'not connected'; el llamador reintenta si procede.
+    for (final c in _pending.values) {
+      if (!c.isCompleted) {
+        c.completeError(JsonRpcError(-32000, 'not connected'));
+      }
+    }
+    _pending.clear();
     // Espera progresiva: 0.5s, 0.8s, 1.28s … 30s máx.
     final delay = Duration(
       milliseconds: min(30000, (500 * pow(1.6, _reconnectAttempts++)).toInt()),

@@ -21,9 +21,11 @@ class HerdrPanel extends StatefulWidget {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => FractionallySizedBox(
-        heightFactor: 0.75,
-        child: HerdrPanel(client: client, onOpenAgent: onOpenAgent),
+      builder: (_) => SafeArea(
+        child: FractionallySizedBox(
+          heightFactor: 0.75,
+          child: HerdrPanel(client: client, onOpenAgent: onOpenAgent),
+        ),
       ),
     );
   }

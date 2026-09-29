@@ -79,6 +79,24 @@ class _BotEditorSheetState extends State<BotEditorSheet> {
     _description = TextEditingController(text: widget.currentDescription ?? '');
     _shape = widget.currentAvatar?.shape ?? 'rounded';
     _color = widget.currentAvatar?.color ?? _colors.first;
+    // El subtítulo local compone descripción + ' · Grupos: …' (syncBots).
+    // Editar SOBRE el compuesto duplica el sufijo al guardar. La descripción
+    // base real vive en el gateway: se lee y reemplaza en cuanto llega.
+    _loadRealMeta();
+  }
+
+  Future<void> _loadRealMeta() async {
+    final runtime = AppServices.connections.runtimeFor(widget.connectionId);
+    if (runtime == null) return;
+    try {
+      final meta = await runtime.gateway.profileRosterMeta(widget.profileName);
+      final d = meta.meta?.description;
+      if (d != null && d.isNotEmpty && mounted) {
+        setState(() => _description.text = d);
+      }
+    } catch (_) {
+      // Gateway no disponible: el fallback local (subtitle) ya está en el campo.
+    }
   }
 
   @override
@@ -96,13 +114,16 @@ class _BotEditorSheetState extends State<BotEditorSheet> {
       try {
         // profiles.configure reemplaza la sección ui_meta['hermes-bots'] del
         // perfil: sin preservar `groups` se perderían los grupos del Desktop.
+        // Con revision CAS: si Desktop escribió desde que abrimos el sheet,
+        // el gateway rechaza y avisamos en vez de pisar el cambio ajeno.
         final existing = await runtime.gateway.profileRosterMeta(widget.profileName);
         ok = await runtime.gateway.configureBot(
           widget.profileName,
           title: _title.text.trim(),
           description: _description.text.trim(),
           avatar: BotAvatarMeta(shape: _shape, color: _color),
-          groups: existing?.groups ?? const [],
+          groups: existing.meta?.groups ?? const [],
+          expectedRevision: existing.revision,
         );
         if (ok) {
           await AppServices.connections.resyncAll();
@@ -126,11 +147,15 @@ class _BotEditorSheetState extends State<BotEditorSheet> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Padding(
+      // SafeArea bottom: sin ella el botón Guardar queda bajo la gesture-bar
+      // del sistema (Android 15 edge-to-edge) y el tap llega al launcher.
       padding: EdgeInsets.fromLTRB(
         Hp.s4,
         Hp.s3,
         Hp.s4,
-        Hp.s4 + MediaQuery.of(context).viewInsets.bottom,
+        Hp.s4 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).padding.bottom,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
