@@ -192,13 +192,40 @@ class HerdrAgent {
     this.title,
   });
 
-  factory HerdrAgent.fromJson(Map<String, Object?> j) => HerdrAgent(
-    name: j['name'] as String? ?? j['agent'] as String? ?? 'agent',
-    status: HerdrStatusX.fromWire(j['agent_status'] as String?),
-    paneId: j['pane_id'] as String?,
-    workspaceId: j['workspace_id'] as String?,
-    title: j['title'] as String?,
-  );
+  factory HerdrAgent.fromJson(Map<String, Object?> j) {
+    // Snapshot REAL v0.9.1: NO hay 'name' ni 'title'. Identidad = agent +
+    // pane_id; etiqueta legible = terminal_title_stripped. Se respeta 'name'
+    // solo si la fuente ya lo provee (formato de sesión alternativa).
+    final agent = j['agent'] as String?;
+    // El stripped puede empezar con el glifo π del título de Hermes, un
+    // prefijo '> ' y/o un glifo de spinner (U+2800-U+28FF). Se recortan a mano
+    // (el regex de rangos \u no es fiable en el parser de dart2js/kernel).
+    var stripped = ((j['terminal_title_stripped'] as String?) ?? '').trim();
+    const junk = 'πϖ›·•\u00a0';
+    while (stripped.isNotEmpty) {
+      final c = stripped[0];
+      final cp = stripped.codeUnitAt(0);
+      // Solo el PREFIJO de decoración: π/ϖ/›/·/•, spinner (U+2800-28FF),
+      // '>' o espacio. 'Fix bot...' conserva su F.
+      final decorative =
+          junk.contains(c) || c == '>' || c == ' ' || (cp >= 0x2800 && cp <= 0x28ff);
+      if (!decorative) break;
+      stripped = stripped.substring(1).trim();
+    }
+    final name = (j['name'] as String?) ??
+        (stripped.isNotEmpty
+            ? stripped
+            : agent != null && j['pane_id'] != null
+            ? '$agent @ ${j['pane_id']}'
+            : agent ?? 'agent');
+    return HerdrAgent(
+      name: name,
+      status: HerdrStatusX.fromWire(j['agent_status'] as String?),
+      paneId: j['pane_id'] as String?,
+      workspaceId: j['workspace_id'] as String?,
+      title: j['title'] as String? ?? agent,
+    );
+  }
 }
 
 enum HerdrStatus { idle, working, blocked, done, unknown }
@@ -232,9 +259,12 @@ class HerdrTerminalBridge {
   final _closed = StreamController<void>.broadcast();
   StreamSubscription<String>? _stdoutSub;
 
-  // Se usa dynamic para evitar dependencia circular; en la práctica Uint8List.
-  // (El adaptador existe para mantener el stream tipado simple.)
-  Stream<dynamic> get output => _output.stream;
+  // El contrato del stream es binario: cada evento es una lista de bytes ANSI
+  // crudos. Quien consume decide la decodificación (latin1 → code units, que
+  // es lo que xterm2.write espera). Nunca utf8.decoder aquí: un multibyte
+  // partido entre frames se corrompería.
+  Stream<List<int>> get output => _output.stream;
+
   Stream<void> get onClosed => _closed.stream;
 
   HerdrTerminalBridge._(this._session) {
@@ -248,7 +278,9 @@ class HerdrTerminalBridge {
   void _onLine(String line) {
     if (line.trim().isEmpty) return;
     try {
-      final frame = jsonDecode(line) as Map<String, Object?>;
+      final decoded = jsonDecode(line);
+      if (decoded is! Map) return;
+      final frame = decoded.cast<String, Object?>();
       switch (frame['type']) {
         case 'terminal.frame':
           // Campo real v0.9.1: bytes (b64 ANSI); "data" era el contrato supuesto.

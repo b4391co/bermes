@@ -11,18 +11,101 @@ Endpoints:
 RPC soportados: gateway.ping, prompt.submit, session.interrupt, groups.*,
 messages.history. Tras prompt.submit emite message.start/delta*/complete.
 """
-import asyncio, json, time, uuid, base64
+import asyncio, json, os, sys, time, uuid, base64
 from aiohttp import web, WSMsgType
 
 USERS = {"test": "hermespass"}
+INTERRUPTED = set()  # session_ids con session.interrupt en vuelo
+USERS_PROVIDERS = {"basic"}
 MODE = {"canonical": True, "prompt_error": False, "researcher_canonical": False}
 SESSION_COOKIE = "hermes_session_at"
 REFRESH_COOKIE = "hermes_session_rt"
 TICKETS: dict[str, float] = {}
+import hashlib
+ROOMS: dict[str, dict] = {}
+ROOM_LOGS: dict[str, list] = {}
+LIVE_WS: list = []
+
+
+def _room_ev(rid: str, seq: int, kind: str, actor: dict, payload: dict) -> dict:
+    return {"room_id": rid, "seq": seq, "event_id": f"e{seq}",
+            "kind": kind, "actor": actor, "authority_epoch": 1,
+            "payload": payload, "created_at": time.time(), "idempotent": False}
+
+
+async def _emit_turn(ws, sid: str, ack_id=None, seq_start: int = 2) -> None:
+    """Emite un turno con deltas lentos; session.interrupt lo corta."""
+    INTERRUPTED.discard(sid)
+    print(f"EV emit start sid={sid}", flush=True)
+    await ws.send_str(json.dumps({"method": "event", "params": {
+        "type": "message.start", "session_id": sid, "payload": {}, "seq": 1}}))
+    for n, chunk in enumerate(("Hola", ", soy ", "el bot ", "de prueba."), start=2):
+        await asyncio.sleep(1.0)
+        if sid in INTERRUPTED:
+            INTERRUPTED.discard(sid)
+            await ws.send_str(json.dumps({"method": "event", "params": {
+                "type": "message.complete", "session_id": sid,
+                "payload": {"text": " ".join(("Hola", ", soy ", "el bot ", "de prueba.")[:n-1]),
+                           "status": "interrupted"}, "seq": n}}))
+            if ack_id is not None:
+                await ws.send_str(json.dumps({"id": ack_id, "result": {"status": "streaming"}}))
+            return
+        await ws.send_str(json.dumps({"method": "event", "params": {
+            "type": "message.delta", "session_id": sid,
+            "payload": {"text": chunk}, "seq": n}}))
+    await ws.send_str(json.dumps({"method": "event", "params": {
+        "type": "message.complete", "session_id": sid,
+        "payload": {"text": "Hola, soy el bot de prueba."}, "seq": 6}}))
+    if ack_id is not None:
+        await ws.send_str(json.dumps({"id": ack_id, "result": {"status": "streaming"}}))
+
+
+async def _broadcast_room(rid: str, ev: dict) -> None:
+    frame = json.dumps({"method": "event", "params": {
+        "type": "room.event", "payload": {"room_id": rid, "event": ev}, "seq": ev["seq"]}})
+    for ws in list(LIVE_WS):
+        try:
+            await ws.send_str(frame)
+        except Exception:
+            LIVE_WS.remove(ws)
+
+
+async def _bot_reply(rid: str, user_ev: dict) -> None:
+    """El driver del fake: contesta al usuario como 'default' tras 0.6s."""
+    await asyncio.sleep(0.6)
+    logs = ROOM_LOGS.get(rid) or []
+    ev = _room_ev(rid, (logs[-1]["seq"] if logs else 0) + 1, "message.member",
+                  {"kind": "member", "profile": "default", "handle": "default",
+                   "display_name": "Compi"},
+                  {"text": f"(hosted) Eco de Compi: {user_ev['payload']['text']}",
+                   "thread_id": user_ev["payload"]["thread_id"]})
+    logs.append(ev)
+    await _broadcast_room(rid, ev)
+
+# Sala hosted REAL equivalente al espejo del Desktop (roomId 'room-1'):
+ROOMS["room-1"] = {"room_id": "room-1", "name": "Equipo",
+                   "members": [{"profile": "default", "handle": "default"},
+                               {"profile": "researcher", "handle": "researcher"}]}
+ROOM_LOGS["room-1"] = [
+    _room_ev("room-1", 1, "room.created", {"kind": "gateway", "id": "fake-gw-1"},
+             {"name": "Equipo"}),
+    _room_ev("room-1", 2, "message.user", {"kind": "user", "id": "desktop"},
+             {"text": "hola equipo", "thread_id": "t-seed"}),
+    _room_ev("room-1", 3, "message.member",
+             {"kind": "member", "profile": "default", "handle": "default",
+              "display_name": "Compi"},
+             {"text": "(hosted) ¡Hola! Soy Compi en la sala.", "thread_id": "t-seed"}),
+]
 
 
 def now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def now_ms() -> float:
+    # El envelope v3 del espejo usa ms de época (group-chat.ts:306,335).
+    return time.time() * 1000
+
 
 
 def authed(request: web.Request) -> bool:
@@ -36,6 +119,20 @@ async def log_middleware(request: web.Request, handler):
     return resp
 
 
+async def auth_providers(request: web.Request) -> web.Response:
+    # Contrato real: GET /api/auth/providers (dashboard_auth/routes.py:183-192).
+    return web.json_response({
+        "providers": [{"name": "basic", "display_name": "Basic",
+                       "supports_password": True}],
+    })
+
+
+async def api_status(request: web.Request) -> web.Response:
+    # Contrato real: GET /api/status público (web_routers/status.py:366-380).
+    return web.json_response({"auth_required": True, "version": "0.18.0-fake",
+                              "providers": ["basic"]})
+
+
 async def health(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "service": "hermes-gateway-fake"})
 
@@ -45,11 +142,16 @@ async def password_login(request: web.Request) -> web.Response:
         body = await request.json()
     except Exception:
         return web.json_response({"error": {"code": "bad_request", "message": "json"}}, status=400)
-    if body.get("provider") != "basic":
+    # El contrato real (routes.py:372) exige `provider` == el nombre del
+    # proveedor registrado. Aceptamos el nombre real ('basic') sin alias:
+    # los clientes deben resolver el nombre vía GET /api/auth/providers.
+    if body.get("provider") not in USERS_PROVIDERS:
         return web.json_response({"error": {"code": "unsupported_provider", "message": "provider"}}, status=400)
     if USERS.get(body.get("username")) != body.get("password"):
-        return web.json_response({"error": {"code": "invalid_credentials", "message": "bad user/pass"}}, status=401)
-    resp = web.json_response({"user": {"id": "u1", "username": body["username"]}})
+        # 401 genérico como el real (routes.py:400-410: no distingue usuario
+        # inexistente de contraseña mala).
+        return web.json_response({"error": {"code": "invalid_credentials", "message": "Credenciales inválidas"}}, status=401)
+    resp = web.json_response({"ok": True, "next": "/"})
     resp.set_cookie(SESSION_COOKIE, "valid-session", max_age=12 * 3600, path="/")
     resp.set_cookie(REFRESH_COOKIE, "refresh-token-1", max_age=30 * 24 * 3600, path="/", httponly=True)
     return resp
@@ -66,7 +168,9 @@ async def native_refresh(request: web.Request) -> web.Response:
 
 
 async def ws_ticket(request: web.Request) -> web.Response:
-    if not authed(request):
+    # Auth real: cookie de sesión O Bearer (middleware.py:166-174).
+    bearer = (request.headers.get("Authorization") or "").removeprefix("Bearer ")
+    if not authed(request) and not bearer.startswith("tok"):
         return web.json_response({"error": {"code": "unauthorized", "message": "no session"}}, status=401)
     ticket = uuid.uuid4().hex
     TICKETS[ticket] = time.time() + 30
@@ -87,7 +191,7 @@ def rpc_result(method: str, params: dict) -> object:
                               "message": f"unknown session {params.get('session_id')!r}"}}
         return {"status": "streaming"}
     if method == "session.interrupt":
-        return {"interrupted": True}
+        return {"interrupted": True}  # el corte real lo aplica el emisor (ws_handler)
     if method == "messages.history":
         return {"messages": [], "pagination": {"has_more": False}}
     if method == "profiles.list":
@@ -97,7 +201,22 @@ def rpc_result(method: str, params: dict) -> object:
                 "display_name": "Default Bot",
                 "description": "Bot principal de pruebas",
                 "is_default": True,
-                "ui_meta": {"hermes-bots": dict(BOT_META), "hermes-bots-groups": {"groups": [{"name": "Equipo", "bots": ["default", "researcher"]}]}},
+                # Envelope REAL v3 del espejo (group-chat.ts:68-80,296-320), no {groups:[...]}.
+                "ui_meta": {
+                    "hermes-bots": dict(BOT_META),
+                    "hermes-bots-groups": {
+                        "version": 3, "updatedAt": now_ms(),
+                        "rooms": {
+                            "id:room-1": {
+                                "name": "Equipo", "roomId": "room-1", "revision": 1,
+                                "members": [{"name": "default"}, {"name": "researcher"}],
+                                "log": [{"at": now_ms(), "from": {"kind": "user", "name": "You"}, "text": "hola"}],
+                            },
+                        },
+                        "deleted": {},
+                    },
+                },
+                "ui_meta_revisions": {"hermes-bots-groups": 1},
                 "canonical_session": ({"id": "sess-canonical-default", "resolved_id": "sess-canonical-default-r", "title": "Bot Chat"} if MODE["canonical"] else None),
             },
             {
@@ -105,7 +224,8 @@ def rpc_result(method: str, params: dict) -> object:
                 "display_name": "Researcher",
                 "description": "Bot de investigación",
                 "is_default": False,
-                "canonical_session": ({"id": "sess-canonical-researcher", "title": "Bot Chat"} if MODE["canonical"] and MODE.get("researcher_canonical") else None),
+                "ui_meta": {"hermes-bots": {"description": "Bot de investigación", "avatar": {"shape": "square", "color": "#7a3fd0"}}},
+                "canonical_session": ({"id": "sess-canonical-researcher", "resolved_id": "sess-canonical-researcher-r", "title": "Bot Chat"} if MODE["canonical"] else None),
             },
         ]}
     if method == "profiles.configure":
@@ -131,22 +251,88 @@ def rpc_result(method: str, params: dict) -> object:
         if not MODE["canonical"]:
             return {"error": {"code": "not_found", "message": "no bot chat"}}
         prof = params.get("profile", "default")
-        # El bug REAL reportado por el usuario: el gateway resume la sesión
-        # por TÍTULO GLOBALLY y puede devolver la de OTRO perfil. Se simula:
-        # researcher sin su propio Bot Chat -> recibe la de default.
-        if prof == "researcher" and not MODE.get("researcher_canonical"):
-            return {"session_id": "sess-canonical-default"}
-        return {"session_id": f"sess-canonical-{prof}"}
+        # Cada perfil tiene SU propio Bot Chat (canonical_session con
+        # resolved_id distinto).
+        return {"session_id": f"sess-canonical-{prof}-r"}
     if method == "groups.capabilities":
-        return {"groups": True, "approval": ["once", "session", "always", "deny"]}
+        return {"protocol_version": 2, "driver": "hosted",
+                "authority_gateway_id": "fake-gw-1",
+                "methods": ["groups.capabilities", "groups.list", "groups.create",
+                            "groups.state", "groups.send", "groups.log",
+                            "groups.rename", "groups.disband", "groups.approve"]}
     if method == "groups.state":
-        return {"room": {"id": params.get("room_id"), "name": "Test Room", "members": [
-            {"id": "bot-1", "kind": "bot", "name": "default", "gateway": "fake"}]}}
+        rid = params.get("room_id")
+        room = ROOMS.get(rid) or {"room_id": rid, "name": "Test Room",
+                                  "members": [{"profile": "default", "handle": "default"}]}
+        return {"room": {**room, "authority_gateway_id": "fake-gw-1",
+                         "authority_epoch": 1, "revision": 1},
+                "driver_status": {"state": "idle"}}
     if method == "groups.log":
-        return {"events": [], "latest_seq": 0, "has_more": False}
+        rid = params.get("room_id")
+        since = int(params.get("since_seq") or 0)
+        evs = ROOM_LOGS.get(rid, [])
+        page = [e for e in evs if e["seq"] > since][:int(params.get("limit") or 100)]
+        return {"events": page,
+                "cursor": page[-1]["seq"] if page else since,
+                "latest_seq": evs[-1]["seq"] if evs else 0,
+                "has_more": False,
+                "authority": {"gateway_id": "fake-gw-1", "epoch": 1}}
     if method == "groups.create":
-        return {"room": {"id": "room-1", "name": params.get("name"), "members": params.get("members", [])}}
-    if method in ("groups.rename", "groups.disband", "groups.send", "groups.approve"):
+        rid = params.get("room_id")
+        if not rid or not isinstance(rid, str):
+            raise ValueError("room_id required")
+        if rid in ROOMS:
+            # idempotencia por contenido: mismo id+mismo contenido -> mismo room
+            same = ROOMS[rid]["name"] == params.get("name")
+            if not same:
+                return {"error": {"code": "conflict", "message": "room_id busy"}}
+        else:
+            ROOMS[rid] = {"room_id": rid, "name": params.get("name"),
+                          "members": params.get("members") or []}
+            ROOM_LOGS[rid] = [_room_ev(rid, 1, "room.created",
+                                       {"gateway_id": "fake-gw-1"},
+                                       {"name": params.get("name")})]
+        return {"room": {**ROOMS[rid], "authority_gateway_id": "fake-gw-1",
+                         "authority_epoch": 1, "revision": 1},
+                "idempotent": True}
+    if method == "groups.send":
+        rid = params.get("room_id")
+        ev_id = params.get("event_id")
+        payload = params.get("payload") or {}
+        # Validación EXACTA como hosted_room_discussion._validate_user_payload:
+        # campos {text, thread_id} justemente.
+        if set(payload.keys()) != {"text", "thread_id"}:
+            return {"error": {"code": "invalid", "message": "user payload fields"}}
+        room = ROOMS.get(rid)
+        if room is None:
+            return {"error": {"code": "not_found", "message": "no room"}}
+        logs = ROOM_LOGS.setdefault(rid, [])
+        # idempotencia por event_id del cliente -> user:<sha>
+        key = "user:" + hashlib.sha256(str(ev_id).encode()).hexdigest()
+        for e in logs:
+            if e["event_id"] == key:
+                return {"event": e, "client_event_id": ev_id, "accepted": True,
+                        "driver_started": True}
+        ev = _room_ev(rid, (logs[-1]["seq"] if logs else 0) + 1, "message.user",
+                      {"kind": "user", "id": "desktop"}, payload)
+        ev["event_id"] = key
+        logs.append(ev)
+        # El driver del fake responde al cabo de un momento (message.member):
+        asyncio.ensure_future(_bot_reply(rid, ev))
+        return {"event": ev, "client_event_id": ev_id, "accepted": True,
+                "driver_started": True}
+    if method == "groups.rename":
+        rid = params.get("room_id")
+        if not params.get("event_id"):
+            return {"error": {"code": "invalid", "message": "event_id required"}}
+        if rid in ROOMS:
+            ROOMS[rid]["name"] = params.get("name")
+            ev = _room_ev(rid, len(ROOM_LOGS.get(rid, [])) + 1, "room.renamed",
+                          {"kind": "gateway", "id": "fake-gw-1"},
+                          {"name": params.get("name")})
+            ROOM_LOGS.setdefault(rid, []).append(ev)
+        return {"room": {**(ROOMS.get(rid) or {}), "revision": 2}}
+    if method in ("groups.disband", "groups.approve"):
         return {"ok": True}
     return {"ok": True}
 
@@ -159,8 +345,11 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     del TICKETS[ticket]  # single-use
     ws = web.WebSocketResponse()
     await ws.prepare(request)
-    await ws.send_str(json.dumps({"method": "event", "params": {
-        "type": "gateway.hello", "payload": {"server": "fake", "ts": now()}, "seq": 0}}))
+    LIVE_WS.append(ws)
+    # Primer frame servidor→cliente: gateway.ready (tui_gateway/ws.py:324-331).
+    await ws.send_str(json.dumps({"jsonrpc": "2.0", "method": "event", "params": {
+        "type": "gateway.ready", "payload": {"skin": "default", "change_events": True,
+                                             "heartbeat": True, "replay_epoch": uuid.uuid4().hex}, "seq": 0}}))
 
     async for msg in ws:
         if msg.type != WSMsgType.TEXT:
@@ -170,28 +359,41 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
         except Exception:
             continue
         rid, method, params = frame.get("id"), frame.get("method", ""), frame.get("params") or {}
+        if method == "client.capabilities":
+            # El gateway real CONTESTA el rpc (response con el id) además de
+            # habilitar server-requests: sin respuesta, el await del cliente
+            # se queda hasta el timeout.
+            await ws.send_str(json.dumps({"id": rid, "result": {"ok": True}}))
+            continue
         if method == "prompt.submit":
-            await ws.send_str(json.dumps({"id": rid, "result": {"status": "streaming"}}))
             sid = params.get("session_id", "s1")
-            await ws.send_str(json.dumps({"method": "event", "params": {
-                "type": "message.start", "session_id": sid, "payload": {}, "seq": 1}}))
-            for chunk in ("Hola", ", soy ", "el bot ", "de prueba."):
-                await asyncio.sleep(0.2)
-                await ws.send_str(json.dumps({"method": "event", "params": {
-                    "type": "message.delta", "session_id": sid,
-                    "payload": {"text": chunk}, "seq": 2}}))
-            await ws.send_str(json.dumps({"method": "event", "params": {
-                "type": "message.complete", "session_id": sid,
-                "payload": {"text": "Hola, soy el bot de prueba."}, "seq": 3}}))
+            if not MODE.get("slow_turn"):
+                # ACK inmediato y turno de 1s: deja ventana limpia para
+                # verificar 'Detener' + session.interrupt E2E.
+                await ws.send_str(json.dumps({"id": rid, "result": {"status": "streaming"}}))
+                asyncio.ensure_future(_emit_turn(ws, sid, seq_start=1))
+                continue
+            # Turno LARGO: NO se responde hasta message.complete (comportamiento
+            # de gateway real con turnos lentos) — pone a prueba el camino de
+            # timeout de ACK. El bucle sigue leyendo session.interrupt.
+            asyncio.ensure_future(_emit_turn(ws, sid, ack_id=rid, seq_start=1))
             continue
         if method == "prompt.fail_test":
             await ws.send_str(json.dumps({"id": rid, "error": {"code": 500, "message": "boom"}}))
+            continue
+        if method == "session.interrupt":
+            sid = params.get("session_id", "s1")
+            print(f"EV interrupt pedido sid={sid}", flush=True)
+            INTERRUPTED.add(sid)
+            await ws.send_str(json.dumps({"id": rid, "result": {"status": "interrupted",
+                                                                 "interrupted": [sid]}}))
             continue
         # (El gateway real 0.18 no publica session.create/session.list por WS
         #  -> rpc_result cae en {"ok": true}, que el cliente descarta por
         #  no traer session_id. Solo HTTP publica la sesión.)
         if method == "session.list":
             # El contrato real admite {profile, title} como filtro.
+            p = params or {}
             if "title" in p:
                 # La lista filtrada dice la VERDAD por perfil: 'Bot Chat'
                 # existe solo si resume no mintió con otro perfil (se usa el
@@ -200,16 +402,25 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                 exists = (prof != "researcher") or MODE.get("researcher_canonical")
                 if p["title"] == "Bot Chat" and MODE["canonical"] and exists:
                     await ws.send_str(json.dumps({"id": rid, "result": {"sessions": [
-                        {"session_id": f"sess-canonical-{prof}", "title": "Bot Chat"}]}}))
+                        {"session_id": f"sess-canonical-{prof}-r", "title": "Bot Chat"}]}}))
                 else:
                     await ws.send_str(json.dumps({"id": rid, "result": {"sessions": []}}))
                 continue
+        if method == "session.events.since":
+            # Contrato real (tui_gateway): {events:[...], latest_seq, truncated}.
+            # El fake NO mantiene anillo de eventos por sesión: responder vacío
+            # y coherente, nunca {"ok":true} (que dejaría el hold de la app sin
+            # flush y perdería los eventos en vivo de esa sesión).
+            await ws.send_str(json.dumps({"id": rid, "result": {
+                "events": [], "latest_seq": 0, "truncated": False}}))
+            continue
         res = rpc_result(method, params)
         if isinstance(res, dict) and "error" in res:
             await ws.send_str(json.dumps({"id": rid, "error": {
                 "code": -32001, "message": res["error"].get("code", "error")}}))
         else:
             await ws.send_str(json.dumps({"id": rid, "result": res}))
+    LIVE_WS.remove(ws)
     return ws
 
 
@@ -250,6 +461,8 @@ async def set_mode(request: web.Request) -> web.Response:
         MODE["prompt_error"] = request.query["prompt_error"] == "1"
     if "researcher" in request.query:
         MODE["researcher_canonical"] = request.query["researcher"] == "1"
+    if "slow" in request.query:
+        MODE["slow_turn"] = request.query["slow"] == "1"
     return web.json_response(dict(MODE))
 
 
@@ -268,12 +481,14 @@ def main() -> None:
     app.router.add_get("/api/mode", set_mode)
     app.router.add_post("/api/sessions", session_create)
     app.router.add_get("/api/sessions/{sid}/messages", session_messages)
+    app.router.add_get("/api/auth/providers", auth_providers)
+    app.router.add_get("/api/status", api_status)
     app.router.add_post("/auth/password-login", password_login)
     app.router.add_post("/auth/native/refresh", native_refresh)
     app.router.add_post("/api/auth/ws-ticket", ws_ticket)
     app.router.add_get("/api/ws", ws_handler)
-    web.run_app(app, host="0.0.0.0", port=9119, print=None)
-
+    port = int(sys.argv[1] if len(sys.argv) > 1 else os.environ.get("FAKE_PORT", "9120"))
+    web.run_app(app, host="0.0.0.0", port=port, print=None)
 
 if __name__ == "__main__":
     main()

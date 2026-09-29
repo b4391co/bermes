@@ -7,6 +7,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../core/logger.dart';
 import 'bot_meta.dart';
+import 'profile_canonical.dart';
 import '../../domain/connection/connection_profile.dart';
 import 'http_client.dart';
 import 'rpc_types.dart';
@@ -21,6 +22,14 @@ enum GatewayLinkState {
   error,
 }
 
+/// El título canónico único: `(profile, "Bot Chat")` ES la identidad del
+/// forever-chat del bot (canonical-chat.ts:49 CANONICAL_CHAT_TITLE).
+const canonicalChatTitle = 'Bot Chat';
+
+/// Techo de los escaneos `session.list` por perfil
+/// (canonical-chat.ts:43 PROFILE_SESSION_LIST_LIMIT).
+const profileSessionListLimit = 200;
+
 /// Cliente JSON-RPC NDJSON sobre WS del gateway Hermes.
 ///
 /// Contrato (docs/protocol/hermes-map.md §2):
@@ -29,13 +38,11 @@ enum GatewayLinkState {
 /// - Eventos: {method:"event", params:{type, session_id?, payload?, seq?}}.
 /// - Replay: session.events.since {session_id, last_seen}.
 /// - Auth: ticket single-use 30 s de POST /api/auth/ws-ticket en query ?ticket=.
-///
-/// Reconnecting con espera progresiva (0.5s → 30s máx, factor 1.6).
+/// - Reconnecting con espera progresiva (0.5s → 30s máx, factor 1.6).
 class HermesGatewayClient {
   final ConnectionProfile profile;
   final HermesHttpClient http;
   final _log = Logger('GatewayClient');
-  static final _staticLog = Logger('GatewayClient');
 
   WebSocketChannel? _ws;
   StreamSubscription<dynamic>? _wsSub;
@@ -53,14 +60,46 @@ class HermesGatewayClient {
   final _serverRequestsController = StreamController<ServerRequest>.broadcast();
   final _pending = <Object, Completer<Object?>>{};
   final _watermarks = <String, int>{}; // session_id → last_seen seq
+  String? _epoch;
+  // Sesiones con un replay en curso: los frames en vivo que llegan mientras se
+  // espera la respuesta se guardan y se sueltan DESPUÉS del hueco replayado,
+  // filtrados por seq, para que un frame no se despache dos veces ni adelanten
+  // al replay (apps/shared/src/json-rpc-gateway.ts:438-446, 646+).
+  final _replayHold = <String, List<GatewayEvent>>{};
 
   HermesGatewayClient(this.profile, this.http);
 
   GatewayLinkState get state => _state;
+
+  /// Espera a que el enlace quede `ready`, falle, o expire [timeout].
+  Future<void> readyOrTimeout(Duration timeout) async {
+    if (_state == GatewayLinkState.ready) return;
+    final done = Completer<void>();
+    late final StreamSubscription<GatewayLinkState> sub;
+    late final Timer t;
+    void finish([Object? err]) {
+      if (done.isCompleted) return;
+      sub.cancel();
+      t.cancel();
+      err == null ? done.complete() : done.completeError(err);
+    }
+    sub = _stateController.stream.listen((s) {
+      if (s == GatewayLinkState.ready) finish();
+      if (s == GatewayLinkState.error || s == GatewayLinkState.authExpired) {
+        finish(StateError('enlace en estado $s'));
+      }
+    });
+    t = Timer(timeout, () => finish(TimeoutException('gateway no ready', timeout)));
+    return done.future;
+  }
   GatewayReady? get readyInfo => _ready;
   Stream<GatewayLinkState> get stateStream => _stateController.stream;
   Stream<GatewayEvent> get events => _eventsController.stream;
   Stream<ServerRequest> get serverRequests => _serverRequestsController.stream;
+  /// `replay_epoch` del proceso backend (gateway.ready). Un cambio significa
+  /// que los watermarks describen una numeración que ya no existe
+  /// (apps/shared/src/json-rpc-gateway.ts:613-625).
+  String? get replayEpoch => _epoch;
 
   Future<void> connect() async {
     if (_state == GatewayLinkState.connecting ||
@@ -104,6 +143,22 @@ class HermesGatewayClient {
           if (!completer.isCompleted) {
             completer.completeError(const SocketException('ws closed'));
           }
+          // Códigos terminales del gate (hermes_cli/web_routers/chat_ws.py:139-151):
+          // 4401 = credencial inválida (ticket muerto/usado), 4403 = guard
+          // (chat deshabilitado, Host-Origin rechazado o peer no-loopback).
+          // Reintentar contra ellos es un bucle de denegación: se para y el UI
+          // muestra la causa real. Cualquier otro cierre -> backoff normal.
+          final code = ws.closeCode;
+          if (code == 4401) {
+            _setState(GatewayLinkState.authExpired);
+            return;
+          }
+          if (code == 4403) {
+            _log.error('gate rechazó el canal de chat (close 4403): '
+                'chat deshabilitado, Host-Origin o peer no local');
+            _setState(GatewayLinkState.error);
+            return;
+          }
           _scheduleReconnect();
         },
         cancelOnError: true,
@@ -114,14 +169,33 @@ class HermesGatewayClient {
       final firstFrame = jsonDecode(first as String) as Map<String, Object?>;
       final readyParams = firstFrame['params'] as Map<String, Object?>?;
       final payload = readyParams?['payload'] as Map<String, Object?>? ?? {};
+      if (readyParams?['type'] != 'gateway.ready') {
+        // El contrato fija el primer frame servidor→cliente como
+        // `gateway.ready` (tui_gateway/ws.py:324-331; el cliente compartido lo
+        // detecta por type en apps/shared/src/json-rpc-gateway.ts:51). Un frame
+        // de otro tipo NO es un ready: se reenvía al pipeline de eventos y el
+        // enlace se declara error para reconectar, en vez de marcar "ready" sin
+        // replay_epoch y sin haber consumido el frame.
+        _onFrame(first);
+        throw StateError(
+          'primer frame no es gateway.ready: ${readyParams?['type'] ?? '<sin type>'}',
+        );
+      }
       _ready = GatewayReady.fromPayload(payload);
+      _adoptReplayEpoch(_ready?.replayEpoch);
       _reconnectAttempts = 0;
+      // El anuncio de capacidades se envía CON el socket ya utilizable: el
+      // backend lo procesa igual, y si se marcase ready después, cualquier
+      // llamada concurrente (p.ej. el roster de bots) vería 'not connected'.
       _setState(GatewayLinkState.ready);
-
       await _sendRaw(
         RpcRequest(
           _nextRequestId++,
           'client.capabilities',
+          // Anuncio obligatorio una vez por generación de socket: sin él el
+          // backend no emite server-requests (approval/clarify) y el agente
+          // espera su deadline completo
+          // (apps/shared/src/json-rpc-channel.ts:484-491).
           params: {'server_requests': true},
         ),
       );
@@ -152,13 +226,33 @@ class HermesGatewayClient {
       final event = GatewayEvent.fromParams(params);
       final sid = event.sessionId;
       final seq = event.seq;
-      if (sid != null && seq != null) _watermarks[sid] = seq;
-      _eventsController.add(event);
+      // El orden ES el del cliente compartido (json-rpc-gateway.ts:438-448):
+      // aparcar ANTES de tocar el watermark. Si el frame adelanta el cursor y
+      // luego se aparca, `_flushReplayHold` lo descarta por `seq <= watermark`
+      // y la sesión queda muda: ni streaming ni botón de cancelación.
+      if (sid != null && _replayHold.containsKey(sid)) {
+        // Replay en vuelo para esta sesión: se aparca; flushReplayHold lo
+        // despachará tras el hueco, filtrado por seq.
+        _replayHold[sid]!.add(event);
+        return;
+      }
+      // El seq es un contador MONOTÓNICO por sesión
+      // (tui_gateway/event_replay.py:65-69); el watermark sólo avanza hacia
+      // arriba, o un frame fuera de orden (replay duplicado, broadcast sin
+      // seq) retrocedería el cursor y provocaría reentrega en el siguiente
+      // replay (apps/shared/src/json-rpc-gateway.ts:451-467, same rule).
+      if (sid != null && seq != null && seq > (_watermarks[sid] ?? 0)) {
+        _watermarks[sid] = seq;
+      }
+      _dispatchEvent(event);
       return;
     }
 
-    if (method != null && id is String && id.startsWith('srv_')) {
-      // Server→client request (aprobaciones, secretos…)
+    if (method != null && id is String) {
+      // Server→client request (approval, clarify, sudo, secret…). El id real es
+      // `srq-<uuid12>` (tui_gateway/server_requests.py:49); el contrato no fija
+      // prefijo accionable, así que la detección es estructural como en el
+      // cliente compartido: `id` string + `method` (json-rpc-channel.ts:53-54).
       final params = frame['params'] as Map<String, Object?>? ?? {};
       _serverRequestsController.add(
         ServerRequest(
@@ -171,10 +265,14 @@ class HermesGatewayClient {
       return;
     }
 
-    if (id != null && _pending.containsKey(id)) {
+    // Respuesta a una llamada propia: id NO-nulo y sin `method`
+    // (is_response_frame, tui_gateway/server_requests.py:299). Un `id: null`
+    // es un notification-response y un frame con `method` ya se consumió
+    // arriba: ninguno puede casarse con una llamada pendiente.
+    if (id != null && method == null && _pending.containsKey(id)) {
       final completer = _pending.remove(id)!;
       if (frame.containsKey('error')) {
-        final err = frame['error'] as Map<String, Object?>;
+        final err = (frame['error'] as Map<String, Object?>?) ?? const {};
         completer.completeError(
           JsonRpcError(
             err['code'] as int? ?? -1,
@@ -185,6 +283,45 @@ class HermesGatewayClient {
       } else {
         completer.complete(frame['result']);
       }
+    }
+  }
+
+  void _dispatchEvent(GatewayEvent event) => _eventsController.add(event);
+
+  /// Desplacha un frame de replay sólo si su seq hace avanzar el watermark
+  /// (json-rpc-gateway.ts::dispatchIfNewer 591-607). Sin seq se despacha
+  /// siempre: no hay orden que violar.
+  void _dispatchIfNewer(GatewayEvent event) {
+    final sid = event.sessionId;
+    final seq = event.seq;
+    if (sid != null && seq != null) {
+      if (seq <= (_watermarks[sid] ?? 0)) return;
+      _watermarks[sid] = seq;
+    }
+    _dispatchEvent(event);
+  }
+
+  /// Registra el epoch del proceso; un cambio (reinicio del backend) invalida
+  /// TODOS los watermarks, que describirían una numeración inexistente y
+  /// harían creer al cliente que no perdió nada
+  /// (json-rpc-gateway.ts::adoptReplayEpoch 613-625).
+  void _adoptReplayEpoch(String? epoch) {
+    if (epoch == null || epoch.isEmpty || epoch == _epoch) return;
+    final changed = _epoch != null;
+    _epoch = epoch;
+    if (changed) {
+      _watermarks.clear();
+      _replayHold.clear();
+    }
+  }
+
+  /// Suelta los frames aparcados durante el replay de [sessionId], filtrados
+  /// por seq para no duplicar lo ya entregado por el replay.
+  void _flushReplayHold(String sessionId) {
+    final parked = _replayHold.remove(sessionId);
+    if (parked == null) return;
+    for (final e in parked) {
+      _dispatchIfNewer(e);
     }
   }
 
@@ -216,28 +353,84 @@ class HermesGatewayClient {
     ws.sink.add(jsonEncode(req.toJson()));
   }
 
-  /// Responder a un server-request (aprobación).
-  Future<void> respondToServerRequest(Object requestId, Object? result) {
+  /// Responder a un server-request (aprobación, clarify, secreto…).
+  ///
+  /// El contrato NO es una llamada nueva: es una respuesta JSON-RPC con el
+  /// MISMO id del request y un miembro `result`
+  /// (tui_gateway/server_requests.py:2 «response frame carrying the same
+  /// `id`»; ::resolve_response 201-240 lee `frame["id"]` + `frame["result"]`;
+  /// el emisor del cliente es `{jsonrpc,id,result}` en
+  /// apps/shared/src/json-rpc-channel.ts:344). Un frame con `method` sería
+  /// otro request del cliente, nunca una respuesta.
+  Future<void> respondToServerRequest(Object requestId, Map<String, Object?> result) {
     final ws = _ws;
     if (ws == null) return Future.error(JsonRpcError(-32000, 'not connected'));
-    return _sendRaw(
-      RpcRequest(requestId, '__result__', params: {'result': result}),
+    ws.sink.add(
+      jsonEncode({'jsonrpc': '2.0', 'id': requestId, 'result': result}),
     );
+    return Future.value();
+  }
+
+  /// Responder a un server-request con error JSON-RPC: el backend lo trata
+  /// como «sin respuesta» (server_requests.py:218-220) y retira la tarjeta
+  /// cuando el cliente ya no puede accionarla. -32601 = sin handler
+  /// (apps/shared/src/json-rpc-channel.ts:73).
+  Future<void> failServerRequest(Object requestId, int code, String message) {
+    final ws = _ws;
+    if (ws == null) return Future.error(JsonRpcError(-32000, 'not connected'));
+    ws.sink.add(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': requestId,
+        'error': {'code': code, 'message': message},
+      }),
+    );
+    return Future.value();
   }
 
   /// Sincronizar eventos de una sesión tras reconexión.
-  Future<List<GatewayEvent>> replaySession(String sessionId) async {
+  ///
+  /// El resultado real es `{events, latest_seq, truncated, count, epoch,
+  /// open_requests}` (tui_gateway/methods_session.py:2456-2470 +
+  /// contracts/sessions.py::SessionEventsSinceResult). `events` son los
+  /// `params` de cada frame de evento, ya con `seq`
+  /// (tui_gateway/event_replay.py:100-110); `truncated` dice que el anillo
+  /// perdió eventos y el llamador debe recargar el historial en vez de
+  /// fiarse del replay; `epoch` cambiante (reinicio del backend) invalida
+  /// todos los watermarks (apps/shared/src/json-rpc-gateway.ts:613-625).
+  Future<SessionReplay> replaySession(String sessionId) async {
     final last = _watermarks[sessionId];
-    final result = await _request(
-      'session.events.since',
-      params: {'session_id': sessionId, 'last_seen': ?last},
-    );
-    final events = (result as Map<String, Object?>?)?['events'];
-    if (events is! List) return const [];
-    return events
-        .whereType<Map<String, Object?>>()
-        .map((e) => GatewayEvent.fromParams(e))
-        .toList();
+    // Aparcar los frames en vivo de ESTA sesión mientras se pide el hueco: un
+    // frame que llegue durante la ida no debe adelantar ni duplicar el replay
+    // (json-rpc-gateway.ts::fetchSessionReplay 520-536).
+    _replayHold[sessionId] = <GatewayEvent>[];
+    try {
+      final result = await _request(
+        'session.events.since',
+        params: {
+          'session_id': sessionId,
+          // `last_seen` es `int | None` en el contrato
+          // (contracts/sessions.py::SessionEventsSinceParams); el handler hace
+          // int(params.get("last_seen", 0)), así que un null EXPLÍCITO daría
+          // -32602. Sin watermark conocido no se envía el campo.
+          'last_seen': ?last,
+        },
+      );
+      final replay = SessionReplay.fromResult(result);
+      _adoptReplayEpoch(replay.epoch);
+      // `open_requests`: server-requests sin responder que el anillo de
+      // eventos NO puede traer. Se entregan antes de que el llamador vea el
+      // resultado (json-rpc-channel.ts:396-409).
+      for (final r in replay.openRequests) {
+        _serverRequestsController.add(r);
+      }
+      for (final e in replay.events) {
+        _dispatchIfNewer(e);
+      }
+      return replay;
+    } finally {
+      _flushReplayHold(sessionId);
+    }
   }
 
   // ── Métodos de alto nivel (tipados por los consumidores) ──────────────
@@ -278,94 +471,138 @@ class HermesGatewayClient {
     return raw.whereType<Map<String, Object?>>().toList();
   }
 
-  /// Resuelve la sesión canónica "Bot Chat" de UN perfil (hermes-map §3).
+  /// Resuelve la sesión canónica "Bot Chat" de UN perfil, tal cual lo hace
+  /// Hermes Desktop en `apps/desktop/src/plugins/hermes-bots/canonical-chat.ts`.
   ///
-  /// Orden probado contra el contrato real (hermes-protocol.md §4,
-  /// `methods_profiles.py::_canonical_session_row` — índice UNIQUE(title)
-  /// POR PERFIL — el nombre del perfil es identidad, nunca título):
-  ///  1. `session.resume {title:'Bot Chat', profile}` — vía barata.
-  ///  2. `session.list {profile, title:'Bot Chat'}` — rows filtradas por el
-  ///     PERFIL y título exacto. Es la verificación dura: un resume mal
-  ///     reenviado puede devolver la sesión de OTRO perfil (histórico bug
-  ///     móvil↔Desktop); aquí se descarta cualquier fila con título
-  ///     distinto o sin id.
-  ///  3. Si ninguna confirma, se CREA 'Bot Chat' en ESE perfil: el índice
-  ///     UNIQUE(title) por perfil hace que Desktop adopte esa misma fila al
-  ///     reabrirla (comportamiento real verificado: el gateway del usuario
-  ///     no exponía la sesión a pesar de tenerla abierta en Desktop).
+  /// Identidad = NOMBRE: `(profile, "Bot Chat")` es un registro exacto gracias
+  /// al índice UNIQUE(title) del core (`tui_gateway/methods_profiles.py:148-182`
+  /// `_canonical_session_row`), y el lookup es una consulta indexada
+  /// `WHERE title = ?`, sin ventana de recencia
+  /// (canonical-chat.ts:230-270 → `session.list {profile, title, limit:200,
+  /// include_hidden:true}`; `include_hidden` es OBLIGATORIO porque el chat
+  /// canónico nace oculto — canonical-chat.ts:235, 434-437).
+  ///
+  /// FAIL CLOSED: un error del lookup NO significa «no hay Bot Chat» — es la
+  /// forma exacta de bifurcar el forever-chat (canonical-chat.ts:241-251,
+  /// 271-278). Igualmente, una lista VACÍA cuando el roster ya confirmó una
+  /// sesión canónica es ausencia NO confirmada, no ausencia
+  /// (canonical-chat.ts:287-297). En ambos casos se lanza y la UI ofrece
+  /// reintentar; nunca se crea.
+  ///
+  /// Si no hay fila, se CREA por JSON-RPC `session.create` — el único método
+  /// del contrato (apps/shared/src/gateway-contract.generated.ts:5378 RPC_METHODS;
+  /// `tui_gateway/contracts/sessions.py:118-147`). NO existe
+  /// `POST /api/sessions` en el dashboard real: sus rutas con POST son
+  /// bulk-delete / import / owner-backfill / prune
+  /// (`hermes_cli/web_routers/sessions.py:430,449,754,866`).
   Future<String?> resumeCanonicalSession(String profile) async {
     final r = await CanonicalChain.resolve(
-      // 1) La VERDAD por perfil: session.list {profile, title:'Bot Chat'}.
-      //    (El gateway 0.18 no aplica el perfil al resume por título: devuelve
-      //    la sesión de OTRO perfil si la pide por título global. Verificado
-      //    E2E con el log 'session.resume devolvió sess-canonical-default'
-      //    al sincronizar 'researcher'.)
-      listByTitle: () async => _canonicalListRows(profile),
-      // 2) Fallback resume {title,profile} (para gateways que sí respeten
-      //    el perfil en el resume).
-      resume: () async {
-        final result = await _request('session.resume', params: {
-          'title': 'Bot Chat',
-          'profile': profile,
-        });
-        return result is Map<String, Object?> ? result : null;
+      listByTitle: () => _canonicalListRows(profile),
+      // Confirmación positiva del roster: `ProfileRow.canonical_session`
+      // (methods_profiles.py:230). Si existe, un lookup vacío es dudoso.
+      rosterConfirmsCanonical: () async {
+        for (final p in await listProfiles()) {
+          if (p['name'] != profile) continue;
+          return canonicalFromProfile(p) != null;
+        }
+        return false;
       },
-      // 3) Última: crear por HTTP sobre ESTE perfil (WS create no existe).
-      httpCreate: () async {
-        final created = await http.postJson('/api/sessions', body: {
-          'title': 'Bot Chat',
-          'profile': profile,
-        });
-        return created is Map<String, Object?> ? created : null;
-      },
+      create: () => _createCanonicalSession(profile),
     );
     if (r.created) {
-      _log.info(
-        "canonical 'Bot Chat' creada vía HTTP para $profile: ${r.sessionId}",
-      );
+      _log.info("canonical 'Bot Chat' creada vía session.create para "
+          "$profile: ${r.sessionId}");
     }
     return r.sessionId;
   }
 
-  Future<List<Map<String, Object?>>> _canonicalListRows(String profile) async {
-    try {
-      final listed = await _request('session.list',
-          params: {'profile': profile, 'title': 'Bot Chat'});
-      final rows = (listed is Map<String, Object?>
-              ? listed['sessions']
-              : listed) ??
-          const <Object?>[];
-      if (rows is List) {
-        return rows.whereType<Map<String, Object?>>().toList();
+  /// `session.create` del chat canónico, con los params del contrato Desktop:
+  /// `title` + `hidden: true` + `follow_profile_config: true`
+  /// (canonical-chat.ts:427-447; campos declarados en
+  /// contracts/sessions.py:118-135). `follow_profile_config` es el contrato
+  /// explícito que impide que el runtime quede clavado a un modelo/proveedor
+  /// viejo (canonical-chat.ts:438-444). El `Params` del gateway es
+  /// `extra="forbid"` (registry.py::validate_params): ningún campo extra.
+  ///
+  /// La fila es LAZY: `session_id` es el runtime y `stored_session_id` la fila
+  /// duradera, que no existe hasta el primer prompt
+  /// (contracts/sessions.py:138-147, docstring :146-147). Se devuelve la
+  /// duradera como identidad del registro, igual que Desktop
+  /// (canonical-chat.ts:449-450).
+  ///
+  /// ADOPT-BEFORE-MINT: si `session.title` rechaza por título duplicado, otro
+  /// escritor ganó el título canónico — se readopta SU fila en vez de crear una
+  /// segunda (canonical-chat.ts:472-494).
+  Future<Map<String, Object?>?> _createCanonicalSession(String profile) async {
+    final created = await _request('session.create', params: {
+      'profile': profile,
+      'title': canonicalChatTitle,
+      'hidden': true,
+      'follow_profile_config': true,
+    });
+    if (created is! Map) return null;
+    final map = Map<String, Object?>.from(created);
+    final runtime = map['session_id'];
+    if (runtime is String && runtime.isNotEmpty) {
+      try {
+        // Escribe el título de inmediato: materializa la fila y cierra la
+        // ventana sin-título en la que un segundo clic mintearía un duplicado
+        // (canonical-chat.ts:456-470).
+        await _request('session.title', params: {
+          'session_id': runtime,
+          'title': canonicalChatTitle,
+        });
+      } on JsonRpcError catch (e) {
+        if (RegExp(r'already in use', caseSensitive: false).hasMatch(e.message)) {
+          final rows = await _canonicalListRows(profile);
+          final winner = rows
+              .map(CanonicalChain.registryId)
+              .firstWhere((id) => id != null, orElse: () => null);
+          if (winner != null) {
+            _log.info("título canónico ya tomado; adoptada $winner");
+            return {'session_id': winner};
+          }
+        }
+        // Gateway antiguo sin escritura eager: prompt.submit materializa la
+        // fila (canonical-chat.ts:495).
       }
-    } on JsonRpcError {
-      // gateway sin filter por título -> la cadena usará create
+    }
+    return map;
+  }
+
+  Future<List<Map<String, Object?>>> _canonicalListRows(String profile) async {
+    final listed = await _request('session.list', params: {
+      'profile': profile,
+      'title': canonicalChatTitle,
+      // Límite del escaneo por perfil, el mismo que Desktop
+      // (canonical-chat.ts:43 PROFILE_SESSION_LIST_LIMIT).
+      'limit': profileSessionListLimit,
+      'include_hidden': true,
+    });
+    final rows =
+        (listed is Map<String, Object?> ? listed['sessions'] : listed) ??
+        const <Object?>[];
+    if (rows is List) {
+      return rows.whereType<Map<String, Object?>>().toList();
     }
     return const [];
   }
 
-  static String? _sessionIdFrom(Object? result) {
-    if (result is Map<String, Object?>) {
-      final id = result['session_id'] ?? result['id'] ?? result['resolved_id'];
-      if (id is String && id.isNotEmpty) return id;
-    }
-    return null;
-  }
 
-  /// Log de choque canónico (informativo: la cadena ya decidió correctamente).
-  static void logCanonicalMismatch(String resumed, String? verified) {
-    _staticLog.warning(
-      'session.resume devolvió $resumed; '
-      'la verificación por perfil dice ${verified ?? "sin Bot Chat"}',
-    );
-  }
-  /// Avatar de un perfil como data-URL (hermes-map §4: profiles.get_asset).
+  /// Avatar de un perfil como data-URL.
+  ///
+  /// Contrato real (`tui_gateway/contracts/profiles_vault_complete_foreign_subagents.py:334-349`):
+  /// params `{profile?, name?, asset?}` y resultado
+  /// `ProfilesGetAssetResult {found, mime?, size?, data?}` — el data-url viaja
+  /// en **`data`**, NO en `data_url`, y la ausencia es `found:false`, no error.
   Future<String?> profileAvatar(String name) async {
     final result = await _request(
       'profiles.get_asset',
       params: {'name': name, 'asset': 'avatar'},
     );
-    final url = (result as Map<String, Object?>?)?['data_url'] ?? result;
+    if (result is! Map) return null;
+    if (result['found'] == false) return null;
+    final url = result['data'] ?? result['data_url'];
     return url is String && url.startsWith('data:') ? url : null;
   }
 
@@ -493,17 +730,31 @@ class HermesGatewayClient {
     _pending.clear();
   }
 
-  /// Historial HTTP (hermes-map §4):
-  /// GET /api/sessions/{id}/messages?limit&offset&order.
+  /// Historial: `GET /api/sessions/{id}/messages`
+  /// (apps/desktop/src/api/sessions.ts:455-493).
+  ///
+  /// Params del cliente real: `limit`, `offset`, `order`
+  /// ('latest'|'oldest'), `include_compacted` y **`profile`** — el owner de la
+  /// fila viaja en la query; sin él un host que no es el dueño responde 404
+  /// "Session not found" (client.ts:231-247 `sessionReadOwnerPin`).
+  /// La página de hidratación del Desktop usa 120 filas
+  /// (sessions.ts:499 `LATEST_SESSION_MESSAGES_LIMIT`).
   Future<List<Map<String, Object?>>?> fetchSessionMessages(
     String sessionId, {
-    int limit = 50,
+    String? profile,
+    int limit = 120,
     int offset = 0,
+    String order = 'latest',
   }) async {
     try {
+      final query = StringBuffer(
+        '?limit=$limit&offset=$offset&order=$order',
+      );
+      if (profile != null && profile.isNotEmpty) {
+        query.write('&profile=${Uri.encodeQueryComponent(profile)}');
+      }
       final result = await http.getJson(
-        '/api/sessions/$sessionId/messages'
-        '?limit=$limit&offset=$offset&order=latest',
+        '/api/sessions/${Uri.encodeComponent(sessionId)}/messages$query',
       );
       if (result is! Map<String, Object?>) return null;
       final msgs = result['messages'];
@@ -516,46 +767,85 @@ class HermesGatewayClient {
   }
 }
 
-/// Cadón puro (testeable sin IO): decide la sesión canónica de un perfil
-/// protegiéndose contra el gateway que responde `session.resume` con la
-/// sesión de OTRO perfil (bug real verificado en 0.18).
+/// Cadón puro (testeable sin IO): la resolución del chat canónico del
+/// Desktop, replicada línea por línea.
+///
+///  - lookup por título EXACTO falla ⇒ se LANZA, nunca se lee como
+///    «no existe» (canonical-chat.ts:241-278).
+///  - lookup devuelve cero filas PERO el roster confirmó una sesión canónica ⇒
+///    ausencia no confirmada ⇒ se lanza igual
+///    (canonical-chat.ts:287-297, hermes-agent#98383).
+///  - cero filas y el roster no confirmó nada ⇒ ausencia confirmada ⇒ crear
+///    (canonical-chat.ts:413-447).
+class CanonicalResolutionFailed implements Exception {
+  final String message;
+  const CanonicalResolutionFailed(this.message);
+  @override
+  String toString() => 'CanonicalResolutionFailed: $message';
+}
+
 class CanonicalChain {
   final String? sessionId;
   final bool created;
   const CanonicalChain._(this.sessionId, this.created);
 
   static Future<CanonicalChain> resolve({
-    required Future<Map<String, Object?>?> Function() resume,
     required Future<List<Map<String, Object?>>> Function() listByTitle,
-    required Future<Map<String, Object?>?> Function() httpCreate,
+    required Future<bool> Function() rosterConfirmsCanonical,
+    required Future<Map<String, Object?>?> Function() create,
   }) async {
-    // 1) La VERDAD por perfil: session.list {profile, title:'Bot Chat'}.
-    //    Un resume por título global NO es fiable en 0.18 (devuelve la sesión
-    //    de otro perfil: bug E2E 'resume devolvió sess-canonical-default al
-    //    sincronizar researcher').
-    final rows = await listByTitle();
-    final verified = rows
-        .where((r) => r['title'] == 'Bot Chat')
-        .map(HermesGatewayClient._sessionIdFrom)
-        .firstWhere((id) => id != null, orElse: () => null);
-    if (verified != null) return CanonicalChain._(verified, false);
-    // 2) Fallback resume (para gateways que sí respeten el perfil): si la
-    //    lista no encontró 'Bot Chat' en ESTE perfil, NO se usa lo que devuelva
-    //    el resume (puede ser de otro perfil); se registra y se pasa a create.
-    Map<String, Object?>? resumeResult;
+    List<Map<String, Object?>> rows;
     try {
-      resumeResult = await resume();
-    } catch (_) {}
-    final resumed = HermesGatewayClient._sessionIdFrom(resumeResult);
-    if (resumed != null) {
-      HermesGatewayClient.logCanonicalMismatch(resumed, null);
+      rows = await listByTitle();
+    } catch (e) {
+      throw CanonicalResolutionFailed(
+        'No se pudo consultar el registro "Bot Chat" ($e) — no se abre un chat nuevo.',
+      );
     }
-    // (Se crea 'Bot Chat' sobre ESTE perfil por HTTP — ver arriba.)
+    // Sólo filas con el título EXACTO: `root_title` es el título duradero del
+    // linaje que reporta un gateway con lookup por índice; `title` cubre los
+    // listados por ventana (canonical-chat.ts:155-163 isCanonicalBotChatHistory).
+    final match = rows
+        .where(isCanonicalBotChatRow)
+        .map(registryId)
+        .firstWhere((id) => id != null, orElse: () => null);
+    if (match != null) return CanonicalChain._(match, false);
+
+    bool confirmedAbsent;
     try {
-      final created = await httpCreate();
-      final id = HermesGatewayClient._sessionIdFrom(created);
+      confirmedAbsent = !await rosterConfirmsCanonical();
+    } catch (_) {
+      confirmedAbsent = false;
+    }
+    if (!confirmedAbsent) {
+      throw CanonicalResolutionFailed(
+        'No se pudo confirmar el registro "Bot Chat" — no se abre un chat nuevo.',
+      );
+    }
+
+    try {
+      final created = await create();
+      final id = created == null ? null : registryId(created);
       if (id != null) return CanonicalChain._(id, true);
-    } catch (_) {}
+    } catch (e) {
+      throw CanonicalResolutionFailed(
+        'No se pudo crear la sesión "Bot Chat" ($e).',
+      );
+    }
     return const CanonicalChain._(null, false);
+  }
+
+  /// Id del REGISTRO (identidad), no la punta viva. `id` es la fila del
+  /// registro; `resolved_id` la punta del linaje de compresión, que es lo que
+  /// Desktop ABRE mientras la fila sigue siendo la identidad
+  /// (canonical-chat.ts:419, 580-590; methods_profiles.py:172-180).
+  static String? registryId(Map<String, Object?> row) {
+    final id = row['id'] ?? row['session_id'];
+    return (id is String && id.isNotEmpty) ? id : null;
+  }
+
+  static bool isCanonicalBotChatRow(Map<String, Object?> row) {
+    if (row['root_title'] == canonicalChatTitle) return true;
+    return row['title'] == canonicalChatTitle;
   }
 }

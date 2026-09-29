@@ -13,32 +13,52 @@ enum SendState { drafting, sending, sent, failed, cancelled }
 /// Cómo se recibió/aplicó este mensaje localmente.
 enum MessageOrigin { history, live, optimistic, local }
 
+/// Actividad de herramienta (`ToolStartPayload` :4492-4500 /
+/// `ToolCompletePayload` :4502-4514).
 class ToolActivity {
   final String toolId;
   final String name;
   final String? argsText;
+  final String? preview;
   final String? summary;
+  final double? durationS;
   final bool running;
 
   const ToolActivity({
     required this.toolId,
     required this.name,
     this.argsText,
+    this.preview,
     this.summary,
+    this.durationS,
     required this.running,
   });
 
-  ToolActivity copyWith({bool? running, String? summary}) => ToolActivity(
+  ToolActivity copyWith({
+    bool? running,
+    String? summary,
+    double? durationS,
+  }) => ToolActivity(
     toolId: toolId,
     name: name,
     argsText: argsText,
+    preview: preview,
+    summary: summary ?? this.summary,
+    durationS: durationS ?? this.durationS,
     running: running ?? this.running,
   );
 }
 
 /// Aprobación accionable (server-request `approval`).
+///
+/// `serverRequestId` es el id del FRAME JSON-RPC (`srq-<uuid12>`,
+/// tui_gateway/server_requests.py:49): la respuesta va contra ÉL, no como RPC
+/// nuevo. `requestId` es la clave de la cola de approvals del agente
+/// (ApprovalRequestParams.request_id) y sólo la usa el RPC de fallback
+/// `approval.respond`.
 class ApprovalRequest {
-  final String requestId;
+  final String? serverRequestId;
+  final String? requestId;
   final String sessionId;
   final String command;
   final String? description;
@@ -48,7 +68,8 @@ class ApprovalRequest {
   final DateTime receivedAt;
 
   const ApprovalRequest({
-    required this.requestId,
+    this.serverRequestId,
+    this.requestId,
     required this.sessionId,
     required this.command,
     this.description,
@@ -59,7 +80,26 @@ class ApprovalRequest {
   });
 }
 
-enum ApprovalChoice { once, session, always, deny }
+/// ApprovalChoice = 'once' | 'session' | 'always' | 'deny'
+/// (apps/shared/src/gateway-contract.generated.ts:1486, :4233).
+enum ApprovalChoice {
+  once('once'),
+  session('session'),
+  always('always'),
+  deny('deny');
+
+  const ApprovalChoice(this.wire);
+  final String wire;
+}
+
+/// Alambre → enum; null para valores que el contrato no define (nunca se
+/// inventa una opción que el backend no ofreció).
+ApprovalChoice? approvalChoiceFromWire(Object? raw) {
+  for (final c in ApprovalChoice.values) {
+    if (c.wire == raw) return c;
+  }
+  return null;
+}
 
 /// Mensaje visible en la línea de tiempo.
 class ChatMessage {
@@ -69,6 +109,16 @@ class ChatMessage {
   final String? authorName; // autor en grupos (perfil/handle)
   final String? authorConnectionId; // gateway de origen del autor
   final String text;
+
+  /// Razón acumulada de `reasoning.delta` / `thinking.delta` /
+  /// `reasoning.available` (StreamDeltaPayload, generated contract :4411-4416).
+  final String? reasoning;
+
+  /// `user_row_id` del ACK de `prompt.submit`
+  /// (tui_gateway/contracts/prompt_voice.py:68-70): dirección duradera de la
+  /// fila en el store del perfil. Con ella el optimista se descuenta contra el
+  /// historial REST (`row_id` de TranscriptMessage) en vez de por texto.
+  final int? gatewayRowId;
   final DateTime? timestamp;
   final SendState sendState;
   final MessageOrigin origin;
@@ -82,6 +132,8 @@ class ChatMessage {
     this.authorName,
     this.authorConnectionId,
     required this.text,
+    this.reasoning,
+    this.gatewayRowId,
     this.timestamp,
     this.sendState = SendState.sent,
     this.origin = MessageOrigin.history,
@@ -96,13 +148,17 @@ class ChatMessage {
     bool? streaming,
     String? authorName,
     DateTime? timestamp,
+    String? reasoning,
+    int? gatewayRowId,
   }) => ChatMessage(
     id: id,
     path: path,
     role: role,
     authorName: authorName ?? this.authorName,
-    authorConnectionId: authorConnectionId ?? authorConnectionId,
+    authorConnectionId: authorConnectionId ?? this.authorConnectionId,
     text: text ?? this.text,
+    reasoning: reasoning ?? this.reasoning,
+    gatewayRowId: gatewayRowId ?? this.gatewayRowId,
     timestamp: timestamp ?? this.timestamp,
     sendState: sendState ?? this.sendState,
     origin: origin,

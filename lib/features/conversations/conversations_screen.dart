@@ -59,6 +59,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   Widget build(BuildContext context) {
     final db = AppServices.db;
     final query = db.select(db.conversations)
+      ..where((c) => c.kind.equals('group-hidden').not())
       ..orderBy([
         (c) => OrderingTerm.desc(c.lastActivity),
         (c) => OrderingTerm.asc(c.sortOrder),
@@ -147,7 +148,11 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   /// Orden de la lista unificada:
   /// 1) grupos (encabezado "Grupos"), 2) fijados globales ("Fijados"),
   /// 3) una sección por gateway en el orden elegido por el usuario.
-  /// Dentro de cada sección: fijados al gateway primero, luego actividad.
+  /// Dentro de CADA sección —"Grupos" incluida—: fijados al gateway primero,
+  /// luego actividad. Es la regla de Desktop, donde `room.pinned` forma la
+  /// banda exterior del orden de salas ANTES del `rosterOrder`
+  /// (`group-order.ts:19-24`) y el pin es puramente local, fuera del espejo
+  /// (`group-pin.ts:4-8`, `types.ts:222-225`).
   /// Al buscar, la agrupación desaparece (resultado plano por actividad).
   List<_Line> _sections(List<Conversation> rows, List<Connection> conns) {
     if (_search.text.trim().isNotEmpty) {
@@ -164,6 +169,14 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     }
 
     final sorted = [...rows]..sort(cmp);
+    // Orden dentro de una sección: pin de gateway como banda exterior y luego
+    // actividad (`group-order.ts:19-24`).
+    int withinSection(Conversation a, Conversation b) {
+      final gp = (b.pinnedGateway ? 1 : 0) - (a.pinnedGateway ? 1 : 0);
+      if (gp != 0) return gp;
+      return cmp(a, b);
+    }
+
     final groups = sorted.where((c) => c.isGroup).toList(growable: false);
     final pinnedGlobal = sorted
         .where((c) => !c.isGroup && c.pinned)
@@ -176,15 +189,19 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       byConn.putIfAbsent(c.connectionId, () => []).add(c);
     }
     for (final l in byConn.values) {
-      l.sort((a, b) {
-        final gp = (b.pinnedGateway ? 1 : 0) - (a.pinnedGateway ? 1 : 0);
-        if (gp != 0) return gp;
-        final byA = (b.lastActivity ?? DateTime(0)).compareTo(
-          a.lastActivity ?? DateTime(0),
-        );
-        if (byA != 0) return byA;
-        return a.title.compareTo(b.title);
-      });
+      l.sort(withinSection);
+    }
+    // Las salas también se agrupan por gateway: la identidad de un grupo es
+    // su roomId del espejo y es el MISMO token en todos los clientes
+    // (`group-chat.ts:216-223`), así que un grupo multi-gateway se materializa
+    // una fila por gateway (`group_sync.dart`) y debe poder vivir en la
+    // sección de cada uno.
+    final groupsByConn = <String, List<Conversation>>{};
+    for (final c in groups) {
+      groupsByConn.putIfAbsent(c.connectionId, () => []).add(c);
+    }
+    for (final l in groupsByConn.values) {
+      l.sort(withinSection);
     }
     // Secciones en el orden guardado de conexiones; conexiones inexistentes
     // (p. ej. borradas) al final.
@@ -193,7 +210,23 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     final out = <_Line>[];
     if (groups.isNotEmpty) {
       out.add(const _Line.header('Grupos', false));
-      out.addAll(groups.map((c) => _Line.row(c)));
+      // Subsecciones por gateway (mismo orden de secciones que los bots), para
+      // que un grupo multi-gateway aparezca junto a sus miembros.
+      for (final conn in connOrder) {
+        final list = groupsByConn.remove(conn.id);
+        if (list == null || list.isEmpty) continue;
+        if (conns.length > 1) {
+          out.add(_Line.header(conn.name, false));
+        }
+        out.addAll(list.map((c) => _Line.row(c)));
+      }
+      for (final entry in groupsByConn.entries) {
+        if (entry.value.isEmpty) continue;
+        if (conns.length > 1) {
+          out.add(_Line.header(entry.value.first.gatewayLabel ?? 'Otro gateway', false));
+        }
+        out.addAll(entry.value.map((c) => _Line.row(c)));
+      }
     }
     if (pinnedGlobal.isNotEmpty) {
       out.add(const _Line.header('Fijados', false));
@@ -289,17 +322,29 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         .toList(growable: false);
   }
 
-  /// Elimina la fila local de la conversación (mensajes + borrador).
-  /// NO toca nada del gateway: los datos del servidor quedan intactos.
+  /// Quita una conversación de ESTA app (fila, mensajes y borrador).
+  ///
+  /// No escribe nada en el gateway. Para un bot es inocuo: el re-sync la
+  /// volverá a descubrir desde `profiles.list`. Para un GRUPO del espejo de
+  /// Desktop no — la sala sigue viva en `ui_meta['hermes-bots-groups']` y
+  /// reaparecería en el siguiente ciclo, así que la fila queda como marcador
+  /// oculto (`kind='group-hidden'`): es la forma local del tombstone de
+  /// Desktop (`group-chat.ts:99-104`), que el sync respeta mientras la sala
+  /// siga viva. El pin de Desktop tampoco es una orden de borrado remoto
+  /// (`group-pin.ts:4-8`).
   Future<void> _confirmDelete(BuildContext context, Conversation c) async {
     final database = AppServices.db;
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Eliminar "${c.title}"'),
-        content: const Text(
-          'Se elimina de esta app (chat y borrador). '
-          'El bot y su historial en el gateway no se tocan.',
+        title: Text('${c.isGroup ? 'Ocultar' : 'Eliminar'} "${c.title}"'),
+        content: Text(
+          c.isGroup
+              ? 'Se oculta de esta app (chat y borrador). El grupo del gateway '
+                    'y su historial NO se tocan: lo crea y lo disuelve '
+                    'Hermes Desktop.'
+              : 'Se elimina de esta app (chat y borrador). '
+                    'El bot y su historial en el gateway no se tocan.',
         ),
         actions: [
           TextButton(
@@ -308,7 +353,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Eliminar'),
+            child: Text(c.isGroup ? 'Ocultar' : 'Eliminar'),
           ),
         ],
       ),
@@ -324,6 +369,16 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         (d) => d.conversationId.equals(c.id),
       );
     });
+    if (c.isGroup) {
+      // Marcador oculto: conserva la identidad durable (roomId) y la revisión
+      // sincronizada para que el sync no la re-materialice ni la re-titre.
+      await (database.update(database.conversations)
+            ..where((x) => x.id.equals(c.id)))
+          .write(
+        const ConversationsCompanion(kind: Value('group-hidden')),
+      );
+      return;
+    }
     await (database.delete(database.conversations)
           ..where((x) => x.id.equals(c.id)))
         .go();

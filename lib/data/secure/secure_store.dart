@@ -1,7 +1,6 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../core/logger.dart';
-import '../../domain/connection/connection_profile.dart';
 import '../../clients/hermes/http_client.dart';
 
 /// Almacén de secretos: tokens por conexión en secure storage
@@ -104,20 +103,5 @@ class SecureStore {
       if (eq > 0) out[part.substring(0, eq)] = part.substring(eq + 1);
     }
     return out;
-  }
-}
-
-/// Wrapper tipado para la sesión de una conexión concreta.
-extension ConnectionSessionX on SecureStore {
-  Future<ConnectionSession?> readConnectionSession(ConnectionProfile p) async {
-    final s = await readSession(p.id);
-    if (s == null) return null;
-    return ConnectionSession(
-      accessToken: s.accessToken,
-      refreshToken: s.refreshToken,
-      expiresAt: s.expiresAtMs == null
-          ? null
-          : DateTime.fromMillisecondsSinceEpoch(s.expiresAtMs!),
-    );
   }
 }

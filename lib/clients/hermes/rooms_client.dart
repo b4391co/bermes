@@ -1,9 +1,16 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'gateway_client.dart';
 
 /// Modelos de hosted rooms (grupos) — contratos de tui_gateway/contracts/groups_bot_relay.py
-/// y gateway/hosted_rooms.py (commit 3be17b1d, protocol_version 2).
+/// y gateway/hosted_rooms.py (protocol_version 2).
+///
+/// Verificado contra las fuentes reales del backend (`groups.send` toma
+/// `{room_id, event_id?, payload}` — NO `text`/`client_event_id`—; `created_at`
+/// es float de segundos; `cursor` de `groups.log` es int; `groups.create` exige
+/// `room_id` del cliente; `groups.rename` exige `event_id`), commit
+/// `e408d363393ccb72267e67bcccf4f8954b438cd9`.
 class RoomMember {
   final String? memberId;
   final String? profile;
@@ -70,8 +77,15 @@ class RoomEvent {
   kind; // message.user | message.member | turn.* | authority.* | room.*
   final Map<String, Object?> actor;
   final Map<String, Object?> payload;
-  final String? createdAt;
+
+  /// `created_at` del backend: epoch en SEGUNDOS (REAL en
+  /// `gateway/hosted_rooms.py::_event_from_row`).
+  final double? createdAtSeconds;
   final bool idempotent;
+
+  /// Frame original del log (la UI de chat lo reutiliza para pintar sin
+  /// duplicar parsers).
+  final Map<String, Object?> raw;
 
   const RoomEvent({
     required this.roomId,
@@ -80,9 +94,19 @@ class RoomEvent {
     required this.kind,
     required this.actor,
     required this.payload,
-    this.createdAt,
+    this.createdAtSeconds,
     this.idempotent = false,
+    this.raw = const {},
   });
+
+  /// ms de época para la UI; null si el backend no trajo marca.
+  int? get tsMs =>
+      createdAtSeconds == null ? null : (createdAtSeconds! * 1000).round();
+
+  /// Texto del evento según su `kind` (`hosted_room_discussion.py:60-63`:
+  /// `message.user`/`message.member` llevan `text`; el resto no). Siempre
+  /// string: nunca lanza.
+  String get text => payload['text'] as String? ?? '';
 
   String get actorKind => actor['kind'] as String? ?? '';
 
@@ -99,15 +123,22 @@ class RoomEvent {
 
 class RoomLogPage {
   final List<RoomEvent> events;
+
+  /// `cursor` de `groups.log`: seq del último evento devuelto (o `since_seq`
+  /// pedido si la página viene vacía). Nunca un string.
+  final int cursor;
   final int latestSeq;
   final bool hasMore;
-  final String? cursor;
+  final String? authorityGatewayId;
+  final int? authorityEpoch;
 
   const RoomLogPage({
     required this.events,
+    required this.cursor,
     required this.latestSeq,
     required this.hasMore,
-    this.cursor,
+    this.authorityGatewayId,
+    this.authorityEpoch,
   });
 }
 
@@ -132,10 +163,10 @@ class RoomsClient {
     return r is Map<String, Object?> ? r : null;
   }
 
-  /// Lista de rooms visibles. El gateway no expone groups.list en el contrato:
-  /// las rooms se descubren vía groups.state de cada room conocida y eventos
-  /// room.created; el Desktop las recibe del snapshot del bot plugin.
-  /// Aquí: state de rooms cacheadas localmente + eventos en vivo.
+  /// Estado de una sala (replay cursor + autoridad + `driver_status`).
+  ///
+  /// `GroupsStateParams` = `{room_id, include_disbanded?}`; el resultado envuelve
+  /// la sala bajo `room` (`GroupsStateResult`), igual que `groups.create`.
   Future<Room?> roomState(String roomId) async {
     final r = await gateway.rawCall(
       'groups.state',
@@ -147,86 +178,206 @@ class RoomsClient {
     return null;
   }
 
-  /// Página delta del log desde since_seq (idempotente por event_id).
+  /// Página delta del log desde [sinceSeq] (exclusive; `since_seq` real).
   Future<RoomLogPage> log(
     String roomId, {
     int? sinceSeq,
-    int limit = 200,
+    int? limit,
+    bool includeDisbanded = false,
   }) async {
     final r = await gateway.rawCall(
       'groups.log',
-      params: {'room_id': roomId, 'since_seq': sinceSeq, 'limit': limit},
+      params: {
+        'room_id': roomId,
+        // `since_seq`/`limit` son `int | None` y el handler pasa el valor por
+        // defecto (`methods_groups.py` `_passthrough` para `groups.log`:
+        // `p.get("since_seq", 0)`, `p.get("limit", 100)`); un `null` explícito
+        // rompería la validación, así que simplemente no se envían.
+        'since_seq': ?sinceSeq,
+        'limit': ?limit,
+        if (includeDisbanded) 'include_disbanded': true,
+      },
     );
     if (r is! Map<String, Object?>) {
-      return const RoomLogPage(events: [], latestSeq: 0, hasMore: false);
+      return const RoomLogPage(
+        events: [],
+        cursor: 0,
+        latestSeq: 0,
+        hasMore: false,
+      );
     }
     final events = ((r['events'] as List?) ?? const [])
         .whereType<Map<String, Object?>>()
         .map(_eventFrom)
         .toList();
+    final auth = (r['authority'] as Map?)?.cast<String, Object?>();
     return RoomLogPage(
       events: events,
-      latestSeq: r['latest_seq'] as int? ?? 0,
+      cursor: _int(r['cursor']) ?? (sinceSeq ?? 0),
+      latestSeq: _int(r['latest_seq']) ?? 0,
       hasMore: r['has_more'] as bool? ?? false,
-      cursor: r['cursor'] as String?,
+      authorityGatewayId: auth?['gateway_id'] as String?,
+      authorityEpoch: _int(auth?['epoch']),
     );
+  }
+
+  static int? _int(Object? v) => v is num ? v.toInt() : null;
+
+  /// Hex de [Random.secure], `bytes` octetos.
+  static String _hex(int bytes) {
+    final rnd = Random.secure();
+    return List.generate(
+      bytes,
+      (_) => rnd.nextInt(256),
+    ).map((x) => x.toRadixString(16).padLeft(2, '0')).join();
   }
 
   RoomEvent _eventFrom(Map<String, Object?> j) => RoomEvent(
     roomId: j['room_id'] as String? ?? '',
-    seq: j['seq'] as int? ?? 0,
+    seq: _int(j['seq']) ?? 0,
     eventId: j['event_id'] as String? ?? '',
     kind: j['kind'] as String? ?? '',
     actor: (j['actor'] as Map?)?.cast<String, Object?>() ?? const {},
     payload: (j['payload'] as Map?)?.cast<String, Object?>() ?? const {},
-    createdAt: j['created_at'] as String?,
+    // `created_at` es FLOAT (epoch segundos) en `_event_from_row`; NUNCA un
+    // string (el `as String?` del archivo original lo perdía/reventaba).
+    createdAtSeconds: (j['created_at'] as num?)?.toDouble(),
     idempotent: j['idempotent'] as bool? ?? false,
+    raw: j,
   );
 
-  /// Enviar mensaje de usuario al room (idempotente con client_event_id).
+  /// Enviar mensaje de usuario al room.
+  ///
+  /// Contrato REAL (`tui_gateway/contracts/groups_bot_relay.py:231-244` +
+  /// `tui_gateway/methods_groups.py:381-393`, params `extra="forbid"`):
+  /// `{room_id, event_id?, payload}` → `{event, client_event_id, accepted,
+  /// driver_started}`. NO existen `text` ni `client_event_id` como params:
+  /// - `event_id` es la clave de reintentos; el backend la valida como
+  ///   identificador (`^[A-Za-z0-9][A-Za-z0-9._:-]*$`, ≤128 chars,
+  ///   `gateway/hosted_rooms.py:208,244`) y la mapea a `user:<sha256(event_id)>`,
+  ///   que es el `event_id` del log. Reenviar la MISMA clave con el MISMO
+  ///   payload es idempotente; misma clave con contenido distinto → code 4111
+  ///   (`EventConflictError`). El `client_event_id` del resultado es un eco.
+  /// - `payload` pasa `validate_user_payload`
+  ///   (`gateway/hosted_room_discussion.py:60,198-203`): `_exact_fields` exige
+  ///   EXACTAMENTE `{text, thread_id}` (ambos string; texto no vacío ≤64 KB
+  ///   UTF-8). Un campo de más FALLA la validación.
+  /// - `threadId` es el hilo de discusión de la sala: los mensajes del mismo
+  ///   hilo comparten `thread_id` y el driver contesta por hilo
+  ///   (`hosted_room_discussion.py:572-602`). Los clientes mintan hilos nuevos
+  ///   (Desktop `mintGroupThreadId`); este default `'t<p36>-<rand>'` es una
+  ///   CONVENCIÓN LOCAL documentada, no un valor del protocolo.
+  /// El actor es server-owned (`{"kind":"user","id":"desktop"}`); la app nunca
+  /// lo manda.
   Future<Map<String, Object?>?> send(
     String roomId,
     String text, {
-    String? clientEventId,
+    required String clientEventId,
+    String? threadId,
   }) async {
     final r = await gateway.rawCall(
       'groups.send',
       params: {
         'room_id': roomId,
-        'text': text,
-        'client_event_id': clientEventId,
+        'event_id': clientEventId,
+        'payload': {'text': text, 'thread_id': threadId ?? newThreadId()},
       },
     );
     return r is Map<String, Object?> ? r : null;
   }
 
-  /// Crear grupo. Idempotente en el backend.
-  Future<Room?> create(String name, List<Map<String, Object?>> members) async {
+  /// Envío con clave de idempotencia autogenerada.
+  ///
+  /// Devuelve el par (resultado, clave + hilo usados): si el llamador necesita
+  /// reintentar ESTE envío (timeout, desconexión) DEBE reenviar por [send] la
+  /// MISMA `clientEventId` y el MISMO `threadId` del recibo; un retry con
+  /// clave nueva (o hilo nuevo) duplica el mensaje.
+  Future<
+    ({Map<String, Object?>? result, String clientEventId, String threadId})
+  >
+  sendText(
+    String roomId,
+    String text, {
+    String? clientEventId,
+    String? threadId,
+  }) async {
+    final id = clientEventId ?? newClientEventId();
+    final thread = threadId ?? newThreadId();
+    final result = await send(
+      roomId,
+      text,
+      clientEventId: id,
+      threadId: thread,
+    );
+    return (result: result, clientEventId: id, threadId: thread);
+  }
+
+  /// Clave de reintentos válida para el validador del backend (`IDENTIFIER_RE`):
+  /// `u` + 32 hex ([Random.secure]), ≤128 chars, sin separadores prohibidos.
+  static String newClientEventId() => 'u${_hex(16)}';
+
+  /// Hilo de discusión (convención local; ver [send]).
+  static String newThreadId() =>
+      't${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-${_hex(3)}';
+
+  /// Crear grupo.
+  ///
+  /// `GroupsCreateParams` (`groups_bot_relay.py:180-186`): `room_id` es
+  /// REQUERIDO y lo elige el CLIENTE (idempotencia por contenido: mismo
+  /// `room_id` + mismo nombre/miembros → la MISMA sala, `idempotent: true`;
+  /// mismo id con otro contenido → `RoomConflictError`). Por eso [roomId] es
+  /// opcional y se genera con [newRoomId] cuando falta: reenviar el id
+  /// guardado es el reintento seguro.
+  /// `authority_gateway_id` se acepta pero se ignora (la autoridad es siempre
+  /// la identidad de instalación del gateway).
+  Future<Room?> create(
+    String name,
+    List<Map<String, Object?>> members, {
+    String? roomId,
+  }) async {
     final r = await gateway.rawCall(
       'groups.create',
-      params: {'name': name, 'members': members},
+      params: {
+        'room_id': roomId ?? newRoomId(),
+        'name': name,
+        'members': members,
+      },
     );
     final room = r is Map<String, Object?> ? r['room'] : null;
     return room is Map<String, Object?> ? Room.fromJson(room) : null;
   }
 
-  Future<void> rename(String roomId, String name) => gateway
-      .rawCall('groups.rename', params: {'room_id': roomId, 'name': name})
-      .then((_) {});
+  /// `room_id` generado (convención local: los ids los elige quien crea;
+  /// válido para `IDENTIFIER_RE`, ≤128 chars).
+  static String newRoomId() => 'room-${_hex(16)}';
 
-  /// Disband: tumba permanente en el gateway (no resucita al reconectar).
-  Future<void> disband(String roomId) => gateway
-      .rawCall('groups.disband', params: {'room_id': roomId})
+  /// Renombrar. `GroupsRenameParams` (`groups_bot_relay.py:247-250`):
+  /// `event_id` es REQUERIDO (el rename es un evento `room.renamed` en el log
+  /// y la clave es idempotente por contenido). Reenviar la MISMA
+  /// [clientEventId] para reintentar.
+  Future<void> rename(
+    String roomId,
+    String name, {
+    required String clientEventId,
+  }) => gateway
+      .rawCall(
+        'groups.rename',
+        params: {'room_id': roomId, 'event_id': clientEventId, 'name': name},
+      )
       .then((_) {});
 
   /// Aprobación en contexto room (camino remoto incluido: el backend la
   /// enruta vía Runs API del peer con HermesRoom grant).
+  ///
+  /// `GroupsApproveParams` (`groups_bot_relay.py:1477-1485`):
+  /// `execution_generation` es INT (el handler hace `int(params.get(...) or 0)`
+  /// — un string daría error), `choice` ∈ once|session|always|deny.
   Future<void> approve({
     required String roomId,
     required String memberId,
     required String taskId,
-    required String executionGeneration,
-    required String choice, // once | session | always | deny
+    required int executionGeneration,
+    required String choice,
     required String requestId,
   }) async {
     await gateway.rawCall(
@@ -243,15 +394,17 @@ class RoomsClient {
   }
 
   /// Sincronización continua: aplica páginas delta hasta quedar al día.
-  /// Devuelve todos los eventos nuevos (dedup por event_id lo hace el llamador).
+  /// Avanza por el `cursor` (int) de cada página — el valor real del
+  /// resultado de `groups.log`, no el seq observado —; dedup por `event_id`
+  /// lo hace el llamador.
   Future<List<RoomEvent>> syncAll(String roomId, {int? lastSeq}) async {
     final out = <RoomEvent>[];
-    var since = lastSeq;
+    var since = lastSeq ?? 0;
     for (var page = 0; page < 20; page++) {
       final p = await log(roomId, sinceSeq: since);
       out.addAll(p.events);
-      if (!p.hasMore || p.events.isEmpty) break;
-      since = p.events.last.seq;
+      if (!p.hasMore || p.cursor <= since) break;
+      since = p.cursor;
     }
     return out;
   }

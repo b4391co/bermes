@@ -913,6 +913,40 @@ class $ConversationsTable extends Conversations
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _groupRoomIdMeta = const VerificationMeta(
+    'groupRoomId',
+  );
+  @override
+  late final GeneratedColumn<String> groupRoomId = GeneratedColumn<String>(
+    'group_room_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _groupSyncRevisionMeta = const VerificationMeta(
+    'groupSyncRevision',
+  );
+  @override
+  late final GeneratedColumn<int> groupSyncRevision = GeneratedColumn<int>(
+    'group_sync_revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _groupSyncNameMeta = const VerificationMeta(
+    'groupSyncName',
+  );
+  @override
+  late final GeneratedColumn<String> groupSyncName = GeneratedColumn<String>(
+    'group_sync_name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -933,6 +967,9 @@ class $ConversationsTable extends Conversations
     sortOrder,
     pinned,
     pinnedGateway,
+    groupRoomId,
+    groupSyncRevision,
+    groupSyncName,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1082,6 +1119,33 @@ class $ConversationsTable extends Conversations
         ),
       );
     }
+    if (data.containsKey('group_room_id')) {
+      context.handle(
+        _groupRoomIdMeta,
+        groupRoomId.isAcceptableOrUnknown(
+          data['group_room_id']!,
+          _groupRoomIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('group_sync_revision')) {
+      context.handle(
+        _groupSyncRevisionMeta,
+        groupSyncRevision.isAcceptableOrUnknown(
+          data['group_sync_revision']!,
+          _groupSyncRevisionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('group_sync_name')) {
+      context.handle(
+        _groupSyncNameMeta,
+        groupSyncName.isAcceptableOrUnknown(
+          data['group_sync_name']!,
+          _groupSyncNameMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -1163,6 +1227,18 @@ class $ConversationsTable extends Conversations
         DriftSqlType.bool,
         data['${effectivePrefix}pinned_gateway'],
       )!,
+      groupRoomId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}group_room_id'],
+      ),
+      groupSyncRevision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}group_sync_revision'],
+      )!,
+      groupSyncName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}group_sync_name'],
+      ),
     );
   }
 
@@ -1191,6 +1267,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
   final int sortOrder;
   final bool pinned;
   final bool pinnedGateway;
+  final String? groupRoomId;
+  final int groupSyncRevision;
+  final String? groupSyncName;
   const Conversation({
     required this.id,
     required this.connectionId,
@@ -1210,6 +1289,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     required this.sortOrder,
     required this.pinned,
     required this.pinnedGateway,
+    this.groupRoomId,
+    required this.groupSyncRevision,
+    this.groupSyncName,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1248,6 +1330,13 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     map['sort_order'] = Variable<int>(sortOrder);
     map['pinned'] = Variable<bool>(pinned);
     map['pinned_gateway'] = Variable<bool>(pinnedGateway);
+    if (!nullToAbsent || groupRoomId != null) {
+      map['group_room_id'] = Variable<String>(groupRoomId);
+    }
+    map['group_sync_revision'] = Variable<int>(groupSyncRevision);
+    if (!nullToAbsent || groupSyncName != null) {
+      map['group_sync_name'] = Variable<String>(groupSyncName);
+    }
     return map;
   }
 
@@ -1287,6 +1376,13 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       sortOrder: Value(sortOrder),
       pinned: Value(pinned),
       pinnedGateway: Value(pinnedGateway),
+      groupRoomId: groupRoomId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(groupRoomId),
+      groupSyncRevision: Value(groupSyncRevision),
+      groupSyncName: groupSyncName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(groupSyncName),
     );
   }
 
@@ -1314,6 +1410,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       sortOrder: serializer.fromJson<int>(json['sortOrder']),
       pinned: serializer.fromJson<bool>(json['pinned']),
       pinnedGateway: serializer.fromJson<bool>(json['pinnedGateway']),
+      groupRoomId: serializer.fromJson<String?>(json['groupRoomId']),
+      groupSyncRevision: serializer.fromJson<int>(json['groupSyncRevision']),
+      groupSyncName: serializer.fromJson<String?>(json['groupSyncName']),
     );
   }
   @override
@@ -1338,6 +1437,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       'sortOrder': serializer.toJson<int>(sortOrder),
       'pinned': serializer.toJson<bool>(pinned),
       'pinnedGateway': serializer.toJson<bool>(pinnedGateway),
+      'groupRoomId': serializer.toJson<String?>(groupRoomId),
+      'groupSyncRevision': serializer.toJson<int>(groupSyncRevision),
+      'groupSyncName': serializer.toJson<String?>(groupSyncName),
     };
   }
 
@@ -1360,6 +1462,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     int? sortOrder,
     bool? pinned,
     bool? pinnedGateway,
+    Value<String?> groupRoomId = const Value.absent(),
+    int? groupSyncRevision,
+    Value<String?> groupSyncName = const Value.absent(),
   }) => Conversation(
     id: id ?? this.id,
     connectionId: connectionId ?? this.connectionId,
@@ -1383,6 +1488,11 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     sortOrder: sortOrder ?? this.sortOrder,
     pinned: pinned ?? this.pinned,
     pinnedGateway: pinnedGateway ?? this.pinnedGateway,
+    groupRoomId: groupRoomId.present ? groupRoomId.value : this.groupRoomId,
+    groupSyncRevision: groupSyncRevision ?? this.groupSyncRevision,
+    groupSyncName: groupSyncName.present
+        ? groupSyncName.value
+        : this.groupSyncName,
   );
   Conversation copyWithCompanion(ConversationsCompanion data) {
     return Conversation(
@@ -1420,6 +1530,15 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       pinnedGateway: data.pinnedGateway.present
           ? data.pinnedGateway.value
           : this.pinnedGateway,
+      groupRoomId: data.groupRoomId.present
+          ? data.groupRoomId.value
+          : this.groupRoomId,
+      groupSyncRevision: data.groupSyncRevision.present
+          ? data.groupSyncRevision.value
+          : this.groupSyncRevision,
+      groupSyncName: data.groupSyncName.present
+          ? data.groupSyncName.value
+          : this.groupSyncName,
     );
   }
 
@@ -1443,13 +1562,16 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           ..write('unreadCount: $unreadCount, ')
           ..write('sortOrder: $sortOrder, ')
           ..write('pinned: $pinned, ')
-          ..write('pinnedGateway: $pinnedGateway')
+          ..write('pinnedGateway: $pinnedGateway, ')
+          ..write('groupRoomId: $groupRoomId, ')
+          ..write('groupSyncRevision: $groupSyncRevision, ')
+          ..write('groupSyncName: $groupSyncName')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     id,
     connectionId,
     kind,
@@ -1468,7 +1590,10 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     sortOrder,
     pinned,
     pinnedGateway,
-  );
+    groupRoomId,
+    groupSyncRevision,
+    groupSyncName,
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1490,7 +1615,10 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           other.unreadCount == this.unreadCount &&
           other.sortOrder == this.sortOrder &&
           other.pinned == this.pinned &&
-          other.pinnedGateway == this.pinnedGateway);
+          other.pinnedGateway == this.pinnedGateway &&
+          other.groupRoomId == this.groupRoomId &&
+          other.groupSyncRevision == this.groupSyncRevision &&
+          other.groupSyncName == this.groupSyncName);
 }
 
 class ConversationsCompanion extends UpdateCompanion<Conversation> {
@@ -1512,6 +1640,9 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
   final Value<int> sortOrder;
   final Value<bool> pinned;
   final Value<bool> pinnedGateway;
+  final Value<String?> groupRoomId;
+  final Value<int> groupSyncRevision;
+  final Value<String?> groupSyncName;
   final Value<int> rowid;
   const ConversationsCompanion({
     this.id = const Value.absent(),
@@ -1532,6 +1663,9 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     this.sortOrder = const Value.absent(),
     this.pinned = const Value.absent(),
     this.pinnedGateway = const Value.absent(),
+    this.groupRoomId = const Value.absent(),
+    this.groupSyncRevision = const Value.absent(),
+    this.groupSyncName = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ConversationsCompanion.insert({
@@ -1553,6 +1687,9 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     this.sortOrder = const Value.absent(),
     this.pinned = const Value.absent(),
     this.pinnedGateway = const Value.absent(),
+    this.groupRoomId = const Value.absent(),
+    this.groupSyncRevision = const Value.absent(),
+    this.groupSyncName = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        connectionId = Value(connectionId),
@@ -1578,6 +1715,9 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     Expression<int>? sortOrder,
     Expression<bool>? pinned,
     Expression<bool>? pinnedGateway,
+    Expression<String>? groupRoomId,
+    Expression<int>? groupSyncRevision,
+    Expression<String>? groupSyncName,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1599,6 +1739,9 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
       if (sortOrder != null) 'sort_order': sortOrder,
       if (pinned != null) 'pinned': pinned,
       if (pinnedGateway != null) 'pinned_gateway': pinnedGateway,
+      if (groupRoomId != null) 'group_room_id': groupRoomId,
+      if (groupSyncRevision != null) 'group_sync_revision': groupSyncRevision,
+      if (groupSyncName != null) 'group_sync_name': groupSyncName,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1622,6 +1765,9 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     Value<int>? sortOrder,
     Value<bool>? pinned,
     Value<bool>? pinnedGateway,
+    Value<String?>? groupRoomId,
+    Value<int>? groupSyncRevision,
+    Value<String?>? groupSyncName,
     Value<int>? rowid,
   }) {
     return ConversationsCompanion(
@@ -1643,6 +1789,9 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
       sortOrder: sortOrder ?? this.sortOrder,
       pinned: pinned ?? this.pinned,
       pinnedGateway: pinnedGateway ?? this.pinnedGateway,
+      groupRoomId: groupRoomId ?? this.groupRoomId,
+      groupSyncRevision: groupSyncRevision ?? this.groupSyncRevision,
+      groupSyncName: groupSyncName ?? this.groupSyncName,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1704,6 +1853,15 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     if (pinnedGateway.present) {
       map['pinned_gateway'] = Variable<bool>(pinnedGateway.value);
     }
+    if (groupRoomId.present) {
+      map['group_room_id'] = Variable<String>(groupRoomId.value);
+    }
+    if (groupSyncRevision.present) {
+      map['group_sync_revision'] = Variable<int>(groupSyncRevision.value);
+    }
+    if (groupSyncName.present) {
+      map['group_sync_name'] = Variable<String>(groupSyncName.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1731,6 +1889,9 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
           ..write('sortOrder: $sortOrder, ')
           ..write('pinned: $pinned, ')
           ..write('pinnedGateway: $pinnedGateway, ')
+          ..write('groupRoomId: $groupRoomId, ')
+          ..write('groupSyncRevision: $groupSyncRevision, ')
+          ..write('groupSyncName: $groupSyncName, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3721,6 +3882,9 @@ typedef $$ConversationsTableCreateCompanionBuilder =
       Value<int> sortOrder,
       Value<bool> pinned,
       Value<bool> pinnedGateway,
+      Value<String?> groupRoomId,
+      Value<int> groupSyncRevision,
+      Value<String?> groupSyncName,
       Value<int> rowid,
     });
 typedef $$ConversationsTableUpdateCompanionBuilder =
@@ -3743,6 +3907,9 @@ typedef $$ConversationsTableUpdateCompanionBuilder =
       Value<int> sortOrder,
       Value<bool> pinned,
       Value<bool> pinnedGateway,
+      Value<String?> groupRoomId,
+      Value<int> groupSyncRevision,
+      Value<String?> groupSyncName,
       Value<int> rowid,
     });
 
@@ -3842,6 +4009,21 @@ class $$ConversationsTableFilterComposer
 
   ColumnFilters<bool> get pinnedGateway => $composableBuilder(
     column: $table.pinnedGateway,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get groupRoomId => $composableBuilder(
+    column: $table.groupRoomId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get groupSyncRevision => $composableBuilder(
+    column: $table.groupSyncRevision,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get groupSyncName => $composableBuilder(
+    column: $table.groupSyncName,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -3944,6 +4126,21 @@ class $$ConversationsTableOrderingComposer
     column: $table.pinnedGateway,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get groupRoomId => $composableBuilder(
+    column: $table.groupRoomId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get groupSyncRevision => $composableBuilder(
+    column: $table.groupSyncRevision,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get groupSyncName => $composableBuilder(
+    column: $table.groupSyncName,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ConversationsTableAnnotationComposer
@@ -4024,6 +4221,21 @@ class $$ConversationsTableAnnotationComposer
     column: $table.pinnedGateway,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get groupRoomId => $composableBuilder(
+    column: $table.groupRoomId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get groupSyncRevision => $composableBuilder(
+    column: $table.groupSyncRevision,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get groupSyncName => $composableBuilder(
+    column: $table.groupSyncName,
+    builder: (column) => column,
+  );
 }
 
 class $$ConversationsTableTableManager
@@ -4075,6 +4287,9 @@ class $$ConversationsTableTableManager
                 Value<int> sortOrder = const Value.absent(),
                 Value<bool> pinned = const Value.absent(),
                 Value<bool> pinnedGateway = const Value.absent(),
+                Value<String?> groupRoomId = const Value.absent(),
+                Value<int> groupSyncRevision = const Value.absent(),
+                Value<String?> groupSyncName = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ConversationsCompanion(
                 id: id,
@@ -4095,6 +4310,9 @@ class $$ConversationsTableTableManager
                 sortOrder: sortOrder,
                 pinned: pinned,
                 pinnedGateway: pinnedGateway,
+                groupRoomId: groupRoomId,
+                groupSyncRevision: groupSyncRevision,
+                groupSyncName: groupSyncName,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -4117,6 +4335,9 @@ class $$ConversationsTableTableManager
                 Value<int> sortOrder = const Value.absent(),
                 Value<bool> pinned = const Value.absent(),
                 Value<bool> pinnedGateway = const Value.absent(),
+                Value<String?> groupRoomId = const Value.absent(),
+                Value<int> groupSyncRevision = const Value.absent(),
+                Value<String?> groupSyncName = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ConversationsCompanion.insert(
                 id: id,
@@ -4137,6 +4358,9 @@ class $$ConversationsTableTableManager
                 sortOrder: sortOrder,
                 pinned: pinned,
                 pinnedGateway: pinnedGateway,
+                groupRoomId: groupRoomId,
+                groupSyncRevision: groupSyncRevision,
+                groupSyncName: groupSyncName,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

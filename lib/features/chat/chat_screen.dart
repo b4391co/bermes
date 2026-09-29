@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import '../../clients/hermes/chat_session_controller.dart';
 import '../../clients/hermes/connection_manager.dart';
 import '../../clients/hermes/gateway_client.dart';
+import '../../clients/hermes/rooms_client.dart';
+import '../../clients/hermes/rpc_types.dart';
 import '../../core/app_services.dart';
 import '../../core/logger.dart';
 import '../../data/database/app_database.dart' as db;
@@ -53,6 +55,7 @@ class _ChatScreenState extends State<ChatScreen> {
   ChatSessionController? _controller;
   StreamSubscription<List<ChatMessage>>? _liveSub;
   List<ChatMessage> _live = const [];
+  final _roomController = StreamController<List<ChatMessage>>.broadcast();
 
   db.Conversation? _conversation;
   List<db.Message> _history = const [];
@@ -69,7 +72,11 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _draftTimer?.cancel();
     _liveSub?.cancel();
+    // El controller se suscribe al gateway en attach(): sin dispose, cada
+    // re-adjunto (sesión recién resuelta, reentrada al chat) dejaría un
+    // listener vivo aplicando eventos sobre una página muerta.
     _controller?.dispose();
+    unawaited(_roomController.close());
     _input.dispose();
     _focus.dispose();
     _scroll.dispose();
@@ -156,7 +163,105 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       sendSession = null;
     }
+    if (conv.kind == 'group') {
+      // Salas hosted: el timeline es `groups.log` + eventos `room.event`.
+      _startRoomLog();
+      return;
+    }
     _startController(path, sendSession, runtime);
+  }
+
+  int _roomLastSeq = 0;
+  StreamSubscription<GatewayEvent>? _roomSub;
+  bool _roomLoading = false;
+
+  void _startRoomLog() {
+    final conv = _conversation;
+    final runtime = _runtime;
+    final roomId = conv?.groupRoomId ?? conv?.gatewayId;
+    if (conv == null || runtime == null || roomId == null || roomId.isEmpty) {
+      return;
+    }
+    final client = RoomsClient(runtime.gateway);
+    // El enlace puede seguir conectando (el bootstrap del shell arranca en
+    // paralelo con esta pantalla). _request NO encola: 'not connected' es un
+    // fallo real. Se espera el ready (o su timeout) antes de pedir el log.
+    unawaited(() async {
+      try {
+        await runtime.gateway.readyOrTimeout(const Duration(seconds: 20));
+        await _loadRoomLog(client, roomId);
+      } catch (e, st) {
+        _log.warning('room log load falló', e, st);
+      }
+    }());
+    // 2) Suscribir eventos en vivo: el backend emite `room.event`
+    //    (hosted_room_service::publish) con el evento dentro de payload.event.
+    _roomSub = runtime.gateway.events.listen((e) async {
+      if (e.type != 'room.event') return;
+      final ev = e.payload['event'];
+      final payloadRoom = e.payload['room_id'];
+      if (ev is! Map || payloadRoom != roomId) return;
+      final seq = (ev['seq'] as num?)?.toInt() ?? 0;
+      if (seq <= _roomLastSeq) return;
+      _roomLastSeq = seq;
+      setState(() => _live = [..._live, _roomMessage(conv, roomId, ev)]);
+      _roomController.add(_live);
+    });
+  }
+
+  ChatMessage _roomMessage(db.Conversation conv, String roomId, Map ev) {
+    final actor = (ev['actor'] as Map?) ?? const {};
+    final kind = ev['kind'] as String? ?? '';
+    final text = ((ev['payload'] as Map?)?['text'] as String?) ?? '';
+    final isUser = kind == 'message.user';
+    final author = isUser
+        ? 'Tú'
+        : (actor['display_name'] as String? ??
+            actor['handle'] as String? ??
+            actor['profile'] as String? ??
+            'miembro');
+    return ChatMessage(
+      id: 'room-${ev['event_id']}',
+      path: EntityRefPath(
+        connectionId: conv.connectionId,
+        kind: EntityKind.group,
+        gatewayId: roomId,
+      ),
+      role: isUser ? MessageRole.user : MessageRole.assistant,
+      text: text,
+      sendState: SendState.sent,
+      origin: MessageOrigin.live,
+      timestamp: DateTime.fromMillisecondsSinceEpoch(
+        (((ev['created_at'] as num?)?.toDouble() ?? 0) * 1000).round(),
+      ),
+      authorName: author,
+    );
+  }
+
+  Future<void> _loadRoomLog(RoomsClient client, String roomId) async {
+    if (_roomLoading) return;
+    _roomLoading = true;
+    final conv = _conversation!;
+    try {
+      final page = await client.log(roomId, sinceSeq: 0);
+      _roomLastSeq = page.cursor;
+      // Reconstrucción del timeline desde el log: se reemplaza _live (la
+      // fuente de verdad es el servidor). Un re-abierto no duplica nada; los
+      // optimistas de la sesión anterior viven en el log si fueron aceptados.
+      final msgs = page.events
+          .where((e) =>
+              e.kind == 'message.user' || e.kind == 'message.member')
+          .map((e) => _roomMessage(conv, roomId, e.raw))
+          .toList();
+      if (mounted) setState(() => _live = msgs);
+      _roomController.add(_live);
+    } catch (e) {
+      // Gateway sin groups.* (versión antigua): el chat queda vacío y el
+      // envío reportará la causa real.
+      _log.warning('groups.log no disponible', e);
+    } finally {
+      _roomLoading = false;
+    }
   }
 
   void _startController(
@@ -189,8 +294,13 @@ class _ChatScreenState extends State<ChatScreen> {
       _loadHistory();
     };
 
+    _controller?.dispose();
     _liveSub?.cancel();
     _liveSub = controller.stream.listen(_onLive);
+    // attach() SUSCRIBE el controller a los eventos del gateway. Omitirlo
+    // dejaba la línea viva muda: sin streaming, sin botón Detener y sin
+    // aprobaciones. Se hace tras el listen para no perder el primer frame.
+    controller.attach();
     setState(() {
       _controller = controller;
       _live = controller.messages;
@@ -239,7 +349,7 @@ class _ChatScreenState extends State<ChatScreen> {
               m.conversationId.equals(conv.id) &
               (m.origin.equals('live') | m.origin.equals('optimistic')),
         );
-        b.insertAll(database.messages, live.map(_rowFrom).toList());
+        b.insertAllOnConflictUpdate(database.messages, live.map(_rowFrom).toList());
       });
     } catch (e) {
       _log.warning('persist live failed', e);
@@ -311,8 +421,9 @@ class _ChatScreenState extends State<ChatScreen> {
     _jumpToBottom();
   }
 
-  /// Trae el historial real del gateway (GET /api/sessions/{id}/messages) y
-  /// lo persiste con origen 'history'. Sin endpoint (versión antigua o
+  /// Trae el historial real del gateway
+  /// (`GET /api/sessions/{id}/messages`, apps/desktop/src/api/sessions.ts:455-493)
+  /// y lo persiste con origen 'history'. Sin endpoint (versión antigua o
   /// sesión no resuelta): silencio — la línea viva sigue cubriendo la
   /// conversación de esta sesión.
   Future<void> _pullRemoteHistory() async {
@@ -321,7 +432,12 @@ class _ChatScreenState extends State<ChatScreen> {
     if (runtime == null || conv == null) return;
     final sessionId = conv.canonicalSession ?? _controller?.sessionId;
     if (sessionId == null || sessionId.isEmpty) return;
-    final msgs = await runtime.gateway.fetchSessionMessages(sessionId);
+    // `profile` escota la lectura: la fila sólo la responde su backend dueño
+    // (api/client.ts:231-247 sessionReadOwnerPin; sessions.ts:466-468).
+    final msgs = await runtime.gateway.fetchSessionMessages(
+      sessionId,
+      profile: conv.kind == 'bot' ? conv.gatewayId : null,
+    );
     if (msgs == null || msgs.isEmpty || !mounted) return;
     final database = AppServices.db;
     try {
@@ -331,16 +447,27 @@ class _ChatScreenState extends State<ChatScreen> {
           (m) =>
               m.conversationId.equals(conv.id) & m.origin.equals('history'),
         );
-        final seen = {
-          for (final t in _history.map((m) => m.text_)) t,
-          for (final t in _live.map((m) => m.text)) t,
-        };
-        b.insertAll(
+        // Doble por DIRECCIÓN duradera, no por texto: `row_id` es la clave del
+        // store (tui_gateway/contracts/common.py:169) y el ACK de
+        // `prompt.submit` deja `user_row_id` en la línea viva, que se guarda
+        // con el mismo id `gw:<row_id>` que usa el historial remoto. Comparar
+        // textos duplicaba mensajes iguales y descartaba distintos.
+        final seenRows = {
+          for (final m in _live) m.gatewayRowId,
+          for (final m in _history) m.gatewayRowId,
+        }..remove(null);
+        // `insertAllOnConflictUpdate`: dos páginas de historial pueden traer
+        // la misma fila (paginación solapada) y el UNIQUE(id) reventaba el
+        // lote entero — se perdían TODOS los mensajes, no el duplicado.
+        b.insertAllOnConflictUpdate(
           database.messages,
           msgs.reversed
               .map((m) => _rowFromRemote(m, conv))
               .nonNulls
-              .where((r) => !seen.contains(r.text_.value))
+              .where(
+                (r) => r.gatewayRowId.value == null ||
+                    !seenRows.contains(r.gatewayRowId.value),
+              )
               .toList(),
         );
       });
@@ -349,26 +476,34 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// Fila de historial → registro local.
+  ///
+  /// Campos reales de `TranscriptMessage`
+  /// (tui_gateway/contracts/common.py:158-176): `role`, `text`, `content`,
+  /// `row_id`, `timestamp` (segundos float), `reasoning`, `tool_call_id`.
+  /// No existen `created_at`/`ts`/`message_id`; el id duradero es `row_id`.
   db.MessagesCompanion? _rowFromRemote(
     Map<String, Object?> m,
     db.Conversation conv,
   ) {
-    final role = (m['role'] as String?) ?? 'assistant';
-    final text = (m['text'] ?? m['content'])?.toString();
+    final role = m['role'] as String?;
+    if (role != 'user' && role != 'assistant' && role != 'system') return null;
+    final text = (m['text'] as String?) ?? m['content']?.toString();
     if (text == null || text.isEmpty) return null;
-    final tsMs = (m['created_at'] ?? m['timestamp'] ?? m['ts']) as num?;
-    final ts = tsMs != null
-        ? DateTime.fromMillisecondsSinceEpoch(
-            (tsMs.toDouble() * (tsMs < 1e12 ? 1000 : 1)).round(),
-          )
-        : null;
+    final rowId = (m['row_id'] as num?)?.toInt();
+    final ts = (m['timestamp'] as num?)?.toDouble();
     return db.MessagesCompanion.insert(
-      id: 'gw:${m['id'] ?? m['message_id'] ?? tsMs ?? text.hashCode}',
+      id: rowId == null ? 'gw:${text.hashCode}' : 'gw:$rowId',
       conversationId: conv.id,
       connectionId: conv.connectionId,
-      role: role == 'user' ? 'user' : (role == 'system' ? 'system' : 'assistant'),
+      role: role!,
       text_: Value(text),
-      timestamp: Value(ts),
+      gatewayRowId: Value(rowId),
+      timestamp: Value(
+        ts == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch((ts * 1000).round()),
+      ),
       origin: const Value('history'),
     );
   }
@@ -476,10 +611,16 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty || _sending) return;
     final conv = _conversation;
     if (conv != null && conv.kind == 'group') {
-      // Grupo de Desktop (ui_meta.groups): no hay sesión de room que inventar.
-      _showGroupNotice();
+      // Grupo hosted: el transporte es `groups.send` ( RoomsClient ), no una
+      // sesión de bot. La sala vive en el gateway con room_id = conv.groupRoomId
+      // (o conv.gatewayId para filas espejo sin id); el autor es server-owned.
+      await _sendGroup(text);
       return;
     }
+    // El 'Reintentar' de un SnackBar puede llegar DESPUÉS de dispose (la
+    // acción del snackbar no cancela al morir la página): setState sobre un
+    // State muerto lanza y el reintento jamás se envía.
+    if (!mounted) return;
     setState(() {
       _sending = true;
       _hasError = false;
@@ -504,6 +645,13 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       await controller.send(text);
       if (mounted) setState(() => _sending = false);
+    } on TimeoutException {
+      // El turno SIGUE VIVO: el timeout es del ACK (prompt.submit contesta al
+      // cierre del turno, no en la aceptación). No es un envío perdido: no se
+      // devuelve el texto al composer ni se marca error. El stream y el cierre
+      // (message.complete / session.interrupt) sellan la burbuja optimista.
+      if (mounted) setState(() => _sending = false);
+      _log.info('prompt ack timeout — turno en curso');
     } catch (e) {
       _log.warning('send failed', e);
       if (mounted) {
@@ -525,6 +673,109 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         );
       }
+    }
+  }
+
+  /// Envío a una hosted room. El `client_event_id` se guarda por turno: si el
+  /// socket cae antes del ACK, el reintento REÚSA la misma pareja
+  /// (event_id/thread_id) — idempotente server-side. Un retry con clave nueva
+  /// duplicaría el mensaje.
+  /// Envío de sala en vuelo: si el socket cae ANTES del ACK no sabemos si el
+  /// servidor lo aceptó. NO se reintenta a ciegas ni se inventía un estado:
+  /// la burbuja queda marcada como fallida y el reintento EXPLÍCITO del
+  /// usuario reúsa la MISMA pareja (event_id, thread_id) — idempotente
+  /// server-side (hosted_rooms: mismo event_id + mismo contenido = mismo
+  /// evento). Si el usuario reescribe el texto, la clave cambia y es un
+  /// mensaje nuevo.
+  String? _groupPendingEventId;
+  String? _groupPendingThreadId;
+  String? _groupPendingRoomId;
+  String? _groupPendingText;
+  Future<void> _sendGroup(String text) async {
+    final conv = _conversation;
+    final runtime = _runtime;
+    final roomId = conv?.groupRoomId ?? conv?.gatewayId;
+    if (conv == null || runtime == null || roomId == null || roomId.isEmpty) {
+      if (mounted) {
+        setState(() => _hasError = true);
+        _input.text = text;
+        _input.selection = TextSelection.collapsed(offset: text.length);
+      }
+      return;
+    }
+    setState(() {
+      _sending = true;
+      _hasError = false;
+    });
+    _input.clear();
+    _flushDraft();
+    final client = RoomsClient(runtime.gateway);
+    final isRetry = _groupPendingEventId != null &&
+        _groupPendingRoomId == roomId &&
+        text == _groupPendingText;
+    try {
+      if (isRetry) {
+        // Reintento EXPLÍCITO del mismo texto: se reúsa la pareja guardada.
+        final r0 = await client.send(roomId, text,
+            clientEventId: _groupPendingEventId!,
+            threadId: _groupPendingThreadId);
+        _groupPendingEventId = _groupPendingThreadId = _groupPendingRoomId =
+            _groupPendingText = null;
+        await _roomAck(r0, text, conv, roomId);
+        return;
+      }
+      final eventId = RoomsClient.newClientEventId();
+      final threadId = RoomsClient.newThreadId();
+      _groupPendingEventId = eventId;
+      _groupPendingThreadId = threadId;
+      _groupPendingRoomId = roomId;
+      _groupPendingText = text;
+      final r = await client.send(roomId, text,
+          clientEventId: eventId, threadId: threadId);
+      _groupPendingEventId = _groupPendingThreadId = _groupPendingRoomId =
+          _groupPendingText = null;
+      // La fila del autor es server-owned; la UI la pinta localmente ya y el
+      // log de la sala (grupos.log / eventos room.event) la confirma al
+      // reconectar. No se inventa `message.author` local.
+      await _roomAck(r, text, conv, roomId);
+    } catch (e) {
+      // La pareja (event_id, thread_id) SEGURO pendiente: el reintento
+      // explícito del mismo texto la reenvía (idempotente).
+      _log.warning('group send failed', e);
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _hasError = true;
+        });
+        _input.text = text;
+        _input.selection = TextSelection.collapsed(offset: text.length);
+      }
+    }
+  }
+
+  Future<void> _roomAck(
+      Map<String, Object?>? r, String text, db.Conversation conv, String roomId) async {
+    final ev = (r as Map?)?['event'];
+    final evId = (ev as Map?)?['event_id'];
+    if (mounted) {
+      setState(() {
+        _live = [..._live, ChatMessage(
+          id: 'room-${evId ?? DateTime.now().microsecondsSinceEpoch}',
+          path: EntityRefPath(
+            connectionId: conv.connectionId,
+            kind: EntityKind.group,
+            gatewayId: roomId,
+          ),
+          role: MessageRole.user,
+          text: text,
+          sendState: SendState.sent,
+          origin: MessageOrigin.live,
+          timestamp: DateTime.now(),
+          authorName: 'Tú',
+        )];
+        _sending = false;
+      });
+      _roomController.add(_live);
     }
   }
 
@@ -598,7 +849,11 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Stack(
               children: [
                 StreamBuilder<List<ChatMessage>>(
-                  stream: _controller?.stream,
+                  // Salas hosted: no hay ChatSessionController; el timeline
+                  // emite por su propio stream broadcast.
+                  stream: _conversation?.kind == 'group'
+                      ? _roomController.stream
+                      : _controller?.stream,
                   initialData: _live,
                   builder: (context, snapshot) {
                     final live = snapshot.data ?? _live;
@@ -621,14 +876,24 @@ class _ChatScreenState extends State<ChatScreen> {
                         final i = index - header;
                         final message = all[i];
                         final previous = i > 0 ? all[i - 1] : null;
+                        // Burbujas de sesión sin autor (línea viva del bot):
+                        // el avatar toma `path.gatewayId` ('default' → 'DE').
+                        // El nombre visible del bot es `conv.title`; sin eso,
+                        // la burbuja live se apellida distinto que su
+                        // historial (que sí trae authorName).
+                        final titled = message.authorName == null &&
+                                !isGroup &&
+                                message.role == MessageRole.assistant
+                            ? message.copyWith(authorName: _conversation?.title)
+                            : message;
                         return MessageBubble(
-                          key: ValueKey(message.id),
-                          message: message,
+                          key: ValueKey(titled.id),
+                          message: titled,
                           isGroup: isGroup,
                           showAuthor:
                               isGroup &&
-                              message.role == MessageRole.assistant &&
-                              previous?.authorName != message.authorName,
+                              titled.role == MessageRole.assistant &&
+                              previous?.authorName != titled.authorName,
                         );
                       },
                     );
@@ -729,9 +994,13 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             const SizedBox(width: Hp.s2),
-            if (canCancel)
+            if (canCancel || _sending)
               IconButton.filledTonal(
                 tooltip: 'Detener',
+                // `_sending` cubre la espera del ACK: el turno YA corre en el
+                // gateway aunque `message.start` no haya abierto segmento.
+                // session.interrupt es idempotente; si el turno ya cerró, el
+                // gateway responde not_interrupted y no pasa nada.
                 onPressed: _interrupt,
                 icon: const Icon(Icons.stop_rounded),
               )

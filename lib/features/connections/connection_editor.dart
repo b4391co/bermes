@@ -177,13 +177,20 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
         await connections.removeRuntime(id);
       }
       final runtime = connections.ensureRuntime(profile);
+      connections.registerRows(const [], db, secrets: AppServices.secrets);
       // Login + WS inmediato con la password del formulario: el chat queda
       // en línea sin esperar al bootstrap; y roster de bots al día tras
       // guardar (descubrimiento compatible con Desktop).
       if (_password.text.isNotEmpty) {
         try {
-          final result = await runtime.http
-              .login(profile.username, _password.text);
+          // El gestor resuelve el nombre real del proveedor y CONFIRMA la
+          // sesión minteando un ticket WS (routes.py:458-466), en vez de
+          // asumir que un 200 del login significa sesión viva.
+          final result = await connections.login(
+            runtime,
+            username: profile.username,
+            password: _password.text,
+          );
           if (result.ok) {
             // Auto-sync en ready: registra la fila (con la password ya
             // persistida, el roster se refresca en cada reconexión).
@@ -201,13 +208,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
               displayOrder: await _nextDisplayOrder(db),
               createdAt: DateTime.now(),
             );
-            connections.registerRows([savedRow], db);
-            await runtime.gateway.connect();
-            await connections.syncBots(
-              savedRow,
-              runtime,
-              db,
-            );
+            await connections.connectAndSync(runtime, savedRow);
           }
         } catch (e) {
           _log.warning('post-save connect falló', e);
@@ -547,8 +548,14 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
       return (
         Hp.online,
         Icons.check_circle_rounded,
-        'Login correcto',
-        'Credenciales válidas y transporte listo en $_scheme://${_host.text.trim()}'
+        'Gateway Hermes alcanzable',
+        // «Probar conexión» NO comprueba credenciales: sondea GET /api/status,
+        // que es público aunque el panel esté tras el gate
+        // (hermes_cli/dashboard_auth/public_paths.py:15). Disparar el login
+        // desde aquí gastaría el anti-fuerza-bruta de 10 intentos/60 s
+        // (routes.py:338-339) y bloquearía el inicio de sesión real.
+        'El servidor responde como gateway en $_scheme://${_host.text.trim()}. '
+        'Guarda la conexión para comprobar las credenciales.',
       );
     }
     return switch (r.cause) {

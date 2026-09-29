@@ -21,8 +21,13 @@ class Connections extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-/// Cache de conversaciones (bots + grupos) por conexión.
-/// El source of truth de grupos es el gateway; esto es caché de presentación.
+/// Cache de conversaciones (bots + grupos de Desktop) por conexión.
+///
+/// Los grupos que esta app muestra son el espejo
+/// `ui_meta['hermes-bots-groups']` del gateway (lo escribe Hermes Desktop);
+/// esto es caché de presentación, nunca autoritativa. `id` es
+/// `<connectionId>/<kind>/<gatewayId>` y `gatewayId` es el roomId durable del
+/// grupo cuando lo hay — jamás un nombre visible.
 class Conversations extends Table {
   TextColumn get id => text()(); // connectionId/kind/gatewayId
   TextColumn get connectionId => text()();
@@ -45,6 +50,14 @@ class Conversations extends Table {
   // la sección de su gateway). v6.
   BoolColumn get pinned => boolean().withDefault(const Constant(false))();
   BoolColumn get pinnedGateway => boolean().withDefault(const Constant(false))();
+  // Espejo de grupos de Desktop (`ui_meta['hermes-bots-groups']` del perfil
+  // `default`): roomId inmutable de la sala (null en salas legacy sin id),
+  // revisión del gateway que la proyectó, y nombre que tenía al sincronizarla
+  // — permite detectar un rename remoto sin pisar el título local. v7.
+  TextColumn get groupRoomId => text().nullable()();
+  IntColumn get groupSyncRevision =>
+      integer().withDefault(const Constant(0))();
+  TextColumn get groupSyncName => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};

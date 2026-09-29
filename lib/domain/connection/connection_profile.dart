@@ -4,20 +4,17 @@
 /// Un gateway caído no bloquea el resto.
 library;
 
-enum HermesAuthKind { password, bearerToken }
+enum HermesAuthKind {
+  /// `POST /auth/password-login` → cookies HttpOnly de sesión
+  /// (`hermes_session_at/rt`, dashboard_auth/cookies.py:27-29).
+  password,
 
-enum ConnectionStatus {
-  disconnected,
-  connecting,
-  authenticating,
-  connected,
-  reconnecting,
-  authExpired,
-  error,
+  /// Sesión bearer (`Authorization: Bearer`) sembrada desde secure storage.
+  /// El gate la acepta en cualquier ruta privada
+  /// (dashboard_auth/middleware.py:166-174) pero NO la rota por nosotros: la
+  /// app debe llamar `POST /auth/native/refresh` (routes.py:496-519).
+  bearerToken,
 }
-
-/// Diagnóstico diferenciado: la UI decide mensaje según la causa real.
-enum ConnectionErrorCause { network, auth, version, permissions, unknown }
 
 class ConnectionProfile {
   final String id; // UUID local estable
@@ -55,6 +52,10 @@ class ConnectionProfile {
         : ':$port';
     return '$scheme://$host$p$b';
   }
+
+  /// Ruta WS del gateway JSON-RPC: `basePath` + `/api/ws`
+  /// (hermes_cli/web_routers/chat_ws.py:595 `@router.websocket("/api/ws")`).
+  String get wsPath => '$basePath/api/ws';
 
   /// URL WebSocket derivada: ws(s)://host:port/basePath/api/ws
   String get wsUrl {
@@ -115,21 +116,4 @@ class ConnectionProfile {
         allowInsecureTls: json['allowInsecureTls'] as bool? ?? false,
         enabled: json['enabled'] as bool? ?? true,
       );
-}
-
-/// Estado de sesión de autenticación de una conexión (secreto fuera de aquí).
-class ConnectionSession {
-  final String accessToken;
-  final String? refreshToken;
-  final DateTime? expiresAt;
-
-  const ConnectionSession({
-    required this.accessToken,
-    this.refreshToken,
-    this.expiresAt,
-  });
-
-  bool get needsRefresh =>
-      expiresAt != null &&
-      DateTime.now().isAfter(expiresAt!.subtract(const Duration(minutes: 5)));
 }
