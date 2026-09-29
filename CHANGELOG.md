@@ -137,3 +137,13 @@ Todos firmados con la clave de distribución (`CN=Hermes Pocket, O=Bermes`).
 ## Ajustes
 - Tus mensajes vuelven a la derecha en el chat.
 - Los iconos de bot se muestran sin fondo, sólo el icono.
+
+# Release 0.1.21 (2026-09-30)
+
+## Corregido
+- **Grupos duplicados**: si el mismo grupo llega por varios gateways,
+  ahora ves UNA fila. La dueña es tu primer gateway con miembros; si
+  reordenas gateways, la fila migra y las copias se limpian.
+- **Iconos de bot sin fondo**: se muestra solo el dibujo (imagen o
+  icono), teñido del color del bot; sin cajas ni círculos de color.
+  Las iniciales también van sin fondo.
