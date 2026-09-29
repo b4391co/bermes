@@ -123,3 +123,17 @@ Todos firmados con la clave de distribución (`CN=Hermes Pocket, O=Bermes`).
 - El avatar del bot queda centrado con su burbuja.
 - Los grupos se listan todos juntos bajo una única cabecera «Grupos»
   arriba de todo, sin subsecciones por gateway.
+
+# Release 0.1.20 (2026-09-29)
+
+## Crear grupos
+- FAB → «Nuevo grupo»: nombre + bots de todas tus conexiones.
+- Compatible con Hermes Desktop: la sala se publica en el mismo espejo y
+  Desktop la verá al conectar (y tus grupos de Desktop siguen aquí).
+- Sin duplicados: si dos gateways tienen bots con el mismo nombre, el
+  selector muestra uno solo (elige el primero); el grupo multi-gateway
+  conserva un miembro por identidad.
+
+## Ajustes
+- Tus mensajes vuelven a la derecha en el chat.
+- Los iconos de bot se muestran sin fondo, sólo el icono.
