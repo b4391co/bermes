@@ -1,3 +1,42 @@
+# Release 0.1.15 (2026-09-29)
+Fase de fidelidad con Hermes Desktop cerrada (auditoría contra el backend
+real `e408d36`): transporte, bots, grupos y aprobaciones comportan como
+Desktop, verificado E2E en emulador.
+
+## APKs por arquitectura
+- `app-arm64-v8a-release.apk` — móviles modernos (recomendado).
+- `app-armeabi-v7a-release.apk` — móviles antiguos 32 bits.
+- `app-x86_64-release.apk` — emulador Android x86_64.
+- `app-release.apk` — universal (todas las ABIs).
+
+Todos firmados con la clave de distribución (`CN=Hermes Pocket, O=Bermes`).
+
+## Cambios
+- **Transporte**: `prompt.submit` con timeout de 30 min (techo de turno de
+  Desktop); burbuja optimista sellada por eventos aunque el gateway ACKee
+  tarde. Heartbeat con deadline: 45 s sin respuesta a los pings fuerzan
+  reconexión (un socket half-open dejaba el canal mudo para siempre); las
+  peticiones en vuelo fallan al desconectar en vez de colgar.
+- **Bots**: guardado del editor con CAS (`ui_meta_expected_revisions`) — si
+  Desktop tocó la ficha desde que se abrió, el gateway rechaza y Pocket avisa
+  en vez de pisar el cambio. Se preservan las claves que Pocket no edita
+  (`pinned`, `sectionId`, `sectionName`, `screenAutoOpen`, `created`), que el
+  gateway reemplaza por sección entera. La descripción base se lee del
+  gateway; el subtítulo compuesto ya no duplica "· Grupos: …".
+- **Chat**: renombrar la sesión desde Desktop actualiza el título en vivo
+  (`session.title`).
+- **Aprobaciones**: nuevas tarjetas accionables con las `choices` exactas del
+  gateway (una vez/sesión/siempre/denegar); la respuesta viaja por el frame
+  de resultado del server-request. `request.cancel` retira la tarjeta
+  (acepta las dos formas del backend).
+- **UI**: los 4 bottom sheets ganan `SafeArea` inferior — el botón Guardar
+  ya no queda bajo la gesture-bar del sistema.
+
+## Known limitations
+- El CAS cubre la sección `hermes-bots`; el espejo de grupos
+  (`hermes-bots-groups`) sigue siendo propiedad de Desktop.
+- Turnos de grupo dirigidos por Desktop (sin cambio).
+
 # Release 0.1.14 (2026-09-28)
 Alineación con Hermes Desktop (historial compartido) + correcciones de flota y UI.
 
