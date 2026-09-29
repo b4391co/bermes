@@ -466,6 +466,20 @@ async def set_mode(request: web.Request) -> web.Response:
     return web.json_response(dict(MODE))
 
 
+async def test_emit(request: web.Request) -> web.Response:
+    """Inyección de prueba: emite un evento arbitrario a todos los WS vivos."""
+    body = await request.json()
+    frame = json.dumps({"method": "event", "params": {
+        "type": body["type"], "session_id": body.get("session_id"),
+        "payload": body.get("payload", {}), "seq": int(time.time())}})
+    for ws in list(LIVE_WS):
+        try:
+            await ws.send_str(frame)
+        except Exception:
+            LIVE_WS.remove(ws)
+    return web.json_response({"sent": frame[:80]})
+
+
 async def rest_profiles(request: web.Request) -> web.Response:
     """GET /api/profiles: mismo roster que profiles.list (contrato Desktop)."""
     if not authed(request):
@@ -477,6 +491,7 @@ def main() -> None:
     app = web.Application()
     app.middlewares.append(log_middleware)
     app.router.add_get("/api/health", health)
+    app.router.add_post("/api/test/emit", test_emit)
     app.router.add_get("/api/profiles", rest_profiles)
     app.router.add_get("/api/mode", set_mode)
     app.router.add_post("/api/sessions", session_create)

@@ -46,6 +46,11 @@ class ChatSessionController {
   /// Avisos al UI: historial a recargar (replay truncado) y sesión retirada.
   void Function()? onHistoryStale;
   void Function()? onSessionReclaimed;
+
+  /// Título de la sesión cambiado por otro cliente (`session.title`): la UI lo
+  /// muestra sin reiniciar el chat.
+  void Function(String title)? onSessionTitle;
+
   /// Burbuja optimista cuyo ACK de `prompt.submit` está en vuelo. Se sella por
   /// eventos (`_completeTurn`) o por el ACK (`send`), lo que llegue primero.
   ChatMessage? _pendingOptimistic;
@@ -197,11 +202,19 @@ class ChatSessionController {
         if (rid != null && _approvals.remove(rid) != null) _notifyApprovals();
         break;
 
+      case 'session.title':
+        // El gateway emite {"session_id","title"} al renombrar la sesión
+        // (_emit("session.title", sid, …)). La fila viaja por sync; aquí se
+        // propaga a la UI para refrescar el título sin reiniciar el chat.
+        final t = e.payload['title'] as String?;
+        if (t != null && t.isNotEmpty) onSessionTitle?.call(t);
+        break;
       case 'error':
-        // ErrorPayload: exactamente {message} (:5541).
-        final message = e.payload['message'] as String? ?? 'error desconocido';
-        _sealStreaming();
-        _systemLine(message, failed: true);
+        // ErrorPayload {message} (json-rpc-gateway.ts / contracts).
+        _systemLine(
+          e.payload['message'] as String? ?? 'Error del gateway',
+          failed: true,
+        );
         break;
     }
   }

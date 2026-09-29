@@ -59,6 +59,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   db.Conversation? _conversation;
   List<db.Message> _history = const [];
+
+  /// Título recibido por `session.title` (renombrado desde otro cliente).
+  String? _titleOverride;
   ConnectionRuntime? _runtime;
 
   @override
@@ -292,6 +295,11 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       _reattachWithSession(id);
       _loadHistory();
+    };
+    // Rename desde otro cliente (Desktop): `session.title` -> título vivo.
+    controller.onSessionTitle = (t) {
+      if (!mounted) return;
+      setState(() => _titleOverride = t);
     };
 
     _controller?.dispose();
@@ -822,7 +830,11 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(conv.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(
+                    _titleOverride ?? conv.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   if (_runtime != null)
                     StreamBuilder<GatewayLinkState>(
                       stream: _runtime!.gateway.stateStream,
