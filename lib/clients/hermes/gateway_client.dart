@@ -433,10 +433,37 @@ class HermesGatewayClient {
     return Future.value();
   }
 
-  /// Sincronizar eventos de una sesión tras reconexión.
-  ///
-  /// El resultado real es `{events, latest_seq, truncated, count, epoch,
-  /// open_requests}` (tui_gateway/methods_session.py:2456-2470 +
+  /// Sincronizar eventos de una sesión tras reconexión. El resultado real es
+  /// `{events, latest_seq, truncated, count, epoch,`
+  /// `open_requests}` (tui_gateway/methods_session.py:2456-2470 +
+  /// Monta la sesión viva en el gateway para poder hablar con ella. Sin
+  /// `session.resume`, `prompt.submit` rechaza cualquier id con 4001
+  /// "session not found": el gateway solo acepta turnos sobre sesiones VIVAS
+  /// (tui_gateway/server.py:1173-1187, `_sess_nowait`). El resume devuelve un
+  /// RUNTIME id nuevo (uuid, methods_session.py:65-67) que hay que usar en
+  /// todos los RPC de sesión (prompt.submit, session.interrupt, adjuntos) y
+  /// con el que llegan los eventos (server.py:1296-1325 estampa
+  /// `ui_session_id` = runtime en los frames). Hermes Desktop hace exactamente
+  /// esto al abrir cada chat (use-session-actions/index.ts:1912-1932) y
+  /// reintenta con resume ante 4001 (use-prompt-actions/submit.ts:908-915).
+  /// `omit_messages: true`: el transcript lo pinta la línea local; evita
+  /// duplicar historial en la respuesta (igual que Desktop).
+  Future<String> resumeSession(String storedId, {String? profile}) async {
+    final result = await _request('session.resume', params: {
+      'session_id': storedId,
+      'source': 'hermes-pocket',
+      'omit_messages': true,
+      if (profile != null && profile.isNotEmpty) 'profile': profile,
+    });
+    final sid = result is Map<String, Object?> ? result['session_id'] : null;
+    if (sid is! String || sid.isEmpty) {
+      throw JsonRpcError(-32000, 'resume sin session_id');
+    }
+    return sid;
+  }
+
+  /// Sincronizar eventos de una sesión tras reconexión (contrato de
+  /// `session.events.since`: methods_session.py:2456-2470 +
   /// contracts/sessions.py::SessionEventsSinceResult). `events` son los
   /// `params` de cada frame de evento, ya con `seq`
   /// (tui_gateway/event_replay.py:100-110); `truncated` dice que el anillo

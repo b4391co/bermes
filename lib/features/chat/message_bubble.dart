@@ -116,9 +116,10 @@ class MessageBubble extends StatelessWidget {
           )
         : content;
 
+    // El avatar del bot queda centrado con la burbuja (Grok), no pegado
+    // abajo: en mensajes de una línea el bottom-alignment lo descentra.
     return Row(
-      mainAxisAlignment: _isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         if (!_isUser) ...[
           BotAvatar(

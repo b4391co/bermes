@@ -63,6 +63,11 @@ class ChatSessionController {
   final _subs = <StreamSubscription<dynamic>>[];
   bool _attached = false;
   bool _disposed = false;
+  // Id VIVO del gateway: `session.resume` lo mintea y TODOS los RPC de sesión
+  // (prompt.submit, session.interrupt, adjuntos) y los frames de eventos lo
+  // usan (tui_gateway/server.py:1173-1187). null = aún sin resume OK.
+  String? _runtimeId;
+  Future<String>? _resuming;
 
   ChatSessionController(this.path, this.gateway, this.sessionId,
       {this.profile});
@@ -99,9 +104,37 @@ class ChatSessionController {
     if (replay.truncated) onHistoryStale?.call();
   }
 
+  /// Monta la sesión viva (`session.resume`) una vez por generación. El
+  /// runtime id caduca si el gateway la reapró/evictó; el retry ante 4001 lo
+  /// re-mintea (server.py:1178-1186). Single-flight: abrir el chat dispara
+  /// UN resume aunque send y replay lleguen a la vez.
+  Future<String> _ensureResumed() {
+    final existing = _runtimeId;
+    if (existing != null) return Future.value(existing);
+    return _resuming ??= gateway
+        .resumeSession(sessionId, profile: profile)
+        .then((sid) {
+          _runtimeId = sid;
+          return sid;
+        })
+        .whenComplete(() => _resuming = null);
+  }
+
   void _onEvent(GatewayEvent e) {
     if (_disposed) return;
-    if (e.sessionId != null && e.sessionId != sessionId) return;
+    // Los frames del turno llegan con el RUNTIME id (server.py:1296-1325,
+    // ui_session_id); el canónico sólo identifica la fila almacenada. Si
+    // todavía no hay resume, el runtime desconocido entra igual: el primer
+    // frame con sesión mintea el binding (Desktop re-mapea runtime→stored).
+    if (e.sessionId != null &&
+        e.sessionId != sessionId &&
+        e.sessionId != _runtimeId) {
+      return;
+    }
+    // Primer frame con sesión ANTES del resume: adopta el runtime id.
+    if (_runtimeId == null && e.sessionId != null && e.sessionId!.isNotEmpty) {
+      _runtimeId = e.sessionId;
+    }
     switch (e.type) {
       // ── turno ───────────────────────────────────────────────────────────
       case 'message.start':
@@ -522,17 +555,13 @@ class ChatSessionController {
     _pendingOptimistic = optimistic;
     _notify();
     try {
-      // El session_id del submit es el RUNTIME del gateway
-      // (PromptSubmitParams: SessionParams.session_id, contracts/common.py:224-228);
-      // `profile` es el enrutado de perfil (ProfileParams), no un filtro de id.
-      final result = await gateway.rawCall(
-        'prompt.submit',
-        params: {
-          'session_id': sessionId,
-          'text': text,
-          if (profile != null) 'profile': profile,
-        },
-      );
+      // El session_id del submit es el RUNTIME vivo del gateway
+      // (PromptSubmitParams: contracts/common.py:224-228; `_sess_nowait`,
+      // server.py:1173-1187): sin `session.resume` previo el gateway
+      // rechaza con 4001 "session not found" — por eso fallaba el envío en
+      // cualquier bot. `profile` es el enrutado de perfil (ProfileParams).
+      final runtimeId = await _ensureResumed();
+      final result = await _submitWithRetry(text, runtimeId);
       final map = result is Map ? Map<String, Object?>.from(result) : const <String, Object?>{};
       final status = map['status'] as String?;
       // PromptSubmitResult: status ∈ streaming|queued|steered|redirected y
@@ -592,6 +621,30 @@ class ChatSessionController {
     }
   }
 
+  /// prompt.submit con el runtime id. Ante 4001 "session not found" el
+  /// runtime caducó (reap/evict/TTL, server.py:1178-1186): re-mintea con
+  /// resume y reintenta UNA vez, como Desktop (submit.ts:908-915,
+  /// withSessionNotFoundResume). Nunca reintenta en otros errores.
+  Future<Object?> _submitWithRetry(String text, String runtimeId) async {
+    Future<Object?> submit(String sid) => gateway.rawCall(
+          'prompt.submit',
+          params: {
+            'session_id': sid,
+            'text': text,
+            if (profile != null) 'profile': profile,
+          },
+        );
+    try {
+      return await submit(runtimeId);
+    } on JsonRpcError catch (e) {
+      if (e.code != 4001) rethrow;
+      _runtimeId = null;
+      final fresh = await _ensureResumed();
+      return submit(fresh);
+    }
+  }
+
+
   /// Cancelación: `session.interrupt` (SessionInterruptParams =
   /// `{session_id, profile?, expected_hosted_task_id?}`, SessionInterruptResult
   /// = `{status: 'interrupted'|'not_interrupted', interrupted?,
@@ -606,7 +659,7 @@ class ChatSessionController {
       final result = await gateway.rawCall(
         'session.interrupt',
         params: {
-          'session_id': sessionId,
+          'session_id': _runtimeId ?? sessionId,
           if (profile != null) 'profile': profile,
         },
       );

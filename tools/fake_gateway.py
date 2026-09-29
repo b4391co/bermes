@@ -16,6 +16,7 @@ from aiohttp import web, WSMsgType
 
 USERS = {"test": "hermespass"}
 INTERRUPTED = set()  # session_ids con session.interrupt en vuelo
+RUNTIME_SESSIONS: set[str] = set()  # ids vivos minteados por session.resume
 USERS_PROVIDERS = {"basic"}
 MODE = {"canonical": True, "prompt_error": False, "researcher_canonical": False, "approval": False,
         "session_token": False}
@@ -215,6 +216,11 @@ def rpc_result(method: str, params: dict) -> object:
         if MODE["prompt_error"]:
             return {"error": {"code": "session_not_found",
                               "message": f"unknown session {params.get('session_id')!r}"}}
+        # Contrato REAL (_sess_nowait, tui_gateway/server.py:1173-1187): sólo
+        # sesiones VIVAS aceptan turnos. Un id no minteado por resume → 4001.
+        sid = str(params.get("session_id") or "")
+        if sid not in RUNTIME_SESSIONS:
+            return {"error": {"code": 4001, "message": "session not found"}}
         return {"status": "streaming"}
     if method == "session.interrupt":
         return {"interrupted": True}  # el corte real lo aplica el emisor (ws_handler)
@@ -289,8 +295,16 @@ def rpc_result(method: str, params: dict) -> object:
             return {"error": {"code": "not_found", "message": "no bot chat"}}
         prof = params.get("profile", "default")
         # Cada perfil tiene SU propio Bot Chat (canonical_session con
-        # resolved_id distinto).
-        return {"session_id": f"sess-canonical-{prof}-r"}
+        # resolved_id distinto). Contrato REAL (methods_session.py:65-67,
+        # 819-835): el resume mintea un RUNTIME id NUEVO y el cliente debe
+        # usarlo en prompt.submit/session.interrupt; un submit con otro id
+        # devuelve 4001 "session not found" (_sess_nowait, server.py:1173+).
+        sid = f"rt-{uuid.uuid4().hex[:8]}"
+        RUNTIME_SESSIONS.add(sid)
+        return {"session_id": sid, "session_key": f"sess-canonical-{prof}",
+                "status": "idle", "message_count": 0, "messages": [],
+                "info": {}, "inflight": None, "running": False,
+                "started_at": time.time()}
     if method == "groups.capabilities":
         return {"protocol_version": 2, "driver": "hosted",
                 "authority_gateway_id": "fake-gw-1",
@@ -424,7 +438,12 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                   flush=True)
             continue
         if method == "prompt.submit":
-            sid = params.get("session_id", "s1")
+            sid = str(params.get("session_id", "s1"))
+            # Contrato REAL (_sess_nowait): sólo sesiones vivas aceptan turnos.
+            if sid not in RUNTIME_SESSIONS:
+                await ws.send_str(json.dumps({"id": rid, "error": {
+                    "code": 4001, "message": "session not found"}}))
+                continue
             if not MODE.get("slow_turn"):
                 # ACK inmediato y turno de 1s: deja ventana limpia para
                 # verificar 'Detener' + session.interrupt E2E.

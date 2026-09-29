@@ -177,7 +177,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       return cmp(a, b);
     }
 
-    final groups = sorted.where((c) => c.isGroup).toList(growable: false);
+    final groups = sorted.where((c) => c.isGroup).toList();
     final pinnedGlobal = sorted
         .where((c) => !c.isGroup && c.pinned)
         .toList(growable: false);
@@ -191,42 +191,16 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     for (final l in byConn.values) {
       l.sort(withinSection);
     }
-    // Las salas también se agrupan por gateway: la identidad de un grupo es
-    // su roomId del espejo y es el MISMO token en todos los clientes
-    // (`group-chat.ts:216-223`), así que un grupo multi-gateway se materializa
-    // una fila por gateway (`group_sync.dart`) y debe poder vivir en la
-    // sección de cada uno.
-    final groupsByConn = <String, List<Conversation>>{};
-    for (final c in groups) {
-      groupsByConn.putIfAbsent(c.connectionId, () => []).add(c);
-    }
-    for (final l in groupsByConn.values) {
-      l.sort(withinSection);
-    }
-    // Secciones en el orden guardado de conexiones; conexiones inexistentes
-    // (p. ej. borradas) al final.
+    // TODOS los grupos seguidos bajo UNA cabecera "Grupos", sin subsecciones
+    // por gateway: un grupo ya desambigua por su fila (miembros y gateway
+    // discreto); partirlo por gateway obliga a escanear varias cabeceras.
+    groups.sort(withinSection);
     final connOrder = [...conns]
       ..sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
     final out = <_Line>[];
     if (groups.isNotEmpty) {
       out.add(const _Line.header('Grupos', false));
-      // Subsecciones por gateway (mismo orden de secciones que los bots), para
-      // que un grupo multi-gateway aparezca junto a sus miembros.
-      for (final conn in connOrder) {
-        final list = groupsByConn.remove(conn.id);
-        if (list == null || list.isEmpty) continue;
-        if (conns.length > 1) {
-          out.add(_Line.header(conn.name, false));
-        }
-        out.addAll(list.map((c) => _Line.row(c)));
-      }
-      for (final entry in groupsByConn.entries) {
-        if (entry.value.isEmpty) continue;
-        if (conns.length > 1) {
-          out.add(_Line.header(entry.value.first.gatewayLabel ?? 'Otro gateway', false));
-        }
-        out.addAll(entry.value.map((c) => _Line.row(c)));
-      }
+      out.addAll(groups.map((c) => _Line.row(c)));
     }
     if (pinnedGlobal.isNotEmpty) {
       out.add(const _Line.header('Fijados', false));
