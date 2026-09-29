@@ -561,6 +561,8 @@ class HermesGatewayClient {
         source = '$source→rest-error';
       }
     }
+    // Estado de la credencial: con token, ¿el gateway la acepta?
+    final me = await http.authMe();
     Map<String, Object?>? def;
     for (final p in profiles) {
       if (p['name'] == 'default') def = p;
@@ -579,6 +581,9 @@ class HermesGatewayClient {
       'tombstones': deleted is Map ? deleted.length : 0,
       'canonical_session': canonicalFromProfile(def ?? const {}) != null,
       'bot_meta': def != null ? BotRosterMeta.fromProfile(def) != null : false,
+      // La credencial activa (token o sesión) es aceptada por el gateway.
+      'auth_ok': me != null,
+      'auth_kind': http.hasGatewayToken ? 'sessionToken' : 'password/bearer',
     };
   }
 

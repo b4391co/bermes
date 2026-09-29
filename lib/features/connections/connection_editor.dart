@@ -701,8 +701,13 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Roster: ${v('source')}',
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              'Roster: ${v('source')} · credencial: ${v('auth_kind')} '
+              '(${d['auth_ok'] == true ? 'ACEPTADA' : 'RECHAZADA'})',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: d['auth_ok'] == true ? cs.onSurface : Hp.error,
+              ),
             ),
             const SizedBox(height: Hp.s1),
             Text(
@@ -713,6 +718,18 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
               'meta de bot: ${d['bot_meta'] == true ? 'sí' : 'no'}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            if (d['auth_ok'] != true)
+              Padding(
+                padding: const EdgeInsets.only(top: Hp.s1),
+                child: Text(
+                  d['auth_kind'] == 'sessionToken'
+                      ? 'El gateway RECHAZA el token. Si el gateway está tras '
+                          'un portal OAuth, cambia el método a «Usuario». Si '
+                          'es loopback, el token del .env cambió o expiró.'
+                      : 'La sesión no está activa: prueba de nuevo el login.',
+                  style: TextStyle(color: Hp.error, fontSize: 12.5),
+                ),
+              ),
             if (!ok)
               Padding(
                 padding: const EdgeInsets.only(top: Hp.s1),

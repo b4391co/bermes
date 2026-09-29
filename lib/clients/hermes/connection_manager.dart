@@ -318,6 +318,23 @@ class ConnectionManager {
       _log.info('restore ${row.name}: authMe=${me != null}');
       if (me != null) return true;
       runtime.http.forgetGatewayToken();
+      _log.warning('restore ${row.name}: el session token fue rechazado por '
+          'el gateway. Si el gateway está tras un portal OAuth (gate), el '
+          'token NO vale: vuelve al método Usuario. Se intenta la contraseña '
+          'recordada como respaldo.');
+      // FALLBACK: si hay contraseña recordada, recuperar el acceso en vez de
+      // quedarse sin conexión (el usuario puede haber migrado a token por
+      // error contra un gateway gated).
+      final fallbackPw = await store.readRememberedPassword(row.id);
+      if (fallbackPw != null && fallbackPw.isNotEmpty) {
+        final result = await login(
+          runtime,
+          username: row.username,
+          password: fallbackPw,
+        );
+        _log.info('restore ${row.name}: fallback password ok=${result.ok}');
+        return result.ok;
+      }
       return false;
     }
     // 3) contraseña recordada → sesión de cookie.
