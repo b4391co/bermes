@@ -17,7 +17,8 @@ from aiohttp import web, WSMsgType
 USERS = {"test": "hermespass"}
 INTERRUPTED = set()  # session_ids con session.interrupt en vuelo
 USERS_PROVIDERS = {"basic"}
-MODE = {"canonical": True, "prompt_error": False, "researcher_canonical": False}
+MODE = {"canonical": True, "prompt_error": False, "researcher_canonical": False, "approval": False}
+SRQ = {"id": "srq-test000000", "pending": None, "answered": None}
 SESSION_COOKIE = "hermes_session_at"
 REFRESH_COOKIE = "hermes_session_rt"
 TICKETS: dict[str, float] = {}
@@ -377,6 +378,23 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
             # habilitar server-requests: sin respuesta, el await del cliente
             # se queda hasta el timeout.
             await ws.send_str(json.dumps({"id": rid, "result": {"ok": True}}))
+            if MODE.get("approval"):
+                # Server-request `approval` real (server_requests.py:61-63):
+                await ws.send_str(json.dumps({
+                    "jsonrpc": "2.0", "id": SRQ["id"], "method": "approval",
+                    "params": {"session_id": "sess-canonical-default-r",
+                               "request_id": "apr-1",
+                               "tool_name": "bash",
+                               "command": "sudo rm -rf /tmp/x",
+                               "description": "Borrar dir de prueba",
+                               "choices": ["once", "session", "always", "deny"]}}))
+            continue
+        if "result" in frame and isinstance(rid, str) and rid.startswith("srq-"):
+            # Frame de RESULTADO de un server-request: el backend lo resuelve
+            # en resolve_response (server_requests.py:201+).
+            SRQ["answered"] = frame.get("result")
+            print(f"GW-SRQ answered {rid}: {json.dumps(frame.get('result'))[:200]}",
+                  flush=True)
             continue
         if method == "prompt.submit":
             sid = params.get("session_id", "s1")
@@ -474,9 +492,23 @@ async def set_mode(request: web.Request) -> web.Response:
         MODE["prompt_error"] = request.query["prompt_error"] == "1"
     if "researcher" in request.query:
         MODE["researcher_canonical"] = request.query["researcher"] == "1"
-    if "slow" in request.query:
-        MODE["slow_turn"] = request.query["slow"] == "1"
+    if "approval" in request.query:
+        MODE["approval"] = request.query["approval"] == "1"
     return web.json_response(dict(MODE))
+
+async def test_srq(request: web.Request) -> web.Response:
+    """Emite un server-request `approval` al WS vivo más reciente (prueba E2E)."""
+    if not LIVE_WS:
+        return web.json_response({"error": "no live ws"}, status=409)
+    ws = LIVE_WS[-1]
+    await ws.send_str(json.dumps({
+        "jsonrpc": "2.0", "id": SRQ["id"], "method": "approval",
+        "params": {"session_id": request.query.get("sid", "sess-canonical-default-r"),
+                   "request_id": "apr-1", "tool_name": "bash",
+                   "command": "sudo rm -rf /tmp/x",
+                   "description": "Borrar dir de prueba",
+                   "choices": ["once", "session", "always", "deny"]}}))
+    return web.json_response({"sent": SRQ["id"]})
 
 
 async def test_emit(request: web.Request) -> web.Response:
@@ -505,6 +537,7 @@ def main() -> None:
     app.middlewares.append(log_middleware)
     app.router.add_get("/api/health", health)
     app.router.add_post("/api/test/emit", test_emit)
+    app.router.add_post("/api/test/srq", test_srq)
     app.router.add_get("/api/profiles", rest_profiles)
     app.router.add_get("/api/mode", set_mode)
     app.router.add_post("/api/sessions", session_create)

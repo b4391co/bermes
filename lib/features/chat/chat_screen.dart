@@ -927,6 +927,15 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             ),
           ),
+          StreamBuilder<List<ApprovalRequest>>(
+            stream: _controller?.approvalStream,
+            initialData: _controller?.approvals,
+            builder: (context, snap) {
+              final approvals = snap.data ?? const <ApprovalRequest>[];
+              if (approvals.isEmpty) return const SizedBox.shrink();
+              return _approvalBand(cs, approvals);
+            },
+          ),
           _composer(cs),
         ],
       ),
@@ -977,6 +986,112 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
       ),
     );
+  }
+
+  /// Banda de aprobaciones pendientes (server-request `approval`).
+  /// Los botones cubren EXACTAMENTE las `choices` que el gateway envió
+  /// (server.py:733-743: once/session/always según allow_session/
+  /// allow_permanent, + deny siempre). La respuesta viaja por el frame de
+  /// resultado del server-request; `approval.respond` sólo como fallback.
+  Widget _approvalBand(ColorScheme cs, List<ApprovalRequest> approvals) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        border: Border(
+          top: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.5)),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final a in approvals)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Hp.s4, Hp.s3, Hp.s4, Hp.s2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.gpp_maybe_outlined,
+                          size: 18, color: cs.primary),
+                      const SizedBox(width: Hp.s2),
+                      Expanded(
+                        child: Text(
+                          a.toolName == null
+                              ? 'El bot pide aprobación'
+                              : 'Aprobación: ${a.toolName}',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (a.command.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: Hp.s1),
+                      child: Text(
+                        a.command,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontFamily: 'monospace',
+                              color: cs.onSurfaceVariant,
+                            ),
+                      ),
+                    ),
+                  if (a.description != null && a.description!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: Hp.s1),
+                      child: Text(
+                        a.description!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(color: cs.onSurfaceVariant),
+                      ),
+                    ),
+                  const SizedBox(height: Hp.s2),
+                  Wrap(
+                    spacing: Hp.s2,
+                    children: [
+                      for (final choice in a.choices)
+                        FilledButton.tonal(
+                          onPressed: () => _answerApproval(a, choice),
+                          style: choice == ApprovalChoice.deny
+                              ? FilledButton.styleFrom(
+                                  foregroundColor: cs.error)
+                              : null,
+                          child: Text(switch (choice) {
+                            ApprovalChoice.once => 'Permitir una vez',
+                            ApprovalChoice.session => 'Permitir sesión',
+                            ApprovalChoice.always => 'Permitir siempre',
+                            ApprovalChoice.deny => 'Denegar',
+                          }),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _answerApproval(ApprovalRequest a, ApprovalChoice c) async {
+    try {
+      await _controller?.answerApproval(a, c);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo responder: $e')),
+      );
+    }
   }
 
   Widget _composer(ColorScheme cs) {

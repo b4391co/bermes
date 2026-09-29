@@ -196,9 +196,10 @@ class ChatSessionController {
         break;
 
       case 'request.cancel':
-        // El backend retiró UNA petición abierta: se quita sólo esa tarjeta
-        // (RequestCancelPayload {request_id}), nunca todas.
-        final rid = e.payload['request_id'] as String?;
+        // Dos formas en el backend: el evento `_emit('request.cancel')` manda
+        // {id, method, reason} (server_requests.py:125-127) y el payload del
+        // contrato RequestCancelPayload {request_id} (:5601). Aceptar ambas.
+        final rid = (e.payload['request_id'] ?? e.payload['id']) as String?;
         if (rid != null && _approvals.remove(rid) != null) _notifyApprovals();
         break;
 
