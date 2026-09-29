@@ -153,7 +153,9 @@ desmiente o matiza:
   `gateway.ready` sólo condiciona al frontend del dashboard
   (`json-rpc-channel.ts:550`) y el intervalo/deadline (15 s / 45 s) es
   convención del cliente Desktop (`json-rpc-channel.ts:143-144,490-536`).
-  Pocket hace ping cada 15 s: correcto; el deadline de 45 s queda opcional.
+  Pocket hace ping cada 15 s y fuerza reconexión a los 45 s sin respuesta
+  (implementado 2026-09-29: sin deadline un socket half-open —adb reverse,
+  NAT— traga writes sin RST y el canal queda mudo sin onError/onDone).
 - **§1 refresh:** `/auth/native/refresh` exige `{refresh_token, provider}` y
   rotación de RT (singleflight). Un 401 `session_expired` ≠ 503 transitorio.
 - **§1 `provider`:** el nombre del proveedor de contraseña NO es fijo: se
@@ -168,7 +170,9 @@ desmiente o matiza:
   en `localConvPrefs`, nunca escritas al gateway).
 - **`profiles.configure` reemplaza la sección** (`methods_profiles.py:600-606`):
   escribir `hermes-bots` sin llevar `pinned`/`sectionId`/`screenAutoOpen` los
-  BORRA. Riesgo conocido; mitigation = leer-mergear-escribir con CAS.
+  BORRA. Implementado (2026-09-29): leer-mergear-escribir con CAS por
+  `ui_meta_expected_revisions` (`gateway_client.configureBot`); conflicto =
+  `applied.ui_meta:false` → la UI avisa en vez de pisar el cambio ajeno.
 
 Lo que SÍ se mantiene igual que este mapa: flujo de login/ticket WS single-use
 30 s, URL `basePath/api/ws?ticket=`, frames NDJSON JSON-RPC, taxonomía de
