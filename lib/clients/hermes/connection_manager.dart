@@ -163,6 +163,8 @@ class ConnectionManager {
           label: row.name,
           profiles: entry.value.profiles,
           titles: entry.value.titles,
+          displayOrder: row.displayOrder,
+          createdAt: row.createdAt,
         ),
       );
     }

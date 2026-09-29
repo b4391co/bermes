@@ -52,11 +52,21 @@ class ConnectionGroupState {
   /// `labels.ts:34-62`).
   final Map<String, String> titles;
 
+  /// Orden del usuario (menor = primero). Decide la conexión dueña de cada
+  /// sala del espejo y desempata títulos.
+  final int displayOrder;
+
+  /// Fecha de creación de la conexión: desempate estable cuando dos
+  /// conexiones comparten `displayOrder`.
+  final DateTime createdAt;
+
   const ConnectionGroupState({
     required this.id,
     required this.label,
     required this.profiles,
     required this.titles,
+    required this.createdAt,
+    this.displayOrder = 0,
   });
 }
 
@@ -84,22 +94,14 @@ class ConnectionGroupState {
   return (rooms: rooms, deleted: deleted);
 }
 
-/// Aplica el espejo global de grupos a TODAS las conexiones.
+/// Aplica el espejo global de grupos: UNA fila local por sala, en la
+/// conexión dueña — el primer gateway con miembros según el orden del
+/// usuario. Las copias del mismo roomId proyectadas por otros gateways se
+/// limpian; un grupo multi-gateway no repite fila.
 ///
-/// Cada grupo del espejo se materializa en la conexión de cada uno de sus
-/// miembros locales: un grupo multi-gateway produce una fila por gateway
-/// (cada una con su propia identidad `<connectionId>/group/<roomId>`), que es
-/// lo que permite mostrarlo dentro de su sección. Si la sala no tiene ningún
-/// miembro local, se materializa en la primera conexión que la proyectó
-/// (`[ponytail]` simplificación: se muestra igual, sin sección propia).
-///
-/// Reglas por fila:
 /// - Identidad: `groupConversationId(connectionId, room.identity)`, con
 ///   `identity` = `roomId` inmutable cuando existe. Un rename remoto NO
 ///   duplica la sala (el bug anterior usaba el nombre visible como PK).
-/// - Solo se escribe si la revisión entrante >= la sincronizada; así un espejo
-///   rezagado no revierte uno más nuevo.
-/// - Re-creación preserva pin/orden locales (`localConvPrefs`).
 /// - Título: el que proyecta Desktop; si viene vacío, se compone de los
 ///   títulos canónicos de los miembros.
 Future<void> syncGroupMirrors({
@@ -107,11 +109,20 @@ Future<void> syncGroupMirrors({
   required List<ConnectionGroupState> connections,
 }) async {
   if (connections.isEmpty) return;
+  // El orden del USUARIO decide la dueña de cada sala (y el primer título
+  // visto por perfil); empate → la conexión más antigua. Ordenar aquí para
+  // no depender del orden de inserción del mapa interno del manager.
+  final conns = [...connections]
+    ..sort((a, b) {
+      final byOrder = a.displayOrder.compareTo(b.displayOrder);
+      if (byOrder != 0) return byOrder;
+      return a.createdAt.compareTo(b.createdAt);
+    });
 
   // Conjunto de perfiles de TODAS las conexiones: el espejo de una puede
   // nombrar miembros de otra.
   final profilesByConn = {
-    for (final c in connections)
+    for (final c in conns)
       c.id: {for (final p in c.profiles) p.name},
   };
   final allProfiles = <String>{for (final s in profilesByConn.values) ...s};
@@ -119,11 +130,11 @@ Future<void> syncGroupMirrors({
   // conexiones), así que un perfil gema-no idéntico en dos gateways no hace
   // oscilar el subtítulo de un grupo entre ciclos.
   final titleByProfile = <String, String>{};
-  for (final c in connections) {
+  for (final c in conns) {
     c.titles.forEach((k, v) => titleByProfile.putIfAbsent(k, () => v));
   }
 
-  final merged = mergeGroupMirrors(connections);
+  final merged = mergeGroupMirrors(conns);
   final snapshot = GroupSyncSnapshot(rooms: merged.rooms, deleted: merged.deleted);
   final live = snapshot.liveRooms();
 
@@ -131,7 +142,7 @@ Future<void> syncGroupMirrors({
   final placements = <String, ({GroupRoom room, String connId, List<String> members})>{};
   for (final room in live) {
     final here = <String, List<String>>{};
-    for (final c in connections) {
+    for (final c in conns) {
       final members = <String>[];
       for (final m in room.members) {
         final p = memberProfileHere(m, allProfiles);
@@ -143,29 +154,35 @@ Future<void> syncGroupMirrors({
       }
       if (members.isNotEmpty) here[c.id] = members;
     }
-    // Cada gateway con miembros locales del grupo recibe SU fila: la sala es
-    // la misma entidad (mismo roomId) y la lista de salas de Desktop es la
-    // misma en todos sus backends (`group-chat.ts:88-91`), así que un grupo
-    // multi-gateway no es una sala duplicada sino la misma sala vista desde
-    // dos gateways. Si ninguno tiene miembros, la dueña es la primera conexión
-    // que la proyectó.
+    // La lista de salas de Desktop es la misma en todos sus backends
+    // (`group-chat.ts:88-91`): el mismo roomId llega proyectado por cada
+    // gateway. Si ninguno tiene miembros, la sala no se materializa aquí.
     if (here.isEmpty) {
-      for (final c in connections) {
+      for (final c in conns) {
         if (c.profiles.any((p) => p.groups.rooms.containsKey(room.key))) {
           here[c.id] = const [];
           break;
         }
       }
     }
-    for (final e in here.entries) {
-      placements['${e.key}|${room.identity}'] =
-          (room: room, connId: e.key, members: e.value);
+    // UNA fila por sala: la dueña es la primera conexión del orden del
+    // usuario que tenga miembros (el resto de gateways proyectan la MISMA
+    // sala — mismo roomId — y repetirla duplica la lista). El chat habla por
+    // el WS de la dueña; si cae, la fila queda como cualquier bot de ese
+    // gateway (reconexión del gateway, no de la sala).
+    final owner = conns.firstWhere(
+      (c) => here.containsKey(c.id),
+      orElse: () => conns.first,
+    );
+    if (here.containsKey(owner.id)) {
+      placements['${owner.id}|${room.identity}'] =
+          (room: room, connId: owner.id, members: here[owner.id]!);
     }
   }
 
   // 2) Escribir cada sala en cada conexión donde tiene miembros.
   for (final place in placements.values) {
-    final conn = connections.firstWhere((c) => c.id == place.connId);
+    final conn = conns.firstWhere((c) => c.id == place.connId);
     await _writeRoom(
       db: db,
       conn: conn,
@@ -174,13 +191,28 @@ Future<void> syncGroupMirrors({
       titleByProfile: titleByProfile,
     );
   }
-
+  // 2b) Filas huérfanas: salas vivas cuya fila local quedó en una conexión
+  //     que ya no es la dueña (o cuya conexión está caída y no participa en
+  //     este ciclo). Se limpian sobre TODAS las filas de grupos con roomId,
+  //     no solo las conexiones sincronizadas: si la dueña pasó a otra
+  //     conexión, la anterior no debe seguir visible ni siquiera caída.
+  final placedIds = placements.keys.toSet();
+  final liveIdentities = {for (final r in live) r.identity};
+  final orphans = await (db.select(db.conversations)
+        ..where((c) => c.kind.equals('group'))
+        ..where((c) => c.groupRoomId.isNotNull()))
+      .get();
+  for (final row in orphans) {
+    if (placedIds.contains('${row.connectionId}|${row.groupRoomId}')) continue;
+    if (!liveIdentities.contains(row.groupRoomId)) continue;
+    await (db.delete(db.conversations)..where((c) => c.id.equals(row.id))).go();
+  }
   // 3) Caídas por conexión: solo tombstones y solo si la fila local no va más
   //    alta (un gateway rezagado no puede matar una sala viva en otro).
   final revisionByIdentity = {
     for (final r in live) r.identity: r.revision,
   };
-  for (final conn in connections) {
+  for (final conn in conns) {
     final prior = await db.groupSyncState(conn.id);
     for (final entry in merged.deleted.entries) {
       final id = _localIdForDeleted(
@@ -213,12 +245,12 @@ Future<void> syncGroupMirrors({
   //    subtítulo, puesto que Desktop también la lista ahí
   //    (`bot-row.tsx:417`, `i18n.ts:188`).
   final legacyNames = <String>{
-    for (final c in connections)
+    for (final c in conns)
       for (final p in c.profiles) ...p.membershipNames,
   };
   final liveNames = {for (final r in live) r.name};
   final coveredByMirror = live.isNotEmpty;
-  for (final conn in connections) {
+  for (final conn in conns) {
     final stale = await (db.select(db.conversations)
           ..where((c) => c.connectionId.equals(conn.id))
           ..where((c) => c.kind.equals('group'))

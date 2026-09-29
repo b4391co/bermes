@@ -161,12 +161,6 @@ class BotAvatar extends StatelessWidget {
     'sensors': Icons.sensors_rounded,
   };
 
-  static const _hexShaper = <String, ShapeBorder?>{
-    'circle': CircleBorder(),
-    'square': null, // esquinas rectas: sin recorte
-    'rounded': null, // default del Container
-    'hexagon': null, // sin soporte nativo Material → rounded (fallback)
-  };
 
   @override
   Widget build(BuildContext context) {
@@ -175,63 +169,40 @@ class BotAvatar extends StatelessWidget {
     final initials = _initials(label);
     final bytes = _bytesOf();
     final remoteUrl = meta?.imageUrl;
-    Widget content;
+    Widget? content;
     if (bytes != null) {
       content = Image.memory(
         bytes,
         width: size,
         height: size,
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => _iconOr(meta) ?? _initialsText(initials),
+        fit: BoxFit.contain,
+        errorBuilder: (_, _, _) => _iconOr(meta) ?? _initialsText(initials, color),
       );
     } else if (remoteUrl != null && remoteUrl.startsWith('http')) {
       content = Image.network(
         remoteUrl,
         width: size,
         height: size,
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => _iconOr(meta) ?? _initialsText(initials),
+        fit: BoxFit.contain,
+        errorBuilder: (_, _, _) => _iconOr(meta) ?? _initialsText(initials, color),
       );
     } else if (meta?.icon != null) {
-      // Sin fondo: sólo el icono, teñido del color del bot para que se
-      // distinga sobre cualquier superficie (fondo blanco del chat sería
-      // invisible con un icono blanco).
+      content = Icon(
+        _iconMap[meta!.icon] ?? Icons.smart_toy_rounded,
+        color: color,
+        size: size * 0.62,
+      );
+    }
+    // Sin fondo en ningún caso: el "dibujo" (imagen/icono) o, en su defecto,
+    // las iniciales teñidas del color del bot. Nada de cajas de color.
+    if (content == null) {
       return SizedBox(
         width: size,
         height: size,
-        child: Icon(
-          _iconMap[meta!.icon] ?? Icons.smart_toy_rounded,
-          color: color,
-          size: size * 0.62,
-        ),
+        child: Center(child: _initialsText(initials, color)),
       );
-    } else {
-      content = _initialsText(initials);
     }
-    final shape = _shapeOf(meta);
-    return Container(
-      width: size,
-      height: size,
-      clipBehavior: shape == null ? Clip.antiAlias : Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: color,
-        shape: shape is CircleBorder ? BoxShape.circle : BoxShape.rectangle,
-        borderRadius: shape is CircleBorder
-            ? null
-            : BorderRadius.circular(
-                meta?.shape == 'square' ? 0.0 : size * 0.32),
-      ),
-      alignment: Alignment.center,
-      child: content,
-    );
-  }
-
-  ShapeBorder? _shapeOf(BotAvatarMeta? meta) {
-    final s = meta?.shape;
-    if (s == null || !_hexShaper.containsKey(s)) return null;
-    final b = _hexShaper[s];
-    if (s == 'square') return null; // radio 0
-    return b;
+    return SizedBox(width: size, height: size, child: Center(child: content));
   }
 
   Color? _colorOf(BotAvatarMeta? meta) {
@@ -246,14 +217,15 @@ class BotAvatar extends StatelessWidget {
 
   Widget _icon(String name) => Icon(
         _iconMap[name] ?? Icons.smart_toy_rounded,
-        color: Colors.white,
+        color: _colorOf(_meta()) ?? Hp.avatarColor(seed),
         size: size * 0.52,
       );
 
-  Widget _initialsText(String initials) => Text(
+
+  Widget _initialsText(String initials, Color color) => Text(
         initials,
         style: TextStyle(
-          color: Colors.white,
+          color: color,
           fontSize: size * 0.38,
           fontWeight: FontWeight.w700,
           letterSpacing: -0.5,
