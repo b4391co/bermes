@@ -103,3 +103,11 @@ Todos firmados con la clave de distribución (`CN=Hermes Pocket, O=Bermes`).
 
 ## Corrección
 - `/api/auth/me` con 401 ya no se interpreta como sesión válida.
+
+# Release 0.1.18 (2026-09-29)
+
+## Resiliencia de credenciales
+- Si el gateway rechaza el session token, la app reintenta con la
+  contraseña recordada antes de quedarse sin conexión.
+- El diagnóstico de conexión ahora muestra la credencial activa y si el
+  gateway la acepta, con la causa más probable cuando la rechaza.
