@@ -502,6 +502,69 @@ class HermesGatewayClient {
     return raw.whereType<Map<String, Object?>>().toList();
   }
 
+  /// Diagnóstico del roster: fuente efectiva (WS/REST) y qué trae el perfil
+  /// `default` respecto al espejo de grupos de Desktop y la sesión canónica.
+  /// Motivación: el REST real no trae `ui_meta`/`canonical_session`
+  /// (web_routers/profiles.py:83-99); si el roster acaba en REST, la app no
+  /// puede ver grupos ni resolver envíos sin reanudar por título.
+  Future<Map<String, Object?>> rosterDiagnostic() async {
+    String source = 'none';
+    List<Map<String, Object?>> profiles = const [];
+    Object? result;
+    try {
+      result = await _request('profiles.list');
+      source = 'ws:profiles.list';
+    } on JsonRpcError catch (e) {
+      source = 'ws-error:${e.code}';
+    }
+    final decoded = result is List
+        ? {'profiles': result}
+        : result is Map<String, Object?> && result['profiles'] is List
+            ? result
+            : null;
+    if (decoded != null) {
+      profiles = (decoded['profiles'] as List)
+          .whereType<Map<String, Object?>>()
+          .toList();
+    }
+    if (profiles.isEmpty) {
+      try {
+        final rest = await http.getJson('/api/profiles');
+        if (rest is List) {
+          profiles = rest.whereType<Map<String, Object?>>().toList();
+        } else if (rest is Map && rest['profiles'] is List) {
+          profiles = (rest['profiles'] as List)
+              .whereType<Map<String, Object?>>()
+              .toList();
+        }
+        if (profiles.isNotEmpty && !source.startsWith('ws-ok')) {
+          source = '$source→rest:/api/profiles';
+        }
+      } catch (e) {
+        source = '$source→rest-error';
+      }
+    }
+    Map<String, Object?>? def;
+    for (final p in profiles) {
+      if (p['name'] == 'default') def = p;
+    }
+    final uiMeta = def?['ui_meta'];
+    final groupsMirror = uiMeta is Map ? uiMeta['hermes-bots-groups'] : null;
+    final rooms = groupsMirror is Map ? groupsMirror['rooms'] : null;
+    final deleted = groupsMirror is Map ? groupsMirror['deleted'] : null;
+    return {
+      'source': source,
+      'profiles': profiles.length,
+      'default_present': def != null,
+      'default_ui_meta': uiMeta != null,
+      'groups_mirror_present': groupsMirror != null,
+      'rooms': rooms is Map ? rooms.length : 0,
+      'tombstones': deleted is Map ? deleted.length : 0,
+      'canonical_session': canonicalFromProfile(def ?? const {}) != null,
+      'bot_meta': def != null ? BotRosterMeta.fromProfile(def) != null : false,
+    };
+  }
+
   /// Resuelve la sesión canónica "Bot Chat" de UN perfil, tal cual lo hace
   /// Hermes Desktop en `apps/desktop/src/plugins/hermes-bots/canonical-chat.ts`.
   ///

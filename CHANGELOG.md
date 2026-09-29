@@ -70,3 +70,19 @@ Todos firmados con la clave de distribución (`CN=Hermes Pocket, O=Bermes`).
   de no-duplicación).
 - Herdr: depende de que el host tenga el binario instalado y accesible por
   SSH no interactivo.
+
+# Release 0.1.16 (2026-09-29)
+
+## Diagnóstico de grupos y bots
+- Nuevo botón «Diagnóstico de grupos y bots» en el editor de conexión.
+  Muestra contra el gateway real: fuente del roster (`profiles.list` por WS
+  o REST), nº de perfiles, si `default` está presente, si el espejo de
+  grupos de Desktop está publicado (nº de salas y borrados), si hay sesión
+  canónica y si el bot trae meta (título/avatar).
+- Usa el runtime vivo de la conexión (sesión y WS ya establecidos); el
+  cliente efímero solo cubre el alta, y espera `gateway.ready` antes de
+  consultar.
+
+## Notas
+- La renderización de la terminal SSH se verificó en emulador (mono, UTF-8,
+  prompt); si tu caso concreto sigue "viéndose mal", necesito una captura.

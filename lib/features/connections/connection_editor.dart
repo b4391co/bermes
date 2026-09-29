@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../clients/hermes/gateway_client.dart';
 import '../../clients/hermes/http_client.dart';
 import '../../core/app_services.dart';
 import '../../core/logger.dart';
@@ -40,6 +41,9 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
   bool _rememberPassword = true;
   bool _testing = false;
   AuthResult? _testResult;
+
+  bool _diagLoading = false;
+  Map<String, Object?>? _rosterDiag;
 
   bool get _isEdit => widget.existing != null;
 
@@ -372,6 +376,22 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
             ],
           ),
           _testResultCard(cs),
+          if (_rosterDiag != null) _rosterDiagCard(cs),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Hp.s4),
+            child: OutlinedButton.icon(
+              onPressed: _formValid && !_diagLoading ? _diagRoster : null,
+              icon: _diagLoading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.rule_rounded),
+              label: const Text('Diagnóstico de grupos y bots'),
+            ),
+          ),
+          const SizedBox(height: Hp.s2),
           Padding(
             padding: const EdgeInsets.all(Hp.s4),
             child: Row(
@@ -542,6 +562,89 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
       ),
     );
   }
+
+  /// Diagnóstico del roster contra el gateway del formulario: fuente
+  /// (WS/REST), presencia del espejo de grupos y sesión canónica.
+  Future<void> _diagRoster() async {
+    // Preferir el runtime vivo de la conexión guardada: su cliente ya tiene
+    // sesión y WS listo. El efímero solo sirve si aún no existe runtime
+    // (formulario de alta): en ese caso hay que iniciar sesión primero.
+    final existingId = widget.existing?.id;
+    final runtime = existingId == null
+        ? null
+        : AppServices.connections.runtimeFor(existingId);
+    final profile = _profileFromForm(_currentId);
+    final client = runtime?.gateway ??
+        HermesGatewayClient(profile, HermesHttpClient(profile));
+    final ephemeral = runtime == null;
+    try {
+      await client.connect();
+      await client.readyOrTimeout(const Duration(seconds: 8));
+      final d = await client.rosterDiagnostic();
+      if (!mounted) return;
+      setState(() {
+        _rosterDiag = d;
+        _diagLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _rosterDiag = {'source': 'connect-error: $e'};
+        _diagLoading = false;
+      });
+    } finally {
+      // El runtime vivo pertenece a la app: NO se cierra.
+      if (ephemeral) client.dispose();
+    }
+  }
+
+  Widget _rosterDiagCard(ColorScheme cs) {
+    final d = _rosterDiag!;
+    String v(String k) => '${d[k] ?? '—'}';
+    final ok = d['groups_mirror_present'] == true;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: Hp.s4),
+      child: Container(
+        padding: const EdgeInsets.all(Hp.s3),
+        decoration: BoxDecoration(
+          color: (ok ? Hp.online : Hp.error).withValues(alpha: 0.08),
+          border: Border.all(
+            color: (ok ? Hp.online : Hp.error).withValues(alpha: 0.4),
+          ),
+          borderRadius: BorderRadius.circular(Hp.rMd),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Roster: ${v('source')}',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            ),
+            const SizedBox(height: Hp.s1),
+            Text(
+              'perfiles: ${v('profiles')} · default: ${d['default_present'] == true ? 'sí' : 'NO'}\n'
+              'espejo de grupos: ${ok ? 'presente' : 'AUSENTE'} · salas: ${v('rooms')} · '
+              'borrados: ${v('tombstones')}\n'
+              'sesión canónica: ${d['canonical_session'] == true ? 'sí' : 'no'} · '
+              'meta de bot: ${d['bot_meta'] == true ? 'sí' : 'no'}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (!ok)
+              Padding(
+                padding: const EdgeInsets.only(top: Hp.s1),
+                child: Text(
+                  'Sin espejo: abre Hermes Desktop con este gateway; Desktop '
+                  'publica los grupos al conectar. Si Desktop ya está '
+                  'conectado y sigue ausente, este gateway es otra URL.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
 
   (Color, IconData, String, String?) _describeResult(AuthResult r) {
     if (r.ok) {
