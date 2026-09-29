@@ -145,7 +145,9 @@ desmiente o matiza:
   en el resume ciego. El id del REGISTRO es `id`; `resolved_id` es la punta viva
   que Desktop abre (`canonical-chat.ts:419,580-590`).
 - **§2 timeout `prompt.submit`:** Desktop usa 1 800 000 ms (techo del turno);
-  la app usaba 30 s genérico. Pendiente de alineación.
+  alineado (2026-09-29): `gateway_client._request` da 30 min a `prompt.submit`
+  y 30 s al resto. Con gateway lento (ACK sólo al cerrar) la burbuja optimista
+  se sella por eventos — verificado E2E con fake en modo slow.
 - **§2 heartbeat:** el WS del backend responde `{"ok":true}` a cualquier
   `gateway.ping` (`tui_gateway/ws.py:377`); el flag `heartbeat` del
   `gateway.ready` sólo condiciona al frontend del dashboard

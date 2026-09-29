@@ -326,6 +326,12 @@ class HermesGatewayClient {
   }
 
   /// Llamada JSON-RPC con futuro.
+  /// Timeout por petición. `prompt.submit` puede tardar hasta el cierre del
+  /// turno en gateways que no ACKean antes (el cliente Desktop usa
+  /// 1 800 000 ms = techo del turno del agente, apps/desktop client.ts:19-27);
+  /// el resto de RPCs, 30 s.
+  static const _longTimeoutMethods = {'prompt.submit'};
+
   Future<Object?> _request(String method, {Map<String, Object?>? params}) {
     final ws = _ws;
     if (ws == null || _state != GatewayLinkState.ready) {
@@ -339,7 +345,9 @@ class HermesGatewayClient {
       completer.completeError(e);
     });
     return completer.future.timeout(
-      const Duration(seconds: 30),
+      _longTimeoutMethods.contains(method)
+          ? const Duration(minutes: 30)
+          : const Duration(seconds: 30),
       onTimeout: () {
         _pending.remove(id);
         throw JsonRpcError(-32001, 'timeout');
