@@ -106,14 +106,18 @@ Auditorías completas con evidencias `ruta:línea` en
 (grupos/identidad/pines). Resumen de lo que este mapa decía y la fuente real
 desmiente o matiza:
 
-- **§5 Grupos por `groups.*` como API de cliente: FALSO para Desktop.** El SPA
-  de Hermes Desktop NO llama ningún `groups.*` (0 llamadores en `apps/`). Los
-  grupos de Desktop viven en `ui_meta['hermes-bots-groups']` del perfil
-  `default`, leídos con `profiles.list` y publicados con `profiles.configure`
-  con CAS por `ui_meta_expected_revisions` (`group-chat.ts:1013-1017,1174-1192`).
-  `groups.*` existe en el contrato, pero lo sirve el driver de rooms del backend
-  para su propia réplica/autoridad. La app consume el espejo de Desktop; el
-  `RoomsClient` sobre `groups.*` se eliminó.
+- **§5 Grupos: dos modelos conviven, y hay que distinguirlos.**
+  (a) **Grupos de Desktop** = espejo `ui_meta['hermes-bots-groups']` del perfil
+  `default` (lectura `profiles.list`, escritura `profiles.configure` con CAS por
+  `ui_meta_expected_revisions`; `group-chat.ts:1013-1017,1174-1192`). El SPA de
+  Desktop NO llama ningún `groups.*` para su UI. Pocket los muestra (fila
+  `kind='group'` sin `groupRoomId`), con orden/pin locales, y **NO permite
+  escribir** en ellos: quien dirige las salas es Desktop (`group-turns.ts`).
+  (b) **Hosted rooms nativos del gateway** = JSON-RPC `groups.*` REAL
+  (`methods_groups.py:19-20`, `contracts/groups_bot_relay.py`), con protocolo
+  version 2, autoridad y réplica. Pocket los soporta vía `RoomsClient` cuando el
+  gateway los expone (`groups.capabilities`). Lo que estaba mal era pretender
+  que (a) y (b) son el mismo canal: la app ahora los trata por separado.
 - **Historial WS:** no existe `messages.history` (ni `.page`) como método del
   backend `e408d36` (0 registradores en `tui_gateway/`). La app NO usa
   `session.resume` para el historial: HTTP `GET /api/sessions/{id}/messages`
