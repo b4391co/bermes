@@ -111,3 +111,15 @@ Todos firmados con la clave de distribución (`CN=Hermes Pocket, O=Bermes`).
   contraseña recordada antes de quedarse sin conexión.
 - El diagnóstico de conexión ahora muestra la credencial activa y si el
   gateway la acepta, con la causa más probable cuando la rechaza.
+
+# Release 0.1.19 (2026-09-29)
+
+## Fallo al enviar resuelto
+- La app monta ahora la sesión viva del gateway (`session.resume`) antes
+  de enviar, igual que Hermes Desktop. Sin ese paso el gateway rechazaba
+  cualquier envío con «session not found»: fallaba en todos los bots.
+- Si la sesión caduca (reinicio del gateway, expiración), el reintento
+  re-monta la sesión automáticamente.
+- El avatar del bot queda centrado con su burbuja.
+- Los grupos se listan todos juntos bajo una única cabecera «Grupos»
+  arriba de todo, sin subsecciones por gateway.
