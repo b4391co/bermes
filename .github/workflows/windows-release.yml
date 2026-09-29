@@ -42,11 +42,13 @@ jobs:
             hermes-pocket-windows-x64.zip
             build/app/outputs/flutter-apk/app-release.apk
 
-      - name: Attach to release v0.1.2
+      - name: Attach bundles to the latest release tag
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload v0.1.2 hermes-pocket-windows-x64.zip --repo b4391co/bermes --clobber
+          TAG="$(git describe --tags --abbrev=0)"
+          echo "Uploading to release $TAG"
+          gh release upload "$TAG" hermes-pocket-windows-x64.zip --repo b4391co/bermes --clobber
           mv build/app/outputs/flutter-apk/app-release.apk hermes-pocket-android-universal.apk
-          gh release upload v0.1.2 hermes-pocket-android-universal.apk --repo b4391co/bermes --clobber
+          gh release upload "$TAG" hermes-pocket-android-universal.apk --repo b4391co/bermes --clobber
