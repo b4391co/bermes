@@ -193,10 +193,17 @@ class BotAvatar extends StatelessWidget {
         errorBuilder: (_, _, _) => _iconOr(meta) ?? _initialsText(initials),
       );
     } else if (meta?.icon != null) {
-      content = Icon(
-        _iconMap[meta!.icon] ?? Icons.smart_toy_rounded,
-        color: Colors.white,
-        size: size * 0.52,
+      // Sin fondo: sólo el icono, teñido del color del bot para que se
+      // distinga sobre cualquier superficie (fondo blanco del chat sería
+      // invisible con un icono blanco).
+      return SizedBox(
+        width: size,
+        height: size,
+        child: Icon(
+          _iconMap[meta!.icon] ?? Icons.smart_toy_rounded,
+          color: color,
+          size: size * 0.62,
+        ),
       );
     } else {
       content = _initialsText(initials);

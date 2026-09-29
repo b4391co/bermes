@@ -6,7 +6,7 @@ import 'package:drift/drift.dart' show Value;
 import 'bot_meta.dart';
 
 import '../../data/database/app_database.dart'
-    show AppDatabase, Connection, ConversationsCompanion;
+    show AppDatabase, Connection, ConversationsCompanion, ConnectionsCompanion;
 import '../../core/logger.dart';
 import '../../data/secure/secure_store.dart';
 import '../../domain/connection/connection_profile.dart';
@@ -442,6 +442,18 @@ class ConnectionManager {
             ..where((x) => x.connectionId.isNotIn(live.isEmpty ? ['@'] : live.toList())))
           .go();
       final profiles = await runtime.gateway.listProfiles();
+      // Identidad portable del backend para los descriptores de miembro de
+      // grupo (/api/status.install_id, types.ts:103-106). Best-effort: un
+      // gateway viejo sin install_id deja la columna null y el descriptor
+      // sale sin installId (Desktop hace lo mismo con roster rows fantasma).
+      try {
+        final iid = await runtime.http.installId();
+        if (iid != null && iid != row.installId) {
+          await (db.update(db.connections)
+                ..where((c) => c.id.equals(row.id)))
+              .write(ConnectionsCompanion(installId: Value(iid)));
+        }
+      } catch (_) {}
       final roster = _ConnRoster();
       for (final p in profiles) {
         final name = p['name'] as String?;

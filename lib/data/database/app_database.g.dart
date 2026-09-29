@@ -131,6 +131,17 @@ class $ConnectionsTable extends Connections
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _installIdMeta = const VerificationMeta(
+    'installId',
+  );
+  @override
+  late final GeneratedColumn<String> installId = GeneratedColumn<String>(
+    'install_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -156,6 +167,7 @@ class $ConnectionsTable extends Connections
     allowInsecureTls,
     enabled,
     displayOrder,
+    installId,
     createdAt,
   ];
   @override
@@ -251,6 +263,12 @@ class $ConnectionsTable extends Connections
         ),
       );
     }
+    if (data.containsKey('install_id')) {
+      context.handle(
+        _installIdMeta,
+        installId.isAcceptableOrUnknown(data['install_id']!, _installIdMeta),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -310,6 +328,10 @@ class $ConnectionsTable extends Connections
         DriftSqlType.int,
         data['${effectivePrefix}display_order'],
       )!,
+      installId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}install_id'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -335,6 +357,7 @@ class Connection extends DataClass implements Insertable<Connection> {
   final bool allowInsecureTls;
   final bool enabled;
   final int displayOrder;
+  final String? installId;
   final DateTime createdAt;
   const Connection({
     required this.id,
@@ -348,6 +371,7 @@ class Connection extends DataClass implements Insertable<Connection> {
     required this.allowInsecureTls,
     required this.enabled,
     required this.displayOrder,
+    this.installId,
     required this.createdAt,
   });
   @override
@@ -364,6 +388,9 @@ class Connection extends DataClass implements Insertable<Connection> {
     map['allow_insecure_tls'] = Variable<bool>(allowInsecureTls);
     map['enabled'] = Variable<bool>(enabled);
     map['display_order'] = Variable<int>(displayOrder);
+    if (!nullToAbsent || installId != null) {
+      map['install_id'] = Variable<String>(installId);
+    }
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
   }
@@ -381,6 +408,9 @@ class Connection extends DataClass implements Insertable<Connection> {
       allowInsecureTls: Value(allowInsecureTls),
       enabled: Value(enabled),
       displayOrder: Value(displayOrder),
+      installId: installId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(installId),
       createdAt: Value(createdAt),
     );
   }
@@ -402,6 +432,7 @@ class Connection extends DataClass implements Insertable<Connection> {
       allowInsecureTls: serializer.fromJson<bool>(json['allowInsecureTls']),
       enabled: serializer.fromJson<bool>(json['enabled']),
       displayOrder: serializer.fromJson<int>(json['displayOrder']),
+      installId: serializer.fromJson<String?>(json['installId']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
   }
@@ -420,6 +451,7 @@ class Connection extends DataClass implements Insertable<Connection> {
       'allowInsecureTls': serializer.toJson<bool>(allowInsecureTls),
       'enabled': serializer.toJson<bool>(enabled),
       'displayOrder': serializer.toJson<int>(displayOrder),
+      'installId': serializer.toJson<String?>(installId),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
   }
@@ -436,6 +468,7 @@ class Connection extends DataClass implements Insertable<Connection> {
     bool? allowInsecureTls,
     bool? enabled,
     int? displayOrder,
+    Value<String?> installId = const Value.absent(),
     DateTime? createdAt,
   }) => Connection(
     id: id ?? this.id,
@@ -449,6 +482,7 @@ class Connection extends DataClass implements Insertable<Connection> {
     allowInsecureTls: allowInsecureTls ?? this.allowInsecureTls,
     enabled: enabled ?? this.enabled,
     displayOrder: displayOrder ?? this.displayOrder,
+    installId: installId.present ? installId.value : this.installId,
     createdAt: createdAt ?? this.createdAt,
   );
   Connection copyWithCompanion(ConnectionsCompanion data) {
@@ -468,6 +502,7 @@ class Connection extends DataClass implements Insertable<Connection> {
       displayOrder: data.displayOrder.present
           ? data.displayOrder.value
           : this.displayOrder,
+      installId: data.installId.present ? data.installId.value : this.installId,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -486,6 +521,7 @@ class Connection extends DataClass implements Insertable<Connection> {
           ..write('allowInsecureTls: $allowInsecureTls, ')
           ..write('enabled: $enabled, ')
           ..write('displayOrder: $displayOrder, ')
+          ..write('installId: $installId, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -504,6 +540,7 @@ class Connection extends DataClass implements Insertable<Connection> {
     allowInsecureTls,
     enabled,
     displayOrder,
+    installId,
     createdAt,
   );
   @override
@@ -521,6 +558,7 @@ class Connection extends DataClass implements Insertable<Connection> {
           other.allowInsecureTls == this.allowInsecureTls &&
           other.enabled == this.enabled &&
           other.displayOrder == this.displayOrder &&
+          other.installId == this.installId &&
           other.createdAt == this.createdAt);
 }
 
@@ -536,6 +574,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
   final Value<bool> allowInsecureTls;
   final Value<bool> enabled;
   final Value<int> displayOrder;
+  final Value<String?> installId;
   final Value<DateTime> createdAt;
   final Value<int> rowid;
   const ConnectionsCompanion({
@@ -550,6 +589,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
     this.allowInsecureTls = const Value.absent(),
     this.enabled = const Value.absent(),
     this.displayOrder = const Value.absent(),
+    this.installId = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -565,6 +605,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
     this.allowInsecureTls = const Value.absent(),
     this.enabled = const Value.absent(),
     this.displayOrder = const Value.absent(),
+    this.installId = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
@@ -585,6 +626,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
     Expression<bool>? allowInsecureTls,
     Expression<bool>? enabled,
     Expression<int>? displayOrder,
+    Expression<String>? installId,
     Expression<DateTime>? createdAt,
     Expression<int>? rowid,
   }) {
@@ -600,6 +642,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
       if (allowInsecureTls != null) 'allow_insecure_tls': allowInsecureTls,
       if (enabled != null) 'enabled': enabled,
       if (displayOrder != null) 'display_order': displayOrder,
+      if (installId != null) 'install_id': installId,
       if (createdAt != null) 'created_at': createdAt,
       if (rowid != null) 'rowid': rowid,
     });
@@ -617,6 +660,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
     Value<bool>? allowInsecureTls,
     Value<bool>? enabled,
     Value<int>? displayOrder,
+    Value<String?>? installId,
     Value<DateTime>? createdAt,
     Value<int>? rowid,
   }) {
@@ -632,6 +676,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
       allowInsecureTls: allowInsecureTls ?? this.allowInsecureTls,
       enabled: enabled ?? this.enabled,
       displayOrder: displayOrder ?? this.displayOrder,
+      installId: installId ?? this.installId,
       createdAt: createdAt ?? this.createdAt,
       rowid: rowid ?? this.rowid,
     );
@@ -673,6 +718,9 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
     if (displayOrder.present) {
       map['display_order'] = Variable<int>(displayOrder.value);
     }
+    if (installId.present) {
+      map['install_id'] = Variable<String>(installId.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -696,6 +744,7 @@ class ConnectionsCompanion extends UpdateCompanion<Connection> {
           ..write('allowInsecureTls: $allowInsecureTls, ')
           ..write('enabled: $enabled, ')
           ..write('displayOrder: $displayOrder, ')
+          ..write('installId: $installId, ')
           ..write('createdAt: $createdAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -3529,6 +3578,7 @@ typedef $$ConnectionsTableCreateCompanionBuilder =
       Value<bool> allowInsecureTls,
       Value<bool> enabled,
       Value<int> displayOrder,
+      Value<String?> installId,
       Value<DateTime> createdAt,
       Value<int> rowid,
     });
@@ -3545,6 +3595,7 @@ typedef $$ConnectionsTableUpdateCompanionBuilder =
       Value<bool> allowInsecureTls,
       Value<bool> enabled,
       Value<int> displayOrder,
+      Value<String?> installId,
       Value<DateTime> createdAt,
       Value<int> rowid,
     });
@@ -3610,6 +3661,11 @@ class $$ConnectionsTableFilterComposer
 
   ColumnFilters<int> get displayOrder => $composableBuilder(
     column: $table.displayOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get installId => $composableBuilder(
+    column: $table.installId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3683,6 +3739,11 @@ class $$ConnectionsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get installId => $composableBuilder(
+    column: $table.installId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -3735,6 +3796,9 @@ class $$ConnectionsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get installId =>
+      $composableBuilder(column: $table.installId, builder: (column) => column);
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 }
@@ -3781,6 +3845,7 @@ class $$ConnectionsTableTableManager
                 Value<bool> allowInsecureTls = const Value.absent(),
                 Value<bool> enabled = const Value.absent(),
                 Value<int> displayOrder = const Value.absent(),
+                Value<String?> installId = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ConnectionsCompanion(
@@ -3795,6 +3860,7 @@ class $$ConnectionsTableTableManager
                 allowInsecureTls: allowInsecureTls,
                 enabled: enabled,
                 displayOrder: displayOrder,
+                installId: installId,
                 createdAt: createdAt,
                 rowid: rowid,
               ),
@@ -3811,6 +3877,7 @@ class $$ConnectionsTableTableManager
                 Value<bool> allowInsecureTls = const Value.absent(),
                 Value<bool> enabled = const Value.absent(),
                 Value<int> displayOrder = const Value.absent(),
+                Value<String?> installId = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ConnectionsCompanion.insert(
@@ -3825,6 +3892,7 @@ class $$ConnectionsTableTableManager
                 allowInsecureTls: allowInsecureTls,
                 enabled: enabled,
                 displayOrder: displayOrder,
+                installId: installId,
                 createdAt: createdAt,
                 rowid: rowid,
               ),

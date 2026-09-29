@@ -15,6 +15,9 @@ class Connections extends Table {
   BoolColumn get enabled => boolean().withDefault(const Constant(true))();
   // Orden de las secciones de gateway en la lista de chats (v6).
   IntColumn get displayOrder => integer().withDefault(const Constant(0))();
+  // Identidad estable del backend (/api/status `install_id`): portable entre
+  // clientes, la usa el descriptor de miembro de grupo (types.ts:103-106). v8.
+  TextColumn get installId => text().nullable()();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 
   @override

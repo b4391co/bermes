@@ -11,6 +11,7 @@ import '../../design/tokens.dart';
 import '../app_shell.dart' show BotAvatar;
 import 'bot_editor_sheet.dart';
 import '../../clients/hermes/bot_meta.dart';
+import 'group_create.dart';
 import '../chat/chat_screen.dart';
 import '../connections/connection_editor.dart';
 
@@ -79,7 +80,35 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       floatingActionButton: FloatingActionButton(
         heroTag: 'newChatFab',
         tooltip: 'Nueva conversación',
-        onPressed: _newConversation,
+        onPressed: () {
+          showModalBottomSheet<String>(
+            context: context,
+            builder: (sheetCtx) => SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.chat_bubble_outline_rounded),
+                    title: const Text('Nuevo chat'),
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop('chat');
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.group_add_outlined),
+                    title: const Text('Nuevo grupo'),
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop('group');
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ).then((action) {
+            if (action == 'chat') _newConversation();
+            if (action == 'group') _newGroup();
+          });
+        },
         child: const Icon(Icons.add_comment_outlined),
       ),
       body: _twoPane(context, Column(
@@ -691,6 +720,92 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       ),
     );
   }
+
+  /// Crea un grupo compatible con Desktop: roomId fresco, parche de
+  /// membresía de cada bot elegido y publicación del espejo con CAS
+  /// (create-dialog.tsx:1190-1221 vía group_create.dart).
+  Future<void> _newGroup() async {
+    final db = AppServices.db;
+    final connections = await (db.select(db.connections)
+          ..where((c) => c.enabled.equals(true)))
+        .get();
+    if (!mounted) return;
+    if (connections.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Añade primero una conexión en Ajustes.')),
+      );
+      return;
+    }
+    final bots = await (db.select(db.conversations)
+          ..where((c) => c.kind.equals('bot')))
+        .get();
+    if (bots.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No hay bots descubiertos todavía: conecta un gateway.'),
+        ),
+      );
+      return;
+    }
+    // Desduplicación: mismo perfil en dos gateways = UN candidato (el del
+    // gateway primero en el orden del usuario). Petición explícita: no
+    // duplicar bots con id o nombre coincidentes.
+    final order = [...connections]
+      ..sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
+    final candidates = dedupeCandidates(
+      [
+        for (final c in bots)
+          GroupCandidate(
+            conv: c,
+            connectionId: c.connectionId,
+            connectionLabel:
+                connections.where((x) => x.id == c.connectionId).firstOrNull?.name ??
+                    c.gatewayLabel ??
+                    'Gateway',
+            installId:
+                connections.where((x) => x.id == c.connectionId).firstOrNull?.installId,
+          ),
+      ],
+      order.map((c) => c.id).toList(),
+    );
+    final picked = await showModalBottomSheet<_GroupPick>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _NewGroupSheet(
+        candidates: candidates,
+        connectionLabels: {
+          for (final c in connections) c.id: c.name,
+        },
+      ),
+    );
+    if (picked == null || !mounted) return;
+    final manager = AppServices.connections;
+    final runtimes = manager.runtimes;
+    final connById = {for (final c in connections) c.id: c};
+    final outcome = await createGroup(
+      db: db,
+      runtimes: runtimes,
+      connections: connById,
+      members: picked.members,
+      name: picked.name,
+      titleFor: (profile, connectionId) => profile,
+    );
+    if (!mounted) return;
+    if (!outcome.ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(outcome.error ?? 'No se pudo crear el grupo.')),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Grupo "${picked.name}" creado.')),
+    );
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ChatScreen(conversationId: outcome.conversationId!),
+      ),
+    );
+  }
 }
 
 /// Selección del sheet de nueva conversación.
@@ -826,4 +941,129 @@ final class _Header extends _Line {
   final String label;
   final bool reorderable;
   const _Header(this.label, this.reorderable);
+}
+
+/// Resultado del sheet de nuevo grupo.
+class _GroupPick {
+  final String name;
+  final List<GroupCandidate> members;
+  const _GroupPick({required this.name, required this.members});
+}
+
+/// Sheet "Nuevo grupo": nombre + bots desduplicados de TODAS las conexiones.
+class _NewGroupSheet extends StatefulWidget {
+  final List<GroupCandidate> candidates;
+  final Map<String, String> connectionLabels;
+
+  const _NewGroupSheet({
+    required this.candidates,
+    required this.connectionLabels,
+  });
+
+  @override
+  State<_NewGroupSheet> createState() => _NewGroupSheetState();
+}
+
+class _NewGroupSheetState extends State<_NewGroupSheet> {
+  final _name = TextEditingController();
+  final _checked = <GroupCandidate>{};
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canCreate = _name.text.trim().isNotEmpty && _checked.length >= 2;
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Hp.s5, Hp.s3, Hp.s5, Hp.s1),
+              child: Text(
+                'Nuevo grupo',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Hp.s5, Hp.s2, Hp.s5, Hp.s1),
+              child: TextField(
+                controller: _name,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'Nombre del grupo',
+                  isDense: true,
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Hp.s5, Hp.s1, Hp.s5, Hp.s1),
+              child: Text(
+                'Elige 2 o más bots. Los bots con el mismo nombre en '
+                'distintos gateways aparecen una sola vez.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final c in widget.candidates)
+                    CheckboxListTile(
+                      value: _checked.contains(c),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      dense: true,
+                      title: Text(c.conv.title),
+                      subtitle: Text(
+                        widget.connectionLabels[c.connectionId] ??
+                            c.connectionLabel,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      secondary: BotAvatar(
+                        seed: c.conv.avatarSeed ?? c.conv.id,
+                        label: c.conv.title,
+                        size: 32,
+                        imageUrl: c.conv.avatarUrl,
+                        avatarMetaJson: c.conv.botAvatarMeta,
+                      ),
+                      onChanged: (on) => setState(() {
+                        on == true
+                            ? _checked.add(c)
+                            : _checked.remove(c);
+                      }),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Hp.s5, Hp.s2, Hp.s5, Hp.s3),
+              child: FilledButton.icon(
+                onPressed: canCreate
+                    ? () => Navigator.of(context).pop(
+                          _GroupPick(
+                            name: _name.text.trim(),
+                            members: _checked.toList(),
+                          ),
+                        )
+                    : null,
+                icon: const Icon(Icons.group_add_outlined, size: 18),
+                label: Text(
+                  'Crear grupo (${_checked.length} bots)',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

@@ -9,7 +9,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -37,6 +37,9 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(conversations, conversations.groupRoomId);
         await m.addColumn(conversations, conversations.groupSyncRevision);
         await m.addColumn(conversations, conversations.groupSyncName);
+      }
+      if (from < 8) {
+        await m.addColumn(connections, connections.installId);
       }
     },
   );

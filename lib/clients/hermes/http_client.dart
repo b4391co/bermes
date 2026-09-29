@@ -563,6 +563,29 @@ class HermesHttpClient {
   /// Lee la identidad de la sesión vigente (routes.py:449-455):
   /// `{user_id,email,display_name,org_id,provider,expires_at}`. null si no
   /// hay sesión utilizable — es la comprobación de sesión barata del bootstrap.
+  /// Identidad estable del backend (`/api/status.install_id`, status.py:521-526):
+  /// portable entre clientes — la usa el descriptor de miembro de grupo
+  /// (types.ts:103-106). null si el gateway no la expone.
+  Future<String?> installId() async {
+    try {
+      final data = await _authorized<Object?>(
+        send: (headers) => _dio.get<Object?>(
+          '/api/status',
+          options: dio.Options(
+            headers: headers,
+            responseType: dio.ResponseType.json,
+            validateStatus: (c) => c != null && c < 600,
+          ),
+        ),
+        read: (r) => _unwrap(r),
+      );
+      final id = data is Map ? data['install_id'] : null;
+      return id is String && id.isNotEmpty ? id : null;
+    } on dio.DioException {
+      return null;
+    }
+  }
+
   Future<Map<String, Object?>?> authMe() async {
     try {
       final data = await _authorized<Map<String, Object?>?>(

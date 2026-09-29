@@ -200,13 +200,15 @@ async def ws_ticket(request: web.Request) -> web.Response:
         return web.json_response({"error": {"code": "unauthorized", "message": "no session"}}, status=401)
     ticket = uuid.uuid4().hex
     TICKETS[ticket] = time.time() + 30
+    print(f"GW mint ticket={ticket}", flush=True)
     return web.json_response({"ticket": ticket, "ttl_seconds": 30})
 
 
 BOT_META = {"title": "Compi", "description": "Bot con meta hermes-mobile",
            "avatar": {"shape": "circle", "color": "#1a7f5a"},
            "groups": ["Equipo"], "group": "Equipo"}
-BOT_META_REV = {"hermes-bots": 1}
+META_REVS = {"hermes-bots": 1}  # CAS por clave ui_meta (methods_profiles.py:575-611)
+GROUPS_META: dict = {}
 
 
 def rpc_result(method: str, params: dict) -> object:
@@ -236,19 +238,22 @@ def rpc_result(method: str, params: dict) -> object:
                 # Envelope REAL v3 del espejo (group-chat.ts:68-80,296-320), no {groups:[...]}.
                 "ui_meta": {
                     "hermes-bots": dict(BOT_META),
-                    "hermes-bots-groups": {
-                        "version": 3, "updatedAt": now_ms(),
-                        "rooms": {
-                            "id:room-1": {
-                                "name": "Equipo", "roomId": "room-1", "revision": 1,
-                                "members": [{"name": "default"}, {"name": "researcher"}],
-                                "log": [{"at": now_ms(), "from": {"kind": "user", "name": "You"}, "text": "hola"}],
+                    # El espejo PUBLICADO si hay; si no, el de fábrica.
+                    **({"hermes-bots-groups": dict(GROUPS_META)} if GROUPS_META else {
+                        "hermes-bots-groups": {
+                            "version": 3, "updatedAt": now_ms(),
+                            "rooms": {
+                                "id:room-1": {
+                                    "name": "Equipo", "roomId": "room-1", "revision": 1,
+                                    "members": [{"name": "default"}, {"name": "researcher"}],
+                                    "log": [{"at": now_ms(), "from": {"kind": "user", "name": "You"}, "text": "hola"}],
+                                },
                             },
+                            "deleted": {},
                         },
-                        "deleted": {},
-                    },
+                    }),
                 },
-                "ui_meta_revisions": dict(BOT_META_REV, **{"hermes-bots-groups": 1}),
+                "ui_meta_revisions": dict(META_REVS),
                 "canonical_session": ({"id": "sess-canonical-default", "resolved_id": "sess-canonical-default-r", "title": "Bot Chat"} if MODE["canonical"] else None),
             },
             {
@@ -260,20 +265,23 @@ def rpc_result(method: str, params: dict) -> object:
             },
         ]}
     if method == "profiles.configure":
-        um = params.get("ui_meta", {}).get("hermes-bots", {})
+        um = params.get("ui_meta", {})
         expected = params.get("ui_meta_expected_revisions")
         if isinstance(expected, dict):
-            want = expected.get("hermes-bots")
-            actual = BOT_META_REV.get("hermes-bots", 0)
-            if want != actual:
-                # Contrato real (methods_profiles.py:587-594): conflicto ->
-                # applied.ui_meta=false + revisiones actuales, sin escribir.
-                return {"ok": False,
-                        "applied": {"ui_meta": False, "ui_meta_conflicts":
-                                    {"hermes-bots": {"expected": want, "actual": actual}},
-                                    "ui_meta_revisions": dict(BOT_META_REV)}}
-        BOT_META.update({k: v for k, v in um.items() if v})
-        BOT_META_REV["hermes-bots"] = BOT_META_REV.get("hermes-bots", 0) + 1
+            for key, want in expected.items():
+                actual = META_REVS.get(key, 0)
+                if want != actual:
+                    return {"ok": False,
+                            "applied": {"ui_meta": False, "ui_meta_conflicts":
+                                        {key: {"expected": want, "actual": actual}},
+                                        "ui_meta_revisions": dict(META_REVS)}}
+        for key, val in um.items():
+            if key == "hermes-bots":
+                BOT_META.update({k: v for k, v in (val or {}).items() if v})
+            elif key == "hermes-bots-groups":
+                GROUPS_META.clear()
+                GROUPS_META.update(val or {})
+            META_REVS[key] = META_REVS.get(key, 0) + 1
         return {"ok": True, "applied": {"ui_meta": True}}
     if method == "profiles.get_asset":
         if params.get("name") != "default":

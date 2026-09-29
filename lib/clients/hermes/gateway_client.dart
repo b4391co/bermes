@@ -856,6 +856,34 @@ class HermesGatewayClient {
     }
   }
 
+  /// Publica el espejo de grupos (`ui_meta['hermes-bots-groups']`) en el
+  /// perfil `default` — el MISMO canal que Desktop
+  /// (`profiles.configure` + CAS por clave, group-chat.ts:1174-1192 y
+  /// methods_profiles.py:575-611). [snapshot] debe ser el espejo actual
+  /// FUSIONADO con la sala nueva: el gateway reemplaza la clave entera, así
+  /// que enviar sólo la sala nueva borraria las demás (la app lo garantiza
+  /// con mergeGroupRooms). `expectedRevision` activa el CAS; false = conflicto
+  /// (otro cliente tocó el espejo) o fallo — la UI lo reporta sin pisar.
+  Future<bool> publishGroupMirror({
+    required Map<String, Object?> snapshot,
+    int? expectedRevision,
+  }) async {
+    try {
+      final result = await _request('profiles.configure', params: {
+        'name': 'default',
+        'ui_meta': {'hermes-bots-groups': snapshot},
+        if (expectedRevision != null)
+          'ui_meta_expected_revisions': {'hermes-bots-groups': expectedRevision},
+      });
+      if (result is Map) {
+        final applied = result['applied'];
+        if (applied is Map && applied['ui_meta'] == false) return false;
+      }
+      return true;
+    } on JsonRpcError {
+      return false;
+    }
+  }
 
   void _scheduleReconnect() {
     if (_manuallyClosed) return;
