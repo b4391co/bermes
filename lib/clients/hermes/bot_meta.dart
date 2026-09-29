@@ -55,12 +55,18 @@ class BotRosterMeta {
   final bool? hidden;
   final List<String> groups;
 
+  /// Sección `hermes-bots` cruda del gateway: claves que Pocket no modela
+  /// (pinned, sectionId, sectionName, screenAutoOpen, created…) y que DEBEN
+  /// volver en la escritura porque el gateway reemplaza la sección entera.
+  final Map<String, Object?> raw;
+
   const BotRosterMeta({
     this.title,
     this.description,
     this.avatar,
     this.hidden,
     this.groups = const [],
+    this.raw = const {},
   });
 
   /// `ui_meta['hermes-bots']` de una ProfileRow; null si no hay sección.
@@ -88,14 +94,36 @@ class BotRosterMeta {
       avatar: BotAvatarMeta.fromJson(raw['avatar']),
       hidden: raw['hidden'] == true,
       groups: groups,
+      // Claves que Pocket no edita pero Desktop SÍ guarda en esta sección
+      // (`types.ts:65-88`: pinned, sectionId, sectionName, screenAutoOpen,
+      // created, image_url…). El servidor REEMPLAZA la sección entera
+      // (methods_profiles.py:600-606): sin reenviarlas, un guardado desde
+      // Pocket las borra y Desktop pierde filing/autoraise.
+      raw: Map<String, Object?>.from(raw),
     );
   }
 
-  Map<String, Object?> toUiMetaSection() => {
-        if (title != null) 'title': title,
-        if (description != null) 'description': description,
-        if (avatar != null) 'avatar': avatar!.toJson(),
-        if (hidden != null) 'hidden': hidden,
-        if (groups.isNotEmpty) 'groups': groups,
-      };
+  /// Sección `hermes-bots` completa: campos editados + claves ajenas
+  /// preservadas. Los campos editados mandan; los que Pocket no toca viajan
+  /// tal cual estaban.
+  Map<String, Object?> toUiMetaSection() {
+    final out = Map<String, Object?>.from(raw);
+    out.remove('group'); // proyección legacy: la regenera Desktop si aplica
+    if (title != null) {
+      out['title'] = title;
+    } else {
+      out.remove('title');
+    }
+    if (description != null) {
+      out['description'] = description;
+    } else {
+      out.remove('description');
+    }
+    if (avatar != null) {
+      out['avatar'] = avatar!.toJson();
+    }
+    if (hidden != null) out['hidden'] = hidden;
+    if (groups.isNotEmpty) out['groups'] = groups;
+    return out;
+  }
 }

@@ -685,7 +685,7 @@ class HermesGatewayClient {
   /// la escritura y `applied.ui_meta` sale false → devolvemos false, así la
   /// UI avisa en vez de pisar el cambio ajeno.
   /// Nota: el merge del gateway es POR CLAVE de ui_meta — la sección
-  /// `hermes-bots` se reemplaza entera, por eso `groups` se preserva arriba.
+  /// `hermes-bots` se reemplaza entera (ver `rawSection`).
   Future<bool> configureBot(
     String name, {
     String? title,
@@ -693,11 +693,25 @@ class HermesGatewayClient {
     BotAvatarMeta? avatar,
     List<String> groups = const [],
     int? expectedRevision,
+
+    /// Sección `hermes-bots` CRUDA leída del gateway (`BotRosterMeta.raw`).
+    /// El servidor REEMPLAZA la sección entera (methods_profiles.py:600-606):
+    /// sin reenviar `pinned`/`sectionId`/`sectionName`/`screenAutoOpen`/
+    /// `created`, un guardado desde Pocket los borra y Desktop los pierde
+    /// (group-chat.ts:1184-1206 envía la sección completa desde next[key]).
+    Map<String, Object?> rawSection = const {},
   }) async {
-    final metaMap = <String, Object?>{};
-    if (title != null && title.isNotEmpty) metaMap['title'] = title;
+    final metaMap = Map<String, Object?>.from(rawSection)
+      ..remove('group'); // proyección legacy: Desktop la regenera
+    if (title != null && title.isNotEmpty) {
+      metaMap['title'] = title;
+    } else {
+      metaMap.remove('title');
+    }
     if (description != null && description.isNotEmpty) {
       metaMap['description'] = description;
+    } else {
+      metaMap.remove('description');
     }
     if (avatar != null &&
         (avatar.shape != null ||

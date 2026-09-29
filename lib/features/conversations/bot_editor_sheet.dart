@@ -124,6 +124,7 @@ class _BotEditorSheetState extends State<BotEditorSheet> {
           avatar: BotAvatarMeta(shape: _shape, color: _color),
           groups: existing.meta?.groups ?? const [],
           expectedRevision: existing.revision,
+          rawSection: existing.meta?.raw ?? const {},
         );
         if (ok) {
           await AppServices.connections.resyncAll();
