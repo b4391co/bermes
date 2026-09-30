@@ -147,3 +147,19 @@ Todos firmados con la clave de distribución (`CN=Hermes Pocket, O=Bermes`).
 - **Iconos de bot sin fondo**: se muestra solo el dibujo (imagen o
   icono), teñido del color del bot; sin cajas ni círculos de color.
   Las iniciales también van sin fondo.
+
+# Release 0.1.22 (2026-09-30)
+
+## Nuevo
+- **Info de contacto**: toca el nombre arriba del chat y se abre la
+  ficha del bot o del grupo (estilo WhatsApp).
+- **Cambiar el modelo del bot** desde su ficha: proveedor y modelo, con
+  la lista real del gateway (`model.options`) y guardado directo en el
+  perfil (`PUT /api/profiles/{name}/model`).
+- Los grupos muestran sus **miembros con su icono** en la ficha.
+- Los iconos de los bots se ven también dentro del chat (cabecera y
+  burbujas).
+
+## Corregido
+- Los iconos ya no parpadean al iniciar: el sync no reescribe filas
+  sin cambios.
