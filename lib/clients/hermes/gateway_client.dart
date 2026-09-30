@@ -771,6 +771,58 @@ class HermesGatewayClient {
     }
   }
 
+  /// Inventario de proveedores/modelos para el picker de un perfil.
+  ///
+  /// RPC `model.options`
+  /// (tui_gateway/contracts/config_free_tier_control.py:213-281): params
+  /// `{profile?, explicit_only?, include_unconfigured?, refresh?}`, result
+  /// `{providers: [{slug, name, models[], is_current?, authenticated?, ...}],
+  /// model, provider}`.
+  Future<ModelOptions?> modelOptions(String profile, {bool refresh = false}) async {
+    final Object? result;
+    try {
+      result = await _request('model.options', params: {
+        'profile': profile,
+        if (refresh) 'refresh': true,
+      });
+    } catch (_) {
+      return null; // gateway antiguo sin model.options: picker degradado
+    }
+    if (result is! Map) return null;
+    final providers = <ModelOptionProvider>[];
+    final raw = result['providers'];
+    if (raw is List) {
+      for (final p in raw) {
+        final option = ModelOptionProvider.tryParse(p);
+        if (option != null) providers.add(option);
+      }
+    }
+    return ModelOptions(
+      providers: providers,
+      model: result['model'] is String ? result['model'] as String : '',
+      provider: result['provider'] is String ? result['provider'] as String : '',
+    );
+  }
+
+  /// Cambia el modelo de un perfil: `PUT /api/profiles/{name}/model`
+  /// (hermes_cli/web_routers/profiles.py:1040-1051) — escribe config.yaml del
+  /// perfil por el mismo camino validado de `/api/model/set` (provider y
+  /// model son required, strip; 400 si faltan). Lanza si el gateway lo
+  /// rechaza.
+  Future<void> setProfileModel(
+    String profile, {
+    required String provider,
+    required String model,
+  }) async {
+    final result = await http.putJson(
+      '/api/profiles/${Uri.encodeComponent(profile)}/model',
+      body: {'provider': provider, 'model': model},
+    );
+    if (result is! Map || result['ok'] != true) {
+      throw StateError('el gateway rechazó el cambio de modelo');
+    }
+  }
+
   /// `ui_meta['hermes-bots']` + revision CAS de un perfil (hermes-map §4).
   /// Devuelve también `revision` (`ui_meta_revisions['hermes-bots']`, siempre
   /// presente en gateways con CAS — methods_profiles.py:242-251) para que el
@@ -1062,5 +1114,58 @@ class CanonicalChain {
   static bool isCanonicalBotChatRow(Map<String, Object?> row) {
     if (row['root_title'] == canonicalChatTitle) return true;
     return row['title'] == canonicalChatTitle;
+  }
+}
+
+/// Resultado del RPC `model.options`
+/// (tui_gateway/contracts/config_free_tier_control.py:270-277).
+class ModelOptions {
+  final List<ModelOptionProvider> providers;
+
+  /// Modelo/proveedor VIGENTES del perfil consultado.
+  final String model;
+  final String provider;
+  const ModelOptions({
+    required this.providers,
+    required this.model,
+    required this.provider,
+  });
+}
+
+/// Fila de proveedor del picker (`ModelOptionProvider`, :237-260). Sólo los
+/// campos que la UI usa; el resto se descarta.
+class ModelOptionProvider {
+  final String slug;
+  final String name;
+  final List<String> models;
+  final bool? isCurrent;
+  final bool? authenticated;
+
+  const ModelOptionProvider({
+    required this.slug,
+    required this.name,
+    required this.models,
+    this.isCurrent,
+    this.authenticated,
+  });
+
+  static ModelOptionProvider? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    final slug = raw['slug'];
+    final name = raw['name'];
+    if (slug is! String || slug.isEmpty) return null;
+    final models = <String>[
+      if (raw['models'] is List)
+        for (final m in raw['models'] as List)
+          if (m is String) m,
+    ];
+    return ModelOptionProvider(
+      slug: slug,
+      name: name is String && name.isNotEmpty ? name : slug,
+      models: models,
+      isCurrent: raw['is_current'] is bool ? raw['is_current'] as bool : null,
+      authenticated:
+          raw['authenticated'] is bool ? raw['authenticated'] as bool : null,
+    );
   }
 }

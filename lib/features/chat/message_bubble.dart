@@ -12,11 +12,19 @@ class MessageBubble extends StatelessWidget {
   final bool isGroup;
   final bool showAuthor;
 
+  /// Icono que le corresponde al autor (meta ui_meta.hermes-bots.avatar o
+  /// data-url de profiles.get_asset): la burbuja muestra el dibujo real del
+  /// bot, no iniciales genéricas.
+  final String? avatarUrl;
+  final String? avatarMetaJson;
+
   const MessageBubble({
     super.key,
     required this.message,
     this.isGroup = false,
     this.showAuthor = false,
+    this.avatarUrl,
+    this.avatarMetaJson,
   });
 
   bool get _isUser => message.role == MessageRole.user;
@@ -128,6 +136,8 @@ class MessageBubble extends StatelessWidget {
             seed: message.authorConnectionId ?? message.path.connectionId,
             label: message.authorName ?? message.path.gatewayId,
             size: 26,
+            imageUrl: avatarUrl,
+            avatarMetaJson: avatarMetaJson,
           ),
           const SizedBox(width: Hp.s2),
         ],

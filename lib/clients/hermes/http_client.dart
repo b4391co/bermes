@@ -560,6 +560,27 @@ class HermesHttpClient {
     return data;
   }
 
+  /// PUT JSON autenticado. `PUT /api/profiles/{name}/model`
+  /// (hermes_cli/web_routers/profiles.py:1040-1051, body {provider, model}).
+  Future<dynamic> putJson(
+    String path, {
+    Map<String, Object?>? body,
+  }) async {
+    final data = await _authorized<Object?>(
+      send: (headers) => _dio.put<Object?>(
+        path,
+        data: body,
+        options: dio.Options(
+          headers: headers,
+          responseType: dio.ResponseType.json,
+          validateStatus: (c) => c != null && c < 600,
+        ),
+      ),
+      read: (r) => _unwrap(r),
+    );
+    return data;
+  }
+
   /// Lee la identidad de la sesión vigente (routes.py:449-455):
   /// `{user_id,email,display_name,org_id,provider,expires_at}`. null si no
   /// hay sesión utilizable — es la comprobación de sesión barata del bootstrap.

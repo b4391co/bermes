@@ -16,6 +16,7 @@ import '../../design/tokens.dart';
 import '../../domain/entity/entity_ref.dart';
 import '../../domain/message/chat_models.dart';
 import '../app_shell.dart' show BotAvatar;
+import 'chat_info_sheet.dart';
 import 'message_bubble.dart';
 
 /// Chat de UNA conversación (bot canónico o grupo de un gateway).
@@ -62,8 +63,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Título recibido por `session.title` (renombrado desde otro cliente).
   String? _titleOverride;
-  ConnectionRuntime? _runtime;
 
+  /// display name del autor de grupo → (meta avatar, data-url). Lo llena
+  /// [_loadConversation] con los bots sincronizados.
+  Map<String, (String?, String?)> _botAvatars = const {};
+
+  /// Runtime del gateway de esta conversación (null = sólo historial).
+  ConnectionRuntime? _runtime;
   @override
   void initState() {
     super.initState();
@@ -102,6 +108,21 @@ class _ChatScreenState extends State<ChatScreen> {
       Navigator.of(context).maybePop();
       return;
     }
+    // Icono que le corresponde a cada autor: para el chat 1:1 basta la meta
+    // de la propia conversación; en grupos se resuelve por display name del
+    // miembro contra los bots sincronizados (identity real = perfil backend,
+    // pero el log de la sala sólo expone display_name/handle).
+    final botRows = await (database.select(database.conversations)
+          ..where((c) => c.kind.equals('bot')))
+        .get();
+    if (!mounted) return;
+    setState(() {
+      _botAvatars = {
+        for (final r in botRows)
+          if (r.title.isNotEmpty && r.botAvatarMeta != null)
+            r.title: (r.botAvatarMeta, r.avatarUrl),
+      };
+    });
     setState(() => _conversation = row);
     _connectRuntime();
     await _restoreDraft();
@@ -814,27 +835,57 @@ class _ChatScreenState extends State<ChatScreen> {
     final cs = Theme.of(context).colorScheme;
     final isGroup = conv.isGroup;
 
+  /// Cabecera → sheet de info (identidad + ajustes: modelo del bot,
+  /// miembros del grupo).
+  void _openInfo() {
+    final conv = _conversation;
+    if (conv == null) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (_) => ChatInfoSheet(conversation: conv, runtime: _runtime),
+    );
+  }
+
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: Row(
-          children: [
-            BotAvatar(
-              seed: conv.avatarSeed ?? conv.id,
-              label: conv.title,
-              size: 32,
-              isGroup: isGroup,
-            ),
-            const SizedBox(width: Hp.s3),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _titleOverride ?? conv.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+        title: InkWell(
+          onTap: _openInfo,
+          child: Row(
+            children: [
+              BotAvatar(
+                seed: conv.avatarSeed ?? conv.id,
+                label: conv.title,
+                size: 32,
+                isGroup: isGroup,
+                imageUrl: conv.avatarUrl,
+                avatarMetaJson: conv.botAvatarMeta,
+              ),
+              const SizedBox(width: Hp.s3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            _titleOverride ?? conv.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: Hp.s1),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 16,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ],
+                    ),
                   if (_runtime != null)
                     StreamBuilder<GatewayLinkState>(
                       stream: _runtime!.gateway.stateStream,
@@ -853,6 +904,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
           ],
+          ),
         ),
       ),
       body: Column(
@@ -898,6 +950,15 @@ class _ChatScreenState extends State<ChatScreen> {
                                 message.role == MessageRole.assistant
                             ? message.copyWith(authorName: _conversation?.title)
                             : message;
+                        // Icono del autor: en 1:1 la meta del bot de la
+                        // conversación; en grupos, la del bot sincronizado
+                        // con ese display name (fallback: iniciales).
+                        final (authorMeta, authorUrl) = isGroup
+                            ? (_botAvatars[titled.authorName] ?? (null, null))
+                            : (
+                                _conversation?.botAvatarMeta,
+                                _conversation?.avatarUrl,
+                              );
                         return MessageBubble(
                           key: ValueKey(titled.id),
                           message: titled,
@@ -906,6 +967,8 @@ class _ChatScreenState extends State<ChatScreen> {
                               isGroup &&
                               titled.role == MessageRole.assistant &&
                               previous?.authorName != titled.authorName,
+                          avatarUrl: authorUrl,
+                          avatarMetaJson: authorMeta,
                         );
                       },
                     );

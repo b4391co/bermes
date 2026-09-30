@@ -426,9 +426,15 @@ class ConnectionManager {
     try {
       // El PIN es preferencia LOCAL: se preserva a través del upsert de sync
       // (insertOnConflictUpdate escribiría el default false si no lo llevamos).
-      final priorPins = {
+      // La fila previa COMPLETA sirve también para saltar escrituras sin
+      // cambios: reescribir el row reemite el watch de la lista y los
+      // avatares parpadean (re-decodificación) en cada sync.
+      final priorRows = {
         for (final r in await db.select(db.conversations).get())
-          r.id: (r.pinned, r.pinnedGateway),
+          r.id: r,
+      };
+      final priorPins = {
+        for (final e in priorRows.entries) e.key: (e.value.pinned, e.value.pinnedGateway),
       };
       // Decisión del usuario (27/09): SOLO bots en la lista — las sesiones
       // de Desktop se vieron aquí por error y se purgan al primer sync.
@@ -528,13 +534,26 @@ class ConnectionManager {
         final groupNames = botMeta?.groups ?? const <String>[];
         final desc = (botMeta?.description?.isNotEmpty ?? false)
             ? botMeta!.description
-            : p['description'] as String?;
+            : null;
         final subtitle = groupNames.isEmpty
             ? desc
             : (desc == null || desc.isEmpty
                   ? 'Grupos: ${groupNames.join(', ')}'
                   : '$desc · Grupos: ${groupNames.join(', ')}');
         final id = '${row.id}/bot/$name';
+        final prior = priorRows[id];
+        final newMeta = botMeta?.avatar == null
+            ? null
+            : const JsonEncoder().convert(botMeta!.avatar!.toJson());
+        final unchanged = prior != null &&
+            prior.title == displayName &&
+            prior.subtitle == subtitle &&
+            prior.avatarUrl == avatarUrl &&
+            prior.botAvatarMeta == newMeta &&
+            prior.canonicalSession == canonical;
+        if (unchanged) {
+          continue; // nada cambió: no reemitir el watch (parpadeo de iconos)
+        }
         await db.into(db.conversations).insertOnConflictUpdate(
               ConversationsCompanion.insert(
                 id: id,
@@ -545,9 +564,7 @@ class ConnectionManager {
                 subtitle: Value(subtitle),
                 avatarSeed: Value(name),
                 avatarUrl: Value(avatarUrl),
-                botAvatarMeta: Value(botMeta?.avatar == null
-                    ? null
-                    : const JsonEncoder().convert(botMeta!.avatar!.toJson())),
+                botAvatarMeta: Value(newMeta),
                 isGroup: const Value(false),
                 gatewayLabel: Value(row.name),
                 canonicalSession: Value(canonical),

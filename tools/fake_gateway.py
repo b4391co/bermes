@@ -210,8 +210,22 @@ BOT_META = {"title": "Compi", "description": "Bot con meta hermes-mobile",
 META_REVS = {"hermes-bots": 1}  # CAS por clave ui_meta (methods_profiles.py:575-611)
 GROUPS_META: dict = {}
 
+# Modelo vigente del perfil (ProfileRow.model/provider; PUT /profiles/{n}/model lo escribe).
+PROFILE_MODEL = {"provider": "nous", "model": "Hermes-4-405B"}
+
 
 def rpc_result(method: str, params: dict) -> object:
+    if method == "model.options":
+        # Contrato real (config_free_tier_control.py:213-281): providers con
+        # slug/models/is_current/authenticated + model/provider vigentes.
+        return {"providers": [
+            {"slug": "nous", "name": "Nous Research", "authenticated": True,
+             "models": ["Hermes-4-405B", "Hermes-4-70B"],
+             "is_current": PROFILE_MODEL["provider"] == "nous"},
+            {"slug": "openrouter", "name": "OpenRouter", "authenticated": True,
+             "models": ["anthropic/claude-sonnet-4", "openai/gpt-5-mini"],
+             "is_current": PROFILE_MODEL["provider"] == "openrouter"},
+        ], "model": PROFILE_MODEL["model"], "provider": PROFILE_MODEL["provider"]}
     if method == "gateway.ping":
         return {"pong": True, "ts": now()}
     if method == "prompt.submit":
@@ -587,6 +601,19 @@ async def rest_profiles(request: web.Request) -> web.Response:
         return web.json_response({"error": "unauthorized"}, status=401)
     return web.json_response({"profiles": rpc_result("profiles.list", {})["profiles"]})
 
+async def profile_model_put(request: web.Request) -> web.Response:
+    # PUT /api/profiles/{name}/model (profiles.py:1040-1051): {provider, model}
+    # required, ambos strip; 400 si faltan.
+    body = await request.json()
+    provider = str(body.get("provider") or "").strip()
+    model = str(body.get("model") or "").strip()
+    if not provider or not model:
+        return web.json_response({"detail": "provider and model are required"}, status=400)
+    PROFILE_MODEL["provider"] = provider
+    PROFILE_MODEL["model"] = model
+    print(f"GW PUT model {request.match_info['name']} -> {provider}/{model}", flush=True)
+    return web.json_response({"ok": True, "provider": provider, "model": model})
+
 
 def main() -> None:
     app = web.Application()
@@ -597,12 +624,13 @@ def main() -> None:
     app.router.add_get("/api/profiles", rest_profiles)
     app.router.add_get("/api/mode", set_mode)
     app.router.add_post("/api/sessions", session_create)
-    app.router.add_get("/api/sessions/{sid}/messages", session_messages)
+
     app.router.add_get("/api/auth/providers", auth_providers)
     app.router.add_get("/api/auth/me", auth_me)
     app.router.add_post("/auth/password-login", password_login)
     app.router.add_post("/auth/native/refresh", native_refresh)
     app.router.add_post("/api/auth/ws-ticket", ws_ticket)
+    app.router.add_put("/api/profiles/{name}/model", profile_model_put)
     app.router.add_get("/api/ws", ws_handler)
     port = int(sys.argv[1] if len(sys.argv) > 1 else os.environ.get("FAKE_PORT", "9120"))
     web.run_app(app, host="0.0.0.0", port=port, print=None,
