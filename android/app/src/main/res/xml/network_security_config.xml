@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android bloquea http:// por defecto (API 28+). Dos casos legítimos:
+     1) 127.0.0.1 — el servidor local que sirve el visor Screen (los módulos
+        ES no cargan por file://: CORS origin null). Loopback nunca sale del
+        aparato; no hay riesgo de red.
+     2) LAN HTTP de gateways Hermes: se habilita POR CONEXIÓN con el aviso
+        explícito de la app (allowInsecureTls) y sólo alcanza hosts privados
+        declarados; TLS global NO se desactiva.
+     Los hostnames de LAN variable se declaran aquí en build-time del profile
+     del usuario; el resto sigue forzado a HTTPS. -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+    <!-- Gateways HTTP en LAN del usuario (CIDRs privados no son soportados;
+         se enumeran los hosts que la app probea y el usuario confirma). -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="user"/>
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

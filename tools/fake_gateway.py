@@ -25,6 +25,22 @@ SRQ = {"id": "srq-test000000", "pending": None, "answered": None}
 SESSION_COOKIE = "hermes_session_at"
 REFRESH_COOKIE = "hermes_session_rt"
 TICKETS: dict[str, float] = {}
+DISPLAY = {"state": "stopped", "lease": None}
+DISPLAY_TICKETS: dict[str, float] = {}
+
+
+async def display_ws(request: web.Request) -> web.WebSocketResponse:
+    """WS hermana de pantalla (web_routers/display.py): valida el ticket
+    single-use de display.observe y anuncia el cierre inmediato — el fake NO
+    implementa RFB; sirve para verificar que la app pide el ticket correcto."""
+    t = request.query.get("display_ticket", "")
+    if t not in DISPLAY_TICKETS or DISPLAY_TICKETS[t] < time.time():
+        return web.Response(status=401, text="invalid display ticket")
+    del DISPLAY_TICKETS[t]
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+    await ws.close(code=4000, message=b"fake-no-rfb")
+    return ws
 import hashlib
 ROOMS: dict[str, dict] = {}
 ROOM_LOGS: dict[str, list] = {}
@@ -228,6 +244,32 @@ def rpc_result(method: str, params: dict) -> object:
         ], "model": PROFILE_MODEL["model"], "provider": PROFILE_MODEL["provider"]}
     if method == "gateway.ping":
         return {"pong": True, "ts": now()}
+    # --- Screen (contrato display.* verificado en hermes-map §6 y fuente real
+    #     e408d36: tui_gateway display.py). El fake emula status/observe/lease;
+    #     la RFB hermana NO se emula: el visor fallará al conectar (esperado).
+    if method == "display.status":
+        return {"status": DISPLAY["state"], "lease": DISPLAY["lease"], "vnc_available": True}
+    if method == "display.start":
+        DISPLAY["state"] = "running"
+        return {"status": "running", "lease": DISPLAY["lease"]}
+    if method == "display.stop":
+        DISPLAY["state"] = "stopped"
+        DISPLAY["lease"] = None
+        return {"status": "stopped", "lease": None}
+    if method == "display.observe":
+        if DISPLAY["state"] != "running":
+            return {"error": {"code": "display_not_running", "message": "stopped"}}
+        t = uuid.uuid4().hex
+        DISPLAY_TICKETS[t] = time.time() + 30
+        return {"ticket": t, "path": "/api/display/ws",
+                "viewer_id": params.get("viewer_id"), "status": "running"}
+    if method == "display.lease.acquire":
+        DISPLAY["lease"] = {"holder": "human", "viewer_id": params.get("viewer_id"),
+                            "reason": params.get("reason"), "epoch": int(time.time())}
+        return {"status": DISPLAY["state"], "lease": DISPLAY["lease"]}
+    if method == "display.lease.release":
+        DISPLAY["lease"] = None
+        return {"status": DISPLAY["state"], "lease": None}
     if method == "prompt.submit":
         if MODE["prompt_error"]:
             return {"error": {"code": "session_not_found",
@@ -407,6 +449,10 @@ def rpc_result(method: str, params: dict) -> object:
         return {"room": {**(ROOMS.get(rid) or {}), "revision": 2}}
 async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     # Modo loopback: ?token= vale como credencial de upgrade
+    _t = request.query.get("ticket", "")
+    if _t:
+        print(f"WSDIAG ticket={_t} presente={_t in TICKETS} edad={round(time.time()-TICKETS.get(_t,0),1) if _t in TICKETS else '-'}s", flush=True)
+        print("WSDIAG headers:", dict(request.headers), flush=True)
     # (web_server_chat.py:291-297). Modo gated: ticket single-use.
     if MODE["session_token"]:
         if request.query.get("token", "") != GATEWAY_TOKEN:
@@ -632,6 +678,7 @@ def main() -> None:
     app.router.add_post("/api/auth/ws-ticket", ws_ticket)
     app.router.add_put("/api/profiles/{name}/model", profile_model_put)
     app.router.add_get("/api/ws", ws_handler)
+    app.router.add_get("/api/display/ws", display_ws)
     port = int(sys.argv[1] if len(sys.argv) > 1 else os.environ.get("FAKE_PORT", "9120"))
     web.run_app(app, host="0.0.0.0", port=port, print=None,
                 access_log_format='%r -> %s')

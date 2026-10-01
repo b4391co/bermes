@@ -213,7 +213,7 @@ class AboutSection extends StatelessWidget {
   const AboutSection({super.key});
 
   /// Sin package_info en pubspec: constante sincronizada con pubspec.yaml.
-  static const version = '0.1.3';
+  static const version = '0.1.23';
 
   @override
   Widget build(BuildContext context) {

@@ -7,6 +7,9 @@ import 'package:flutter/material.dart';
 import '../../clients/hermes/chat_session_controller.dart';
 import '../../clients/hermes/connection_manager.dart';
 import '../../clients/hermes/gateway_client.dart';
+import 'mention_menu.dart';
+import '../screen/screen_controller.dart';
+import '../screen/screen_view.dart';
 import '../../clients/hermes/rooms_client.dart';
 import '../../clients/hermes/rpc_types.dart';
 import '../../core/app_services.dart';
@@ -43,8 +46,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   final _log = Logger('Chat');
   final _scroll = ScrollController();
-  final _input = TextEditingController();
   final _focus = FocusNode();
+  final _input = TextEditingController();
+  List<MentionCandidate> _mentionShown = const [];
+  int _mentionStart = -1;
+  int _mentionCaret = -1;
 
   Timer? _draftTimer;
   bool _loadingOlder = false;
@@ -81,6 +87,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _draftTimer?.cancel();
     _liveSub?.cancel();
+    _roomSub?.cancel();
     // El controller se suscribe al gateway en attach(): sin dispose, cada
     // re-adjunto (sesión recién resuelta, reentrada al chat) dejaría un
     // listener vivo aplicando eventos sobre una página muerta.
@@ -96,12 +103,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _loadConversation() async {
     final database = AppServices.db;
-    final row =
-        await (
-              database.select(
-                database.conversations,
-              )..where((c) => c.id.equals(widget.conversationId))
-            ).getSingleOrNull();
+    final row = await (database.select(
+      database.conversations,
+    )..where((c) => c.id.equals(widget.conversationId))).getSingleOrNull();
     if (!mounted) return;
     if (row == null) {
       _log.warning('conversation not found ${widget.conversationId}');
@@ -112,9 +116,9 @@ class _ChatScreenState extends State<ChatScreen> {
     // de la propia conversación; en grupos se resuelve por display name del
     // miembro contra los bots sincronizados (identity real = perfil backend,
     // pero el log de la sala sólo expone display_name/handle).
-    final botRows = await (database.select(database.conversations)
-          ..where((c) => c.kind.equals('bot')))
-        .get();
+    final botRows = await (database.select(
+      database.conversations,
+    )..where((c) => c.kind.equals('bot'))).get();
     if (!mounted) return;
     setState(() {
       _botAvatars = {
@@ -169,21 +173,15 @@ class _ChatScreenState extends State<ChatScreen> {
       // ahora, en abierto; si sigue sin id, NO creo una sesión inventada:
       // el envío mostrará la causa real.
       unawaited(
-        runtime.gateway
-            .resumeCanonicalSession(conv.gatewayId)
-            .then((id) async {
-              if (!mounted) return;
-              if (id == null) return; // sin Bot Chat aún: el send dará causa.
-              await (AppServices.db.update(AppServices.db.conversations)
-                    ..where((c) => c.id.equals(conv.id)))
-                  .write(
-                db.ConversationsCompanion(
-                  canonicalSession: Value(id),
-                ),
-              );
-              _reattachWithSession(id);
-              _loadHistory();
-            }),
+        runtime.gateway.resumeCanonicalSession(conv.gatewayId).then((id) async {
+          if (!mounted) return;
+          if (id == null) return; // sin Bot Chat aún: el send dará causa.
+          await (AppServices.db.update(AppServices.db.conversations)
+                ..where((c) => c.id.equals(conv.id)))
+              .write(db.ConversationsCompanion(canonicalSession: Value(id)));
+          _reattachWithSession(id);
+          _loadHistory();
+        }),
       );
       sendSession = null;
     }
@@ -198,6 +196,10 @@ class _ChatScreenState extends State<ChatScreen> {
   int _roomLastSeq = 0;
   StreamSubscription<GatewayEvent>? _roomSub;
   bool _roomLoading = false;
+  bool _roomLogLoaded = false;
+
+  /// Miembros de la sala para el autocompletado `@` (sólo grupos).
+  List<MentionCandidate> _mentionCandidates = const [];
 
   void _startRoomLog() {
     final conv = _conversation;
@@ -209,15 +211,11 @@ class _ChatScreenState extends State<ChatScreen> {
     final client = RoomsClient(runtime.gateway);
     // El enlace puede seguir conectando (el bootstrap del shell arranca en
     // paralelo con esta pantalla). _request NO encola: 'not connected' es un
-    // fallo real. Se espera el ready (o su timeout) antes de pedir el log.
-    unawaited(() async {
-      try {
-        await runtime.gateway.readyOrTimeout(const Duration(seconds: 20));
-        await _loadRoomLog(client, roomId);
-      } catch (e, st) {
-        _log.warning('room log load falló', e, st);
-      }
-    }());
+    // fallo real. Se espera el ready, y si la primera pasada falla (enlace
+    // caído/tarde) se REINTENTA en cada transición a ready hasta cargar el
+    // log — abrir un grupo con el gateway aún conectando ya no queda vacío.
+    unawaited(_roomLogWithRetry(client, roomId));
+    unawaited(_loadMentionCandidates(client, roomId));
     // 2) Suscribir eventos en vivo: el backend emite `room.event`
     //    (hosted_room_service::publish) con el evento dentro de payload.event.
     _roomSub = runtime.gateway.events.listen((e) async {
@@ -233,6 +231,76 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  /// Carga los miembros de la sala (handle + display name + avatar) para el
+  /// autocompletado `@`. El nombre que se inserta es el que el backend del
+  /// grupo escucha para dirigir el turno (handle de `RelayAgentRow` /
+  /// display name); los perfiles propios del usuario no se listan.
+  Future<void> _loadMentionCandidates(RoomsClient client, String roomId) async {
+    List<MentionCandidate> out = const [];
+    for (var attempt = 0; attempt < 6; attempt++) {
+      final gw = _runtime?.gateway;
+      if (gw == null || !mounted) return;
+      try {
+        await gw.readyOrTimeout(const Duration(seconds: 30));
+        final room = await client.roomState(roomId);
+        if (room == null) return;
+        final bots = room.members
+            .toList(growable: false);
+        // Avatar desde el roster sincronizado (misma clave que las burbujas).
+        out = [
+          for (final m in bots)
+            MentionCandidate(
+              name: m.displayName ?? m.handle ?? m.profile!,
+              avatarMeta: _botAvatars[m.displayName ?? '']?.$1,
+              avatarUrl: _botAvatars[m.displayName ?? '']?.$2,
+            ),
+        ];
+        if (out.isNotEmpty) break;
+      } catch (_) {
+        // enlace no ready / gateway sin groups.*: reintentar en la próxima
+        // transición a ready; si nunca llega, sin autocompletado (el texto
+        // libre con @ sigue funcionando).
+      }
+      try {
+        await gw.stateStream.firstWhere((s) => s == GatewayLinkState.ready);
+      } catch (_) {
+        return;
+      }
+    }
+    if (!mounted) return;
+    setState(() => _mentionCandidates = out);
+  }
+
+  /// Carga `groups.log` con reintentos anclados a las transiciones del
+  /// enlace a `ready`. La primera pasada puede pillarse el arranque del
+  /// shell (bootstrap en paralelo); sin esto el grupo quedaba vacío hasta
+  /// re-abrirlo.
+  Future<void> _roomLogWithRetry(RoomsClient client, String roomId) async {
+    Object? lastError;
+    for (var attempt = 0; attempt < 6; attempt++) {
+      if (!mounted) return;
+      final gw = _runtime?.gateway;
+      if (gw == null) return;
+      try {
+        await gw.readyOrTimeout(const Duration(seconds: 30));
+        if (_roomLogLoaded) return; // otro reintento ya lo cargó
+        await _loadRoomLog(client, roomId);
+        if (_roomLogLoaded) return;
+      } catch (e) {
+        lastError = e;
+      }
+      // Esperar la siguiente transición a ready antes de reintentar.
+      try {
+        await gw.stateStream.firstWhere((s) => s == GatewayLinkState.ready);
+      } catch (_) {
+        return;
+      }
+    }
+    if (lastError != null) {
+      _log.warning('room log load falló (definitivo)', lastError);
+    }
+  }
+
   ChatMessage _roomMessage(db.Conversation conv, String roomId, Map ev) {
     final actor = (ev['actor'] as Map?) ?? const {};
     final kind = ev['kind'] as String? ?? '';
@@ -241,9 +309,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final author = isUser
         ? 'Tú'
         : (actor['display_name'] as String? ??
-            actor['handle'] as String? ??
-            actor['profile'] as String? ??
-            'miembro');
+              actor['handle'] as String? ??
+              actor['profile'] as String? ??
+              'miembro');
     return ChatMessage(
       id: 'room-${ev['event_id']}',
       path: EntityRefPath(
@@ -273,16 +341,17 @@ class _ChatScreenState extends State<ChatScreen> {
       // fuente de verdad es el servidor). Un re-abierto no duplica nada; los
       // optimistas de la sesión anterior viven en el log si fueron aceptados.
       final msgs = page.events
-          .where((e) =>
-              e.kind == 'message.user' || e.kind == 'message.member')
+          .where((e) => e.kind == 'message.user' || e.kind == 'message.member')
           .map((e) => _roomMessage(conv, roomId, e.raw))
           .toList();
+      _roomLogLoaded = true;
       if (mounted) setState(() => _live = msgs);
       _roomController.add(_live);
     } catch (e) {
       // Gateway sin groups.* (versión antigua): el chat queda vacío y el
       // envío reportará la causa real.
       _log.warning('groups.log no disponible', e);
+      rethrow;
     } finally {
       _roomLoading = false;
     }
@@ -309,11 +378,11 @@ class _ChatScreenState extends State<ChatScreen> {
       AppServices.db
           .into(AppServices.db.conversations)
           .insertOnConflictUpdate(
-        db.ConversationsCompanion(
-          id: Value(conv.id),
-          canonicalSession: Value(id),
-        ),
-      );
+            db.ConversationsCompanion(
+              id: Value(conv.id),
+              canonicalSession: Value(id),
+            ),
+          );
       _reattachWithSession(id);
       _loadHistory();
     };
@@ -378,7 +447,10 @@ class _ChatScreenState extends State<ChatScreen> {
               m.conversationId.equals(conv.id) &
               (m.origin.equals('live') | m.origin.equals('optimistic')),
         );
-        b.insertAllOnConflictUpdate(database.messages, live.map(_rowFrom).toList());
+        b.insertAllOnConflictUpdate(
+          database.messages,
+          live.map(_rowFrom).toList(),
+        );
       });
     } catch (e) {
       _log.warning('persist live failed', e);
@@ -398,9 +470,7 @@ class _ChatScreenState extends State<ChatScreen> {
       sendState: Value(m.sendState.name),
       origin: Value(m.origin.name),
       toolsJson: Value(
-        m.tools.isEmpty
-            ? null
-            : jsonEncode(m.tools.map(_toolToJson).toList()),
+        m.tools.isEmpty ? null : jsonEncode(m.tools.map(_toolToJson).toList()),
       ),
     );
   }
@@ -415,9 +485,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _restoreDraft() async {
     final row =
-        await (AppServices.db.select(
-          AppServices.db.drafts,
-        )..where((d) => d.conversationId.equals(widget.conversationId)))
+        await (AppServices.db.select(AppServices.db.drafts)
+              ..where((d) => d.conversationId.equals(widget.conversationId)))
             .getSingleOrNull();
     if (row == null || row.text_.isEmpty || !mounted) return;
     _input.text = row.text_;
@@ -473,8 +542,7 @@ class _ChatScreenState extends State<ChatScreen> {
       await database.batch((b) {
         b.deleteWhere<db.$MessagesTable, db.Message>(
           database.messages,
-          (m) =>
-              m.conversationId.equals(conv.id) & m.origin.equals('history'),
+          (m) => m.conversationId.equals(conv.id) & m.origin.equals('history'),
         );
         // Doble por DIRECCIÓN duradera, no por texto: `row_id` es la clave del
         // store (tui_gateway/contracts/common.py:169) y el ACK de
@@ -494,7 +562,8 @@ class _ChatScreenState extends State<ChatScreen> {
               .map((m) => _rowFromRemote(m, conv))
               .nonNulls
               .where(
-                (r) => r.gatewayRowId.value == null ||
+                (r) =>
+                    r.gatewayRowId.value == null ||
                     !seenRows.contains(r.gatewayRowId.value),
               )
               .toList(),
@@ -549,19 +618,18 @@ class _ChatScreenState extends State<ChatScreen> {
     final database = AppServices.db;
     final oldest = _history.first.timestamp ?? DateTime.now();
     final rows =
-        await (
-              database.select(database.messages)
-                ..where(
-                  (m) =>
-                      m.conversationId.equals(widget.conversationId) &
-                      m.origin.equals('history') &
-                      m.timestamp.isSmallerThanValue(oldest),
-                )
-                ..orderBy([
-                  (m) => OrderingTerm.desc(m.timestamp),
-                  (m) => OrderingTerm.desc(m.rowId),
-                ])
-                ..limit(_pageSize + 1))
+        await (database.select(database.messages)
+              ..where(
+                (m) =>
+                    m.conversationId.equals(widget.conversationId) &
+                    m.origin.equals('history') &
+                    m.timestamp.isSmallerThanValue(oldest),
+              )
+              ..orderBy([
+                (m) => OrderingTerm.desc(m.timestamp),
+                (m) => OrderingTerm.desc(m.rowId),
+              ])
+              ..limit(_pageSize + 1))
             .get();
     final hasMore = rows.length > _pageSize;
     final page = hasMore ? rows.sublist(0, _pageSize) : rows;
@@ -616,6 +684,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void _onDraftChanged(String text) {
     _draftTimer?.cancel();
     _draftTimer = Timer(_draftDebounce, _flushDraft);
+    _updateMention();
   }
 
   Future<void> _flushDraft() async {
@@ -739,15 +808,19 @@ class _ChatScreenState extends State<ChatScreen> {
     _input.clear();
     _flushDraft();
     final client = RoomsClient(runtime.gateway);
-    final isRetry = _groupPendingEventId != null &&
+    final isRetry =
+        _groupPendingEventId != null &&
         _groupPendingRoomId == roomId &&
         text == _groupPendingText;
     try {
       if (isRetry) {
         // Reintento EXPLÍCITO del mismo texto: se reúsa la pareja guardada.
-        final r0 = await client.send(roomId, text,
-            clientEventId: _groupPendingEventId!,
-            threadId: _groupPendingThreadId);
+        final r0 = await client.send(
+          roomId,
+          text,
+          clientEventId: _groupPendingEventId!,
+          threadId: _groupPendingThreadId,
+        );
         _groupPendingEventId = _groupPendingThreadId = _groupPendingRoomId =
             _groupPendingText = null;
         await _roomAck(r0, text, conv, roomId);
@@ -759,8 +832,12 @@ class _ChatScreenState extends State<ChatScreen> {
       _groupPendingThreadId = threadId;
       _groupPendingRoomId = roomId;
       _groupPendingText = text;
-      final r = await client.send(roomId, text,
-          clientEventId: eventId, threadId: threadId);
+      final r = await client.send(
+        roomId,
+        text,
+        clientEventId: eventId,
+        threadId: threadId,
+      );
       _groupPendingEventId = _groupPendingThreadId = _groupPendingRoomId =
           _groupPendingText = null;
       // La fila del autor es server-owned; la UI la pinta localmente ya y el
@@ -783,42 +860,42 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _roomAck(
-      Map<String, Object?>? r, String text, db.Conversation conv, String roomId) async {
+    Map<String, Object?>? r,
+    String text,
+    db.Conversation conv,
+    String roomId,
+  ) async {
     final ev = (r as Map?)?['event'];
     final evId = (ev as Map?)?['event_id'];
     if (mounted) {
       setState(() {
-        _live = [..._live, ChatMessage(
-          id: 'room-${evId ?? DateTime.now().microsecondsSinceEpoch}',
-          path: EntityRefPath(
-            connectionId: conv.connectionId,
-            kind: EntityKind.group,
-            gatewayId: roomId,
+        _live = [
+          ..._live,
+          ChatMessage(
+            id: 'room-${evId ?? DateTime.now().microsecondsSinceEpoch}',
+            path: EntityRefPath(
+              connectionId: conv.connectionId,
+              kind: EntityKind.group,
+              gatewayId: roomId,
+            ),
+            role: MessageRole.user,
+            text: text,
+            sendState: SendState.sent,
+            origin: MessageOrigin.live,
+            timestamp: DateTime.now(),
+            authorName: 'Tú',
           ),
-          role: MessageRole.user,
-          text: text,
-          sendState: SendState.sent,
-          origin: MessageOrigin.live,
-          timestamp: DateTime.now(),
-          authorName: 'Tú',
-        )];
+        ];
         _sending = false;
       });
       _roomController.add(_live);
     }
   }
 
-  void _showGroupNotice() {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Este grupo lo dirige Hermes Desktop. Escribe directamente a sus '
-          'bots en la lista de chats.',
-        ),
-      ),
-    );
-  }
+  // (2026-10-01) _showGroupNotice eliminado: los grupos hosted (room-1) son
+  // ESCRIBIBLES por diseño (grupos multi-gateway: este requisito y Desktop
+  // operan la misma sala vía groups.*). Mantener un aviso de «sólo Desktop»
+  // contradice el requisito §5; la protección CAS ya vive en el guardado.
 
   Future<void> _interrupt() => _controller?.interrupt() ?? Future.value();
 
@@ -826,17 +903,39 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // ── UI ────────────────────────────────────────────────────────────────
 
-  @override
-  Widget build(BuildContext context) {
-    final conv = _conversation;
-    if (conv == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-    final cs = Theme.of(context).colorScheme;
-    final isGroup = conv.isGroup;
-
   /// Cabecera → sheet de info (identidad + ajustes: modelo del bot,
   /// miembros del grupo).
+  void _openScreen() {
+    final conv = _conversation;
+    if (conv == null) return;
+    final target = screenTarget(conv);
+    if (target == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Necesito la conexión de este bot abierta para ver su pantalla.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    final controller = ScreenController(
+      runtime: target.runtime,
+      profile: target.profile,
+      viewerId: 'hp-${DateTime.now().millisecondsSinceEpoch}',
+    );
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ScreenView(
+          controller: controller,
+          botTitle: _titleOverride ?? conv.title,
+        ),
+      ),
+    );
+  }
+
   void _openInfo() {
     final conv = _conversation;
     if (conv == null) return;
@@ -849,6 +948,14 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  @override
+  Widget build(BuildContext context) {
+    final conv = _conversation;
+    if (conv == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    final cs = Theme.of(context).colorScheme;
+    final isGroup = conv.isGroup;
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -886,26 +993,35 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                       ],
                     ),
-                  if (_runtime != null)
-                    StreamBuilder<GatewayLinkState>(
-                      stream: _runtime!.gateway.stateStream,
-                      initialData: _runtime!.gateway.state,
-                      builder: (context, snapshot) {
-                        final s = snapshot.data ?? GatewayLinkState.disconnected;
-                        return Text(
-                          _linkLabel(s),
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(color: _linkColor(s)),
-                          maxLines: 1,
-                        );
-                      },
-                    ),
-                ],
+                    if (_runtime != null)
+                      StreamBuilder<GatewayLinkState>(
+                        stream: _runtime!.gateway.stateStream,
+                        initialData: _runtime!.gateway.state,
+                        builder: (context, snapshot) {
+                          final s =
+                              snapshot.data ?? GatewayLinkState.disconnected;
+                          return Text(
+                            _linkLabel(s),
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: _linkColor(s)),
+                            maxLines: 1,
+                          );
+                        },
+                      ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
           ),
         ),
+        actions: [
+          if (!isGroup)
+            IconButton(
+              tooltip: 'Pantalla del bot (Screen)',
+              onPressed: _openScreen,
+              icon: const Icon(Icons.desktop_windows_outlined),
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -925,15 +1041,12 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (all.isEmpty) return _emptyTimeline(cs);
                     return ListView.builder(
                       controller: _scroll,
-                      padding: const EdgeInsets.only(
-                        top: Hp.s4,
-                        bottom: Hp.s6,
-                      ),
+                      padding: const EdgeInsets.only(top: Hp.s4, bottom: Hp.s6),
                       itemCount:
-                          all.length + (_hasMoreHistory || _loadingOlder ? 1 : 0),
+                          all.length +
+                          (_hasMoreHistory || _loadingOlder ? 1 : 0),
                       itemBuilder: (context, index) {
-                        final header =
-                            _hasMoreHistory || _loadingOlder ? 1 : 0;
+                        final header = _hasMoreHistory || _loadingOlder ? 1 : 0;
                         if (index == 0 && header == 1) {
                           return _olderIndicator();
                         }
@@ -945,7 +1058,8 @@ class _ChatScreenState extends State<ChatScreen> {
                         // El nombre visible del bot es `conv.title`; sin eso,
                         // la burbuja live se apellida distinto que su
                         // historial (que sí trae authorName).
-                        final titled = message.authorName == null &&
+                        final titled =
+                            message.authorName == null &&
                                 !isGroup &&
                                 message.role == MessageRole.assistant
                             ? message.copyWith(authorName: _conversation?.title)
@@ -999,6 +1113,14 @@ class _ChatScreenState extends State<ChatScreen> {
               return _approvalBand(cs, approvals);
             },
           ),
+          CompositedTransformFollower(
+            link: _composerLink,
+            showWhenUnlinked: false,
+            targetAnchor: Alignment.topLeft,
+            followerAnchor: Alignment.bottomLeft,
+            offset: const Offset(8, -8),
+            child: _mentionMenuWidget(),
+          ),
           _composer(cs),
         ],
       ),
@@ -1022,7 +1144,7 @@ class _ChatScreenState extends State<ChatScreen> {
             Text(
               _runtime == null
                   ? 'El gateway de esta conversación no está conectado. '
-                      'Conéctalo en Ajustes para chatear.'
+                        'Conéctalo en Ajustes para chatear.'
                   : 'Envía el primer mensaje.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall,
@@ -1076,17 +1198,18 @@ class _ChatScreenState extends State<ChatScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.gpp_maybe_outlined,
-                          size: 18, color: cs.primary),
+                      Icon(
+                        Icons.gpp_maybe_outlined,
+                        size: 18,
+                        color: cs.primary,
+                      ),
                       const SizedBox(width: Hp.s2),
                       Expanded(
                         child: Text(
                           a.toolName == null
                               ? 'El bot pide aprobación'
                               : 'Aprobación: ${a.toolName}',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleSmall
+                          style: Theme.of(context).textTheme.titleSmall
                               ?.copyWith(fontWeight: FontWeight.w700),
                         ),
                       ),
@@ -1100,9 +1223,9 @@ class _ChatScreenState extends State<ChatScreen> {
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              fontFamily: 'monospace',
-                              color: cs.onSurfaceVariant,
-                            ),
+                          fontFamily: 'monospace',
+                          color: cs.onSurfaceVariant,
+                        ),
                       ),
                     ),
                   if (a.description != null && a.description!.isNotEmpty)
@@ -1112,10 +1235,9 @@ class _ChatScreenState extends State<ChatScreen> {
                         a.description!,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(color: cs.onSurfaceVariant),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
                       ),
                     ),
                   const SizedBox(height: Hp.s2),
@@ -1127,7 +1249,8 @@ class _ChatScreenState extends State<ChatScreen> {
                           onPressed: () => _answerApproval(a, choice),
                           style: choice == ApprovalChoice.deny
                               ? FilledButton.styleFrom(
-                                  foregroundColor: cs.error)
+                                  foregroundColor: cs.error,
+                                )
                               : null,
                           child: Text(switch (choice) {
                             ApprovalChoice.once => 'Permitir una vez',
@@ -1151,9 +1274,9 @@ class _ChatScreenState extends State<ChatScreen> {
       await _controller?.answerApproval(a, c);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo responder: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo responder: $e')));
     }
   }
 
@@ -1161,62 +1284,150 @@ class _ChatScreenState extends State<ChatScreen> {
     final canCancel = _isStreaming && _controller != null;
     return SafeArea(
       top: false,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(Hp.s3, Hp.s2, Hp.s3, Hp.s3),
-        decoration: BoxDecoration(
-          color: cs.surfaceContainerLowest,
-          border: Border(
-            top: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.5)),
-          ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _input,
-                focusNode: _focus,
-                minLines: 1,
-                maxLines: 5,
-                textInputAction: TextInputAction.newline,
-                onChanged: _onDraftChanged,
-                decoration: const InputDecoration(hintText: 'Mensaje'),
-              ),
+      child: CompositedTransformTarget(
+        link: _composerLink,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(Hp.s3, Hp.s2, Hp.s3, Hp.s3),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerLowest,
+            border: Border(
+              top: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.5)),
             ),
-            const SizedBox(width: Hp.s2),
-            if (canCancel || _sending)
-              IconButton.filledTonal(
-                tooltip: 'Detener',
-                // `_sending` cubre la espera del ACK: el turno YA corre en el
-                // gateway aunque `message.start` no haya abierto segmento.
-                // session.interrupt es idempotente; si el turno ya cerró, el
-                // gateway responde not_interrupted y no pasa nada.
-                onPressed: _interrupt,
-                icon: const Icon(Icons.stop_rounded),
-              )
-            else if (_sending)
-              const Padding(
-                padding: EdgeInsets.all(Hp.s3),
-                child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2.2),
-                ),
-              )
-            else
-              IconButton.filled(
-                tooltip: _hasError ? 'Reintentar' : 'Enviar',
-                onPressed: _send,
-                icon: Icon(
-                  _hasError
-                      ? Icons.refresh_rounded
-                      : Icons.arrow_upward_rounded,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _input,
+                  focusNode: _focus,
+                  minLines: 1,
+                  maxLines: 5,
+                  textInputAction: TextInputAction.newline,
+                  onChanged: _onDraftChanged,
+                  decoration: const InputDecoration(hintText: 'Mensaje'),
                 ),
               ),
-          ],
+              const SizedBox(width: Hp.s2),
+              if (canCancel || _sending)
+                IconButton.filledTonal(
+                  tooltip: 'Detener',
+                  // `_sending` cubre la espera del ACK: el turno YA corre en el
+                  // gateway aunque `message.start` no haya abierto segmento.
+                  // session.interrupt es idempotente; si el turno ya cerró, el
+                  // gateway responde not_interrupted y no pasa nada.
+                  onPressed: _interrupt,
+                  icon: const Icon(Icons.stop_rounded),
+                )
+              else if (_sending)
+                const Padding(
+                  padding: EdgeInsets.all(Hp.s3),
+                  child: SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                  ),
+                )
+              else
+                IconButton.filled(
+                  tooltip: _hasError ? 'Reintentar' : 'Enviar',
+                  onPressed: _send,
+                  icon: Icon(
+                    _hasError
+                        ? Icons.refresh_rounded
+                        : Icons.arrow_upward_rounded,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  // ── Autocompletado de menciones (grupos) ────────────────────────────────
+
+  final _composerLink = LayerLink();
+
+  // ── Autocompletado de menciones (grupos) ────────────────────────────────
+
+  bool _mentionOpen = false;
+
+  /// El caret está dentro de un token `@…`: muestra el menú filtrado.
+  /// El caret está dentro de un token `@…`: muestra el menú filtrado.
+  /// El menú se pinta INLINE sobre el composer (Stack del propio _composer):
+  /// así viaja con el teclado (el composer ya se eleva con viewInsets) y no
+  /// depende de enlaces de overlay que con rootOverlay no se pintaban.
+  void _updateMention() {
+    final caret = _input.selection.isValid
+        ? _input.selection.baseOffset
+        : _input.text.length;
+    final start = MentionToken.mentionStart(_input.text, caret);
+    if (start == null || _mentionCandidates.isEmpty || !_focus.hasFocus) {
+      _setMention(open: false);
+      return;
+    }
+    final query = _input.text.substring(start + 1, caret).toLowerCase();
+    final shown = _mentionCandidates
+        .where((m) => m.name.toLowerCase().contains(query))
+        .toList(growable: false);
+    if (shown.isEmpty) {
+      _setMention(open: false);
+      return;
+    }
+    _setMention(open: true, start: start, caret: caret, shown: shown);
+  }
+
+  void _setMention({
+    required bool open,
+    int start = -1,
+    int caret = -1,
+    List<MentionCandidate> shown = const [],
+  }) {
+    final same =
+        _mentionOpen == open &&
+        _mentionStart == start &&
+        _mentionCaret == caret &&
+        _mentionShown.length == shown.length;
+    if (same) return;
+    setState(() {
+      _mentionOpen = open;
+      _mentionStart = start;
+      _mentionCaret = caret;
+      if (shown.isNotEmpty) _mentionShown = shown;
+    });
+  }
+
+  Widget _mentionMenuWidget() {
+    if (!_mentionOpen) return const SizedBox.shrink();
+    return ConstrainedBox(
+      // El ancho real lo dan las constraints del LayoutBuilder al hacer
+      // layout (ver el Builder anidado): maxHeight acota el scroll.
+      constraints: const BoxConstraints(maxHeight: 220),
+      child: Builder(
+        builder: (context) {
+          return SizedBox(
+            width: MediaQuery.sizeOf(context).width - 32.0,
+            child: MentionMenu(candidates: _mentionShown, onPick: _pickMention),
+          );
+        },
+      ),
+    );
+  }
+
+  void _pickMention(MentionCandidate m) {
+    final (text, caret) = MentionToken.replace(
+      _input.text,
+      _mentionStart,
+      _mentionCaret,
+      m.name,
+    );
+    _input.text = text;
+    _input.selection = TextSelection.collapsed(offset: caret);
+    _setMention(open: false);
+    _draftTimer?.cancel();
+    _flushDraft();
+    _focus.requestFocus();
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────
@@ -1282,8 +1493,7 @@ String _linkLabel(GatewayLinkState s) => switch (s) {
 
 Color _linkColor(GatewayLinkState s) => switch (s) {
   GatewayLinkState.ready => Hp.online,
-  GatewayLinkState.connecting || GatewayLinkState.reconnecting =>
-    Hp.connecting,
+  GatewayLinkState.connecting || GatewayLinkState.reconnecting => Hp.connecting,
   GatewayLinkState.authExpired || GatewayLinkState.error => Hp.error,
   GatewayLinkState.disconnected => Hp.offline,
 };

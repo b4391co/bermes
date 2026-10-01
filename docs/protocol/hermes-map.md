@@ -82,6 +82,27 @@ Registrados en `tui_gateway/` (`@method(...)`). Confirmados en la fuente real `e
 5. Preview barato: `display.thumbnail` (JPEG data-url, `null` si humano al control).
 6. Nunca loggear tickets. Nunca abrir puertos VNC.
 
+### Integración del visor en Pocket (verificado E2E 2026-10-01, fake `display.*`)
+- El visor (`assets/screen/`) carga `novnc.bundle.js` como script **clásico**:
+  el bundle es UMD y asigna `window.RFB`; NO exporta `default` ESM (import
+  `./novnc.bundle.js` peta con «does not provide an export named 'default'»).
+- Los módulos ES/canvas no arrancan vía `file://` en WebView (CORS origin
+  `null`; además `ERR_CLEARTEXT_NOT_PERMITTED` si apuntaras a http sin config).
+  Pocket sirve la carpeta por un **servidor loopback efímero** (shelf,
+  `127.0.0.1:<puerto libre>`) declarado en `network_security_config.xml`
+  (sólo `127.0.0.1`/`localhost`); el WS del gateway se abre con su credencial
+  normal (el gate real de display valida el ticket; no hay Origin check).
+- Ciclo de vida del ticket: `display.observe` → `ScreenView` construye
+  `buildDisplayWsUrl(baseUrl, path, ticket)` y llama
+  `window.connectScreen({wsUrl, viewOnly})`; `connect()` del bridge abre
+  `new RFB(div, wsUrl)` y reporta `connect`/`disconnect`/`credentialsrequired`
+  por `ScreenBridge.postMessage` → `ScreenController.handleViewerEvent`
+  (broadcast `viewerEvents`). Close 4000 → re-observe (800 ms); 4001 →
+  «escritorio detenido» (no reobserva); resto → «desconectado (code)».
+- Fake gateway: `display.status/start/stop/observe/lease.*` + `/api/display/ws`
+  (valida ticket single-use 30 s y cierra 4000 `fake-no-rfb`). Suficiente para
+  probar handshake + ciclo de lease sin servidor VNC real.
+
 ## 7. Terminal
 
 - WS `/api/pty?profile=&channel=` (bridge PTY POSIX del dashboard) — terminal del host del gateway, resize y resume vía query `resume`.

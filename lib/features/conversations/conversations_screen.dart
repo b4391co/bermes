@@ -158,6 +158,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                       itemBuilder: (context, index) => switch (sections[index]) {
                         _Header(:final label, :final reorderable) =>
                           _sectionHeader(context, label, reorderable),
+                        _PinnedRow(:final convs) => _pinnedBand(context, convs),
                         _Row(:final conv) => _tile(context, conv),
                       },
                     );
@@ -227,13 +228,14 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     final connOrder = [...conns]
       ..sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
     final out = <_Line>[];
+    // Fijados: banda de tiles ARRIBA DE TODO (antes incluso de Grupos),
+    // como en Grok Bot.
+    if (pinnedGlobal.isNotEmpty) {
+      out.add(_Line.pinnedRow(pinnedGlobal));
+    }
     if (groups.isNotEmpty) {
       out.add(const _Line.header('Grupos', false));
       out.addAll(groups.map((c) => _Line.row(c)));
-    }
-    if (pinnedGlobal.isNotEmpty) {
-      out.add(const _Line.header('Fijados', false));
-      out.addAll(pinnedGlobal.map((c) => _Line.row(c)));
     }
     for (final conn in connOrder) {
       final list = byConn.remove(conn.id);
@@ -248,6 +250,81 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       out.addAll(entry.value.map((c) => _Line.row(c)));
     }
     return out;
+  }
+  /// Banda "Fijados" estilo Grok Bot: tiles horizontales con el icono
+  /// grande centrado y el nombre pequeño debajo. Desplazamiento lateral
+  /// si no caben.
+  Widget _pinnedBand(BuildContext context, List<Conversation> convs) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(Hp.s4, Hp.s2, Hp.s4, 0),
+          child: Text(
+            'Fijados',
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: cs.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 92,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: Hp.s4),
+            itemCount: convs.length,
+            separatorBuilder: (_, _) => const SizedBox(width: Hp.s3),
+            itemBuilder: (context, i) => _pinnedTile(context, convs[i]),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _pinnedTile(BuildContext context, Conversation c) {
+    return SizedBox(
+      width: 72,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(Hp.rMd),
+        onTap: () {
+          if (MediaQuery.sizeOf(context).width >= 840) {
+            setState(() => _openId = c.id);
+          } else {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => ChatScreen(conversationId: c.id),
+              ),
+            );
+          }
+        },
+        onLongPress: () => _rowActions(context, c),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: Hp.s1),
+          child: Column(
+            children: [
+              BotAvatar(
+                seed: c.avatarSeed ?? c.id,
+                label: c.title,
+                size: 56,
+                isGroup: c.isGroup,
+                imageUrl: c.avatarUrl,
+                avatarMetaJson: c.botAvatarMeta,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                c.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _sectionHeader(BuildContext context, String label, bool reorderable) {
@@ -930,6 +1007,10 @@ sealed class _Line {
   const _Line();
   const factory _Line.row(Conversation conv) = _Row;
   const factory _Line.header(String label, bool reorderable) = _Header;
+
+  /// Banda de Fijados estilo Grok Bot: UNA fila de tiles (icono grande
+  /// centrado, nombre pequeño debajo), encima de todo lo demás.
+  const factory _Line.pinnedRow(List<Conversation> convs) = _PinnedRow;
 }
 
 final class _Row extends _Line {
@@ -941,6 +1022,11 @@ final class _Header extends _Line {
   final String label;
   final bool reorderable;
   const _Header(this.label, this.reorderable);
+}
+
+final class _PinnedRow extends _Line {
+  final List<Conversation> convs;
+  const _PinnedRow(this.convs);
 }
 
 /// Resultado del sheet de nuevo grupo.

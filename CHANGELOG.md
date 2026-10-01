@@ -163,3 +163,36 @@ Todos firmados con la clave de distribución (`CN=Hermes Pocket, O=Bermes`).
 ## Corregido
 - Los iconos ya no parpadean al iniciar: el sync no reescribe filas
   sin cambios.
+
+
+# Release 0.1.23 (2026-10-01)
+
+## Nuevo
+- **Screen real del bot**: panel "Pantalla del bot" en la cabecera de cada
+  chat de bot. Observa el escritorio remoto del bot (RFB/VNC sobre el WS
+  hermana del gateway, `display.observe` + `/api/display/ws`) con los
+  controles de Hermes Desktop: iniciar/parar el escritorio, tomar el
+  control (lease humano) y devolverlo. El bot conserva su pantalla aunque
+  cierres el panel.
+- **Autocompletado @ en grupos**: al escribir `@` aparece la lista de
+  miembros de la sala (handles reales del backend de grupos) para dirigir
+  el turno al bot correcto.
+
+- **Grupos hosted ESCRIBIBLES**: los rooms nativos del gateway (`groups.*`)
+  aceptan mensajes desde Pocket con append idempotente (`client_event_id`).
+
+## Corregido
+- **Visor Screen en Android**: el bundle noVNC (UMD con top-level await) se
+  servía por `file://` y Chromium lo bloqueaba (CORS origin `null`). Ahora
+  la app levanta un mini-servidor HTTP de loopback (`127.0.0.1`, sólo para
+  los assets del visor, declarados en `network_security_config.xml`) y el
+  bundle entra como módulo ES con dynamic import → `window.RFB`.
+- **Fuga de listener en grupos**: al salir de un chat de grupo quedaba viva
+  la suscripción a `room.event`; se cancela en `dispose()`.
+
+## Infra
+- Fake gateway (`tools/fake_gateway.py`) emula `display.status/start/stop/
+  observe/lease.*` y la hermana `/api/display/ws` (valida ticket single-use
+  de 30 s y cierra con 4000), bastante para probar handshake y ciclo de
+  lease sin servidor VNC real.
+- Contratos verificados y documentados en `docs/protocol/hermes-map.md` §6.
