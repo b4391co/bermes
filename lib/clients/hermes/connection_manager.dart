@@ -269,6 +269,12 @@ class ConnectionManager {
         _log.warning('bootstrap ${row.name} no conectó', e);
       }
     }
+    // Las salas del espejo se materializan con el roster de TODAS las
+    // conexiones: en arrancada, tras conectar las que había, se aplica el
+    // merge (las transiciones a ready de ensureRuntime también lo hacen, pero
+    // para una segunda gateway cuyo ready llegó dentro del bucle, el merge
+    // conjunto garantizado vive aquí).
+    await _syncGroupMirrors(db);
   }
 
   /// Devuelve true si el runtime quedó con una sesión utilizable.
@@ -415,6 +421,11 @@ class ConnectionManager {
     if (db == null) return;
     registerRows([row], db);
     await syncBots(row, runtime, db);
+    // El espejo de salas se aplica con el roster de TODAS las conexiones: al
+    // añadir la segunda, sus salas mixtas deben materializarse YA. Sin esto,
+    // la sala del otro gateway no aparecía hasta una reconexión o un resync
+    // manual (bug 0.1.24: «el grupo mezclado no aparece»).
+    await _syncGroupMirrors(db);
   }
 
   /// Descubre los bots del gateway (hermes-map §4: profiles.list) y los

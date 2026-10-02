@@ -1,3 +1,54 @@
+# Release 0.1.25 (2026-10-02)
+
+## Corregido
+- **Grupos mixtos no listados / chat vacío**: la dueña de una sala se elegía
+  como «primera conexión con miembros»; en una sala con bots de varios
+  gateways la fila acababa en un gateway que NO hostea la sala y su
+  `groups.log` respondía vacío. Ahora la dueña es la conexión cuyo espejo
+  `hermes-bots-groups` del perfil `default` lleva la sala (host real del
+  log); sin host conocido cae a la primera con miembros. Test unitario de
+  colocación mixta (`test/group_sync_owner_test.dart`).
+- **Salas ausentes al añadir/reanudar conexiones**: `connectAndSync` (guardar
+  en el editor) y `bootstrap` (arrancada) aplicaban `syncBots` pero no el
+  merge de espejos; las salas de la segunda gateway no aparecían hasta una
+  reconexión. Ambos caminos llaman ahora a `_syncGroupMirrors`.
+- **Composer deshabilitado sin señal visual tras «Reintentar»**: el gating del
+  botón seguía la señal del `TextField`, que no emite `onChanged` al escribir
+  el IME mientras el campo está deshabilitado. El composer pasa a
+  `ValueListenableBuilder` sobre el controller: el alta se recupera al
+  instante en cuanto hay texto.
+- **Etiquetas del visor Screen**: el cierre del túnel VNC del fake (y
+  cualquier cierre sin `reason`) se presentaba como «Desconectado
+  (undefined)/(null)» y tapaba el código. `closeText` ahora ignora
+  `reason` vacío, distingue undefined/null, y el puente Dart prioriza
+  `reason` sólo cuando aporta texto.
+- **Lease del visor al ocultar el panel**: `dispose` del `ScreenView` pedía
+  `disconnectScreen()` en el JS del visor antes de tirar el servidor local;
+  antes la RFB quedaba abierta y el lease de observación podía bloquear el
+  takeover del control hasta expirar.
+
+## Documentado
+- **Lease humano real (comportamiento verificado, no inventado)**: al tomar
+  control, el gateway corta el túnel VNC del observador con close 4000 +
+  `control-taken` (web_routers/display.py:74-105); el visor lo traduce por
+  su cuenta («Otro cliente tomó el control») y reconecta en view-only. El
+  backend puede tener un cliente conectado — la política `shared: true` del
+  visor lo permite — y el takeover humano es una capa de lease aparte:
+  Android y Desktop pueden tener cada uno su conexión; no existe exclusión
+  ni entrega «exactamente una vez» a nivel de VNC y la app no la promete.
+- **Ficha del bot (editor de meta)**: el editor aborta el guardado cuando el
+  `profiles.configure` devuelve `ui_meta: false`. Antes el fallo se tragaba
+  tras `ok()` silencioso y la ficha guardaba sin meta aplicada.
+- **Adjuntos**: el botón «Nota de voz» oculto y deshabilitado en grupos, con
+  tooltip que explica el motivo; la transcripción no está soportada en salas.
+
+## E2E verificado (emulador Android, fake gateway)
+- Grupo mixto «Mezcla» listado y con conversación real: `dos-gateways` → eco.
+- Envío 1-a-1 por canonical session (`bottest`), reintento tras caída del
+  gateway, recuperación del borrador al reabrir.
+- Ciclo completo del visor Screen: Iniciar → en vivo → Tomar control →
+  ocultar → reabrir → «en vivo» con reconexión.
+
 # Release 0.1.24 (2026-10-01)
 
 ## Nuevo

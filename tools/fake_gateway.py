@@ -106,6 +106,13 @@ async def _bot_reply(rid: str, user_ev: dict) -> None:
 ROOMS["room-1"] = {"room_id": "room-1", "name": "Equipo",
                    "members": [{"profile": "default", "handle": "default"},
                                {"profile": "researcher", "handle": "researcher"}]}
+ROOMS["room-2"] = {"room_id": "room-2", "name": "Mezcla",
+                   "members": [{"profile": "default", "handle": "default"},
+                               {"profile": "researcher", "handle": "researcher"}]}
+ROOM_LOGS["room-2"] = [
+    _room_ev("room-2", 1, "room.created", {"kind": "gateway", "id": "fake-gw-1"},
+             {"name": "Mezcla"}),
+]
 ROOM_LOGS["room-1"] = [
     _room_ev("room-1", 1, "room.created", {"kind": "gateway", "id": "fake-gw-1"},
              {"name": "Equipo"}),
@@ -304,6 +311,14 @@ def rpc_result(method: str, params: dict) -> object:
                                     "members": [{"name": "default"}, {"name": "researcher"}],
                                     "log": [{"at": now_ms(), "from": {"kind": "user", "name": "You"}, "text": "hola"}],
                                 },
+                                # Sala mixta del escenario del usuario (0.1.24):
+                                # dos bots del MISMO espejo multi-gateway. El
+                                # fake es un solo gateway, así que ambos perfiles
+                                # viven aquí; la dueña la elige el orden del sync.
+                                "id:room-2": {
+                                    "name": "Mezcla", "roomId": "room-2", "revision": 1,
+                                    "members": [{"name": "default"}, {"name": "researcher"}],
+                                },
                             },
                             "deleted": {},
                         },
@@ -333,7 +348,12 @@ def rpc_result(method: str, params: dict) -> object:
                                         "ui_meta_revisions": dict(META_REVS)}}
         for key, val in um.items():
             if key == "hermes-bots":
-                BOT_META.update({k: v for k, v in (val or {}).items() if v})
+                # El gateway REAL reemplaza la sección entera (methods_profiles.py
+                # :575-611): el cliente manda la proyección completa ya fusionada
+                # con las claves crudas. Merge + filtro de vacíos era mentira del
+                # fake: impedía borrar `groups` y enmascaraba el CAS.
+                BOT_META.clear()
+                BOT_META.update(val or {})
             elif key == "hermes-bots-groups":
                 GROUPS_META.clear()
                 GROUPS_META.update(val or {})

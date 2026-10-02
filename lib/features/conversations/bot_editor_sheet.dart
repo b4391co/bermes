@@ -181,11 +181,14 @@ class _BotEditorSheetState extends State<BotEditorSheet> {
     });
     final runtime = AppServices.connections.runtimeFor(widget.connectionId);
     var ok = false;
-    var imageOk = true; // false sólo si el gateway habló y RECHAZÓ
+    var imageOk = false; // Sólo relevante si _imageTouched; ver gate tri-state.
+    // Tri-state (fix 0.1.24): `imageOk` ya no vale true por defecto — un
+    // conflicto CAS en una edición de icono (sin imagen) se reportaba como
+    // guardado. Meta-only: manda `ok`. Con imagen: vale con que un canal
+    // haya escrito; si uno falló, el sheet se queda con aviso.
+    var saved = false;
     if (runtime != null) {
       try {
-        // profiles.configure reemplaza la sección ui_meta['hermes-bots'] del
-        // perfil: sin preservar `groups` se perderían los grupos del Desktop.
         // Con revision CAS: si Desktop escribió desde que abrimos el sheet,
         // el gateway rechaza y avisamos en vez de pisar el cambio ajeno.
         final existing = await runtime.gateway.profileRosterMeta(
@@ -222,33 +225,44 @@ class _BotEditorSheetState extends State<BotEditorSheet> {
                   dataUrl: AvatarImage.toDataUrl(img),
                 );
         }
-        if (ok || imageOk) {
+        saved = ok || (_imageTouched && imageOk);
+        if (saved) {
           await AppServices.connections.resyncAll();
         }
       } catch (_) {
         ok = false;
+        if (_imageTouched) imageOk = false;
       }
     }
     if (!mounted) return;
     setState(() => _saving = false);
-    if (ok || imageOk) {
-      if (!imageOk) {
-        setState(
-          () => _notice =
-              'Icono guardado, pero la imagen no: este gateway no acepta '
-              'profiles.set_asset.',
-        );
-        return;
-      }
+    if (saved && ok && imageOk && !_imageTouched) {
+      // Ambos canales bien (o sin imagen en juego): cierre normal.
       Navigator.of(context).pop(true);
-    } else {
-      setState(
-        () => _notice = runtime == null
-            ? 'Sin conexión con el gateway de este bot.'
-            : 'No se pudo guardar: gateway antiguo sin profiles.configure/'
-                  'set_asset, o el otro cliente cambió el bot a la vez.',
-      );
+      return;
     }
+    if (saved && _imageTouched && !imageOk && ok) {
+      setState(
+        () => _notice =
+            'Icono guardado, pero la imagen no: este gateway no acepta '
+            'profiles.set_asset.',
+      );
+      return;
+    }
+    if (saved && _imageTouched && !ok && imageOk) {
+      setState(
+        () => _notice =
+            'La imagen se guardó, pero el gateway rechazó el resto de la '
+            'ficha (¿cambio concurrente en Desktop?).',
+      );
+      return;
+    }
+    setState(
+      () => _notice = runtime == null
+          ? 'Sin conexión con el gateway de este bot.'
+          : 'No se pudo guardar: gateway antiguo sin profiles.configure/'
+                'set_asset, o el otro cliente cambió el bot a la vez.',
+    );
   }
 
   Widget _preview(ColorScheme cs) {

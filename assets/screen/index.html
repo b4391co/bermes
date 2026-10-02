@@ -48,7 +48,9 @@ function closeText(code, reason) {
   if (code === 4001) return 'El escritorio del bot se detuvo.';
   if (code === 4401) return 'Ticket de pantalla inválido o expirado.';
   if (code === 4403) return 'Sin permiso para ver esta pantalla.';
-  return reason || ('Desconectado (' + code + ')');
+  // `reason` vacío es el default de noVNC (''): no debe tapar el código.
+  if (reason) return reason;
+  return 'Desconectado (' + (code !== undefined && code !== null ? code : 'sin código') + ')';
 }
 
 function connect(cfg) {
@@ -75,7 +77,12 @@ function connect(cfg) {
   });
   rfb.addEventListener('disconnect', (e) => {
     const d = e.detail || {};
-    show(closeText(d.code, d.reason));
+    // La close event de noVNC NO siempre trae code/reason (falte en versiones
+    // viejas del bundle y en cierres de red): si no viene ninguno, es una
+    // caída de transporte, no un takeover/stop. No se confunde con el control.
+    const info = (d.code !== undefined ? 'código ' + d.code : 'sin código')
+               + (d.reason ? ' · ' + d.reason : '');
+    show(closeText(d.code, d.reason) + (d.code === undefined ? ' (' + info + ')' : ''));
     emit(JSON.stringify({
       event: 'disconnected', code: d.code, reason: d.reason,
     }));
@@ -100,7 +107,12 @@ function emit(payload) {
 }
 
 // Arranque: Dart ejecuta `window.connectScreen({...})` vía runJavascript.
+// `disconnectScreen` corta el WS sin destruir el escritorio del bot (ocultar
+// el panel / salir del visor libera el lease del observador).
 window.connectScreen = connect;
+window.disconnectScreen = function () {
+  try { if (rfb) rfb.disconnect(); } catch (e) {}
+};
 </script>
 </body>
 </html>

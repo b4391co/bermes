@@ -1408,84 +1408,98 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _composer(ColorScheme cs) {
-    final canCancel = _isStreaming && _controller != null;
-    final isBot = _conversation?.kind == 'bot';
-    final hasInput = _input.text.trim().isNotEmpty || _pending.isNotEmpty;
-    return SafeArea(
-      top: false,
-      child: CompositedTransformTarget(
-        link: _composerLink,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(Hp.s3, Hp.s2, Hp.s3, Hp.s3),
-          decoration: BoxDecoration(
-            color: cs.surfaceContainerLowest,
-            border: Border(
-              top: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.5)),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (_pending.isNotEmpty) _pendingStrip(cs),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (isBot) ...[
-                    IconButton(
-                      tooltip: 'Adjuntar imagen',
-                      onPressed: _sending ? null : _pickImage,
-                      icon: const Icon(Icons.image_outlined),
-                    ),
-                    IconButton(
-                      tooltip:
-                          'Nota de voz (se transcribe con el STT del gateway; '
-                          'el audio NO se guarda en el chat)',
-                      onPressed: _sending ? null : _recordVoiceNote,
-                      icon: const Icon(Icons.mic_rounded),
-                    ),
-                  ],
-                  Expanded(
-                    child: TextField(
-                      controller: _input,
-                      focusNode: _focus,
-                      minLines: 1,
-                      maxLines: 5,
-                      textInputAction: TextInputAction.newline,
-                      onChanged: _onDraftChanged,
-                      decoration: const InputDecoration(hintText: 'Mensaje'),
-                    ),
+    // El botón Enviar se habilita según el contenido del campo. _input NO
+    // dispara setState (onChanged sólo guarda el borrador con debounce y abre
+    // el menú de menciones): sin escuchar al controlador, tras restaurar un
+    // borrador o teclear sin ningún otro evento de estado, el botón quedaba
+    // deshabilitado para siempre con texto visible.
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _input,
+      builder: (context, value, _) {
+        final hasInput = value.text.trim().isNotEmpty || _pending.isNotEmpty;
+        final canCancel = _isStreaming && _controller != null;
+        final isBot = _conversation?.kind == 'bot';
+        return SafeArea(
+          top: false,
+          child: CompositedTransformTarget(
+            link: _composerLink,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(Hp.s3, Hp.s2, Hp.s3, Hp.s3),
+              decoration: BoxDecoration(
+                color: cs.surfaceContainerLowest,
+                border: Border(
+                  top: BorderSide(
+                    color: cs.outlineVariant.withValues(alpha: 0.5),
                   ),
-                  const SizedBox(width: Hp.s2),
-                  if (canCancel || _sending)
-                    IconButton.filledTonal(
-                      tooltip: 'Detener',
-                      // `_sending` cubre la espera del ACK: el turno YA corre en el
-                      // gateway aunque `message.start` no haya abierto segmento.
-                      // session.interrupt es idempotente; si el turno ya cerró, el
-                      // gateway responde not_interrupted y no pasa nada.
-                      onPressed: _interrupt,
-                      icon: const Icon(Icons.stop_rounded),
-                    )
-                  else
-                    IconButton.filled(
-                      tooltip: _hasError ? 'Reintentar' : 'Enviar',
-                      // Sin texto pero con imágenes pendientes también se
-                      // puede enviar: la imagen EN COLA constituye el turno.
-                      onPressed: _sending || (!hasInput && !_hasError)
-                          ? null
-                          : _send,
-                      icon: Icon(
-                        _hasError
-                            ? Icons.refresh_rounded
-                            : Icons.arrow_upward_rounded,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (_pending.isNotEmpty) _pendingStrip(cs),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (isBot) ...[
+                        IconButton(
+                          tooltip: 'Adjuntar imagen',
+                          onPressed: _sending ? null : _pickImage,
+                          icon: const Icon(Icons.image_outlined),
+                        ),
+                        IconButton(
+                          tooltip:
+                              'Nota de voz (se transcribe con el STT del '
+                              'gateway; el audio NO se guarda en el chat)',
+                          onPressed: _sending ? null : _recordVoiceNote,
+                          icon: const Icon(Icons.mic_rounded),
+                        ),
+                      ],
+                      Expanded(
+                        child: TextField(
+                          controller: _input,
+                          focusNode: _focus,
+                          minLines: 1,
+                          maxLines: 5,
+                          textInputAction: TextInputAction.newline,
+                          onChanged: _onDraftChanged,
+                          decoration: const InputDecoration(
+                            hintText: 'Mensaje',
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: Hp.s2),
+                      if (canCancel || _sending)
+                        IconButton.filledTonal(
+                          tooltip: 'Detener',
+                          // `_sending` cubre la espera del ACK: el turno YA corre en el
+                          // gateway aunque `message.start` no haya abierto segmento.
+                          // session.interrupt es idempotente; si el turno ya cerró, el
+                          // gateway responde not_interrupted y no pasa nada.
+                          onPressed: _interrupt,
+                          icon: const Icon(Icons.stop_rounded),
+                        )
+                      else
+                        IconButton.filled(
+                          tooltip: _hasError ? 'Reintentar' : 'Enviar',
+                          // Sin texto pero con imágenes pendientes también se
+                          // puede enviar: la imagen EN COLA constituye el turno.
+                          onPressed: _sending || (!hasInput && !_hasError)
+                              ? null
+                              : _send,
+                          icon: Icon(
+                            _hasError
+                                ? Icons.refresh_rounded
+                                : Icons.arrow_upward_rounded,
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

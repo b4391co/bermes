@@ -88,6 +88,59 @@ void main() {
     expect(rows.single.connectionId, 'first');
   });
 
+  test('sala mixta: la dueña es quien la hostea, no la primera con miembros',
+      () async {
+    // Escenario del usuario: room-2 vive en 'segunda' (su espejo del default
+    // lleva la clave); 'primera' sólo ve un miembro por la MEMBRESÍA legacy
+    // (`ui_meta.hermes-bots.groups`). Con la dueña por «primera con miembros»
+    // la sala se colocaba en primera, cuyo WS no conoce room-2 → groups.log
+    // vacío → «el grupo mezclado no aparece».
+    final mixed = GroupRoom(
+      key: 'id:room-2',
+      roomId: 'room-2',
+      name: 'Mezcla',
+      revision: 1,
+      members: const [
+        GroupMember(name: 'default', displayName: 'default'),
+        GroupMember(name: 'researcher', displayName: 'researcher'),
+      ],
+    );
+    final primera = ConnectionGroupState(
+      id: 'primera',
+      label: 'primera',
+      createdAt: DateTime(2026, 1, 1),
+      displayOrder: 0,
+      profiles: [
+        GatewayProfileSnapshot(name: 'default', groups: GroupSyncSnapshot.empty),
+        GatewayProfileSnapshot(name: 'researcher', groups: GroupSyncSnapshot.empty),
+      ],
+      titles: const {},
+    );
+    final segunda = ConnectionGroupState(
+      id: 'segunda',
+      label: 'segunda',
+      createdAt: DateTime(2026, 2, 1),
+      displayOrder: 1,
+      profiles: [
+        GatewayProfileSnapshot(
+          name: 'default',
+          groups: GroupSyncSnapshot(rooms: {'id:room-2': mixed}),
+        ),
+      ],
+      titles: const {},
+    );
+    await syncGroupMirrors(db: db, connections: [primera, segunda]);
+    final rows = await (db.select(
+      db.conversations,
+    )..where((c) => c.kind.equals('group'))).get();
+    expect(rows, hasLength(1));
+    expect(
+      rows.single.connectionId,
+      'segunda',
+      reason: 'la dueña debe ser la que hostea la sala (su groups.log es el real)',
+    );
+  });
+
   test('fila huérfana en conexión caída se limpia', () async {
     // Sala viva proyectada por old-conn; la dueña new-conn la materializa y
     // la fila vieja (de un ciclo anterior) debe desaparecer aunque old-conn

@@ -163,8 +163,9 @@ class _ScreenViewState extends State<ScreenView> {
       final port = _viewerServer!.port;
       await _web.loadRequest(Uri.parse('http://127.0.0.1:$port/index.html'));
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() => _message = 'No se pudo preparar el visor: $e');
+      }
     }
   }
 
@@ -184,8 +185,9 @@ class _ScreenViewState extends State<ScreenView> {
         "window.connectScreen && window.connectScreen(${_json({'wsUrl': url, 'viewOnly': !(widget.controller.status?.humanControls ?? false) && !_controlling})});",
       );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() => _message = 'No se pudo abrir la pantalla: $e');
+      }
     }
   }
 
@@ -229,9 +231,14 @@ class _ScreenViewState extends State<ScreenView> {
             _message = 'El escritorio del bot se detuvo.';
           });
         } else {
+          // Caída de transporte (el close de noVNC no siempre trae code/reason).
+          final why = reason is String && reason.isNotEmpty
+              ? reason
+              : (code is int ? '$code' : 'red');
           setState(() {
             _controlling = false;
-            _message = 'Desconectado ($code).';
+            _message = 'Conexión con el escritorio perdida ($why). '
+                'Pulsa Recargar visor.';
           });
         }
       case 'credentialsrequired':
@@ -255,6 +262,17 @@ class _ScreenViewState extends State<ScreenView> {
   void dispose() {
     _statusSub?.cancel();
     _eventSub?.cancel();
+    // Ocultar el panel NO destruye el escritorio del bot: aquí solo se corta
+    // el WebSocket del visor y se libera el ticket/lease local. Si no se
+    // cierra, la RFB queda abierta y el lease del observador vivo puede
+    // bloquear el takeover del control hasta su expiración.
+    unawaited(
+      _web
+          .runJavaScript(
+            "try { window.disconnectScreen && window.disconnectScreen(); } catch (e) {}",
+          )
+          .catchError((_) {}),
+    );
     unawaited(_viewerServer?.close(force: true) ?? Future.value());
     super.dispose();
   }
@@ -272,6 +290,34 @@ class _ScreenViewState extends State<ScreenView> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Esperar a que el gateway reporte el escritorio en marcha. El arranque
+  /// real (Xvnc + Xfce) tarda decenas de segundos: hasta 120 s. Informa el
+  /// estado en el overlay a cada cambio (el síntoma de 0.1.24 era "Iniciar y
+  /// no pasa nada": el botón de la barra esperaba 40 s a ciegas y al
+  /// agotarse pedía un observe que el gateway rechazaba sin explicación).
+  /// Devuelve false si el estado sigue sin ser `running`.
+  Future<bool> _awaitRunning() async {
+    String last = '';
+    for (var i = 0; i < 60; i++) {
+      final s = await widget.controller.refresh();
+      if (s.state == 'running') return true;
+      final msg = _messageFor(s);
+      if (msg != last && mounted) {
+        last = msg;
+        setState(() => _message = msg);
+      }
+      await Future.delayed(const Duration(seconds: 2));
+    }
+    if (mounted) {
+      setState(
+        () => _message =
+            'El escritorio sigue tardando. Pulsa Recargar visor cuando '
+            'Hermes Desktop lo muestre en marcha.',
+      );
+    }
+    return false;
   }
 
   List<Widget> _controlActions() {
@@ -326,13 +372,11 @@ class _ScreenViewState extends State<ScreenView> {
               : () => _run('Iniciar', () async {
                   await widget.controller.start();
                   if (!mounted) return;
-                  // El arranque tarda (Xvnc + Xfce): esperar y observar.
-                  for (var i = 0; i < 20; i++) {
-                    await Future.delayed(const Duration(seconds: 2));
-                    final s = await widget.controller.refresh();
-                    if (s.state == 'running') break;
-                  }
-                  await _startViewer();
+                  // El arranque real tarda (Xvnc + Xfce, decenas de s):
+                  // esperar con progreso visible y NO abrir el visor si el
+                  // gateway sigue sin decir `running` (el observe fallaría
+                  // con display_not_running sin explicación).
+                  if (await _awaitRunning()) await _startViewer();
                 }),
           icon: const Icon(Icons.desktop_windows_outlined),
         ),
@@ -442,7 +486,8 @@ class _ScreenViewState extends State<ScreenView> {
                           ? null
                           : () => _run('Iniciar', () async {
                               await widget.controller.start();
-                              await _startViewer();
+                              if (!mounted) return;
+                              if (await _awaitRunning()) await _startViewer();
                             }),
                       icon: const Icon(Icons.play_arrow_rounded, size: 18),
                       label: const Text('Iniciar escritorio'),

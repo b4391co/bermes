@@ -168,20 +168,29 @@ Future<void> syncGroupMirrors({
         }
       }
     }
-    // UNA fila por sala: la dueña es la primera conexión del orden del
-    // usuario que tenga miembros (el resto de gateways proyectan la MISMA
-    // sala — mismo roomId — y repetirla duplica la lista). El chat habla por
-    // el WS de la dueña; si cae, la fila queda como cualquier bot de ese
-    // gateway (reconexión del gateway, no de la sala).
-    final owner = conns.firstWhere(
+    // UNA fila por sala. La dueña es la conexión que HOSTEA la sala: la
+    // primera (orden del usuario) cuyo espejo del `default` lleva la clave.
+    // El chat habla `groups.*` por el WS de la dueña; si la dueña se elige
+    // sólo por tener miembros, una sala mixta acaba en un gateway que NO la
+    // hospeda y su `groups.log` sale vacío (bug 0.1.24: «el grupo mezclado no
+    // aparece»). Los demás gateways proyectan la MISMA sala (mismo roomId) y
+    // no se repiten. Si ningún espejo la lleva (backend antiguo con sólo
+    // membresías `ui_meta.hermes-bots.groups`), cae a la primera con miembros.
+    final hostIdx = conns.indexWhere(
+      (c) => c.profiles.any((p) => p.groups.rooms.containsKey(room.key)),
+    );
+    final owner = hostIdx >= 0 ? conns[hostIdx] : conns.firstWhere(
       (c) => here.containsKey(c.id),
       orElse: () => conns.first,
     );
-    if (here.containsKey(owner.id)) {
+    if (here.containsKey(owner.id) || hostIdx >= 0) {
       placements['${owner.id}|${room.identity}'] = (
         room: room,
         connId: owner.id,
-        members: here[owner.id]!,
+        // Si la dueña hostea pero aquí no resolvió miembros (roster aún no
+        // sincronizado o miembros todos de otros gateways), la sala se coloca
+        // igualmente con lista vacía: su log es el real.
+        members: here[owner.id] ?? const [],
       );
     }
   }
