@@ -12,15 +12,22 @@ void main() {
       'ws://10.0.2.2:9120/api/display/ws?display_ticket=abc123',
     );
     expect(
-      buildDisplayWsUrl('https://gw.example/hermes', '/api/display/ws', 'abc123'),
+      buildDisplayWsUrl(
+        'https://gw.example/hermes',
+        '/api/display/ws',
+        'abc123',
+      ),
       'wss://gw.example/hermes/api/display/ws?display_ticket=abc123',
     );
   });
 
-  test('el ticket se escapa en la query (single-use 30 s: no debe corromperse)', () {
-    expect(
-      buildDisplayWsUrl('http://h:1', '/api/display/ws', 'a/b+c=d'),
-      'ws://h:1/api/display/ws?display_ticket=a%2Fb%2Bc%3Dd',
-    );
-  });
+  test(
+    'el ticket se escapa en la query (single-use 30 s: no debe corromperse)',
+    () {
+      expect(
+        buildDisplayWsUrl('http://h:1', '/api/display/ws', 'a/b+c=d'),
+        'ws://h:1/api/display/ws?display_ticket=a%2Fb%2Bc%3Dd',
+      );
+    },
+  );
 }

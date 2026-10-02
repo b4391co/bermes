@@ -65,18 +65,19 @@ class _ConnectionTileState extends State<ConnectionTile> {
 
   Future<void> _refreshBotCount() async {
     final db = AppServices.db;
-    final n = await (db.select(db.conversations)
-          ..where((c) =>
-              c.connectionId.equals(widget.data.id) & c.kind.equals('bot')))
-        .get();
+    final n =
+        await (db.select(db.conversations)..where(
+              (c) =>
+                  c.connectionId.equals(widget.data.id) & c.kind.equals('bot'),
+            ))
+            .get();
     if (mounted && n.length != _botCount) {
       setState(() => _botCount = n.length);
     }
   }
 
   void _track([Map<String, ConnectionRuntime>? runtimes]) {
-    final runtime =
-        (runtimes ?? widget.connections.runtimes)[widget.data.id];
+    final runtime = (runtimes ?? widget.connections.runtimes)[widget.data.id];
     if (runtime == null) {
       _sub?.cancel();
       _sub = null;
@@ -107,28 +108,32 @@ class _ConnectionTileState extends State<ConnectionTile> {
       GatewayLinkState.ready => (
         Hp.online,
         Icons.check_circle_rounded,
-        'Conectada'
+        'Conectada',
       ),
       GatewayLinkState.connecting => (
         Hp.connecting,
         Icons.autorenew_rounded,
-        'Conectando…'
+        'Conectando…',
       ),
       GatewayLinkState.reconnecting => (
         Hp.connecting,
         Icons.autorenew_rounded,
-        'Reconectando…'
+        'Reconectando…',
       ),
       GatewayLinkState.authExpired => (
         Hp.error,
         Icons.lock_clock_rounded,
-        'Sesión expirada'
+        'Sesión expirada',
       ),
-      GatewayLinkState.error => (Hp.error, Icons.error_outline_rounded, 'Error'),
+      GatewayLinkState.error => (
+        Hp.error,
+        Icons.error_outline_rounded,
+        'Error',
+      ),
       GatewayLinkState.disconnected => (
         Hp.offline,
         Icons.circle_outlined,
-        'Sin conexión'
+        'Sin conexión',
       ),
     };
   }
@@ -175,7 +180,10 @@ class _ConnectionTileState extends State<ConnectionTile> {
         children: [
           Icon(icon, size: 18, color: color),
           const SizedBox(width: Hp.s3),
-          Switch(value: widget.data.enabled, onChanged: widget.onEnabledChanged),
+          Switch(
+            value: widget.data.enabled,
+            onChanged: widget.onEnabledChanged,
+          ),
         ],
       ),
     );

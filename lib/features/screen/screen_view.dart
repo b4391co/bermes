@@ -27,15 +27,31 @@ class ScreenView extends StatefulWidget {
   final ScreenController controller;
   final String botTitle;
 
+  /// `full` = ruta con su propia barra (back + título + botón cerrar).
+  /// `pane` = franja embebible para el split del chat: sin Scaffold, barra
+  /// fina propia (estado + controles + maximizar).
+  final ScreenViewMode mode;
+
+  /// Sólo modo pane: el panel ocupa todo el chat (el chat queda oculto).
+  final bool maximized;
+
+  /// Sólo modo pane: pedir al padre maximizar/restaurar.
+  final VoidCallback? onToggleMaximize;
+
   const ScreenView({
     super.key,
     required this.controller,
     required this.botTitle,
+    this.mode = ScreenViewMode.full,
+    this.maximized = false,
+    this.onToggleMaximize,
   });
 
   @override
   State<ScreenView> createState() => _ScreenViewState();
 }
+
+enum ScreenViewMode { full, pane }
 
 class _ScreenViewState extends State<ScreenView> {
   late final WebViewController _web;
@@ -57,7 +73,8 @@ class _ScreenViewState extends State<ScreenView> {
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel(
         'ScreenBridge',
-        onMessageReceived: (m) => widget.controller.handleViewerEvent(m.message),
+        onMessageReceived: (m) =>
+            widget.controller.handleViewerEvent(m.message),
       )
       ..setBackgroundColor(Colors.black)
       ..setNavigationDelegate(
@@ -117,28 +134,37 @@ class _ScreenViewState extends State<ScreenView> {
   final Map<String, Uint8List> _viewerCache = {};
 
   Future<Uint8List?> _viewerAsset(String key) async {
-    return _viewerCache[key] ??= (await rootBundle.load(key)).buffer.asUint8List();
+    return _viewerCache[key] ??= (await rootBundle.load(
+      key,
+    )).buffer.asUint8List();
   }
 
   Future<void> _loadViewer() async {
     try {
-      _viewerServer ??= await shelf_io.serve((shelf.Request req) async {
-        final seg = req.url.pathSegments.last;
-        final body = await _viewerAsset('assets/screen/$seg') ??
-            await _viewerAsset('assets/screen/index.html');
-        if (body == null) return shelf.Response.notFound('no viewer');
-        return shelf.Response.ok(
-          body,
-          headers: {
-            'Content-Type':
-                seg.endsWith('.js') ? 'text/javascript' : 'text/html',
-          },
-        );
-      }, InternetAddress.loopbackIPv4, 0);
+      _viewerServer ??= await shelf_io.serve(
+        (shelf.Request req) async {
+          final seg = req.url.pathSegments.last;
+          final body =
+              await _viewerAsset('assets/screen/$seg') ??
+              await _viewerAsset('assets/screen/index.html');
+          if (body == null) return shelf.Response.notFound('no viewer');
+          return shelf.Response.ok(
+            body,
+            headers: {
+              'Content-Type': seg.endsWith('.js')
+                  ? 'text/javascript'
+                  : 'text/html',
+            },
+          );
+        },
+        InternetAddress.loopbackIPv4,
+        0,
+      );
       final port = _viewerServer!.port;
       await _web.loadRequest(Uri.parse('http://127.0.0.1:$port/index.html'));
     } catch (e) {
-      if (mounted) setState(() => _message = 'No se pudo preparar el visor: $e');
+      if (mounted)
+        setState(() => _message = 'No se pudo preparar el visor: $e');
     }
   }
 
@@ -155,14 +181,11 @@ class _ScreenViewState extends State<ScreenView> {
         obs.ticket,
       );
       await _web.runJavaScript(
-        "window.connectScreen && window.connectScreen(${_json({
-              'wsUrl': url,
-              'viewOnly': !(widget.controller.status?.humanControls ?? false) &&
-                  !_controlling,
-            })});",
+        "window.connectScreen && window.connectScreen(${_json({'wsUrl': url, 'viewOnly': !(widget.controller.status?.humanControls ?? false) && !_controlling})});",
       );
     } catch (e) {
-      if (mounted) setState(() => _message = 'No se pudo abrir la pantalla: $e');
+      if (mounted)
+        setState(() => _message = 'No se pudo abrir la pantalla: $e');
     }
   }
 
@@ -222,9 +245,10 @@ class _ScreenViewState extends State<ScreenView> {
     'starting' => 'Iniciando el escritorio…',
     'installing' => 'Instalando el entorno de escritorio en el host…',
     'error' => 'Error en el escritorio: ${s.error ?? 'desconocido'}',
-    _ => s.humanControls
-        ? 'Tienes el control del escritorio.'
-        : 'El bot está usando su escritorio.',
+    _ =>
+      s.humanControls
+          ? 'Tienes el control del escritorio.'
+          : 'El bot está usando su escritorio.',
   };
 
   @override
@@ -250,150 +274,217 @@ class _ScreenViewState extends State<ScreenView> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
+  List<Widget> _controlActions() {
     final st = widget.controller.status;
     final running = st?.running ?? false;
     final humanControls = _controlling || (st?.humanControls ?? false);
+    return [
+      if (running && !humanControls)
+        IconButton(
+          tooltip: _controlling ? 'Devolver control' : 'Tomar control',
+          onPressed: _busy
+              ? null
+              : () => _run('Tomar control', () async {
+                  if (_controlling) {
+                    await widget.controller.releaseLease();
+                    if (!mounted) return;
+                    setState(() => _controlling = false);
+                    await _startViewer();
+                  } else {
+                    await widget.controller.acquireLease();
+                    if (!mounted) return;
+                    setState(() => _controlling = true);
+                    await _startViewer();
+                  }
+                }),
+          icon: Icon(
+            _controlling ? Icons.mouse_rounded : Icons.touch_app_rounded,
+          ),
+        ),
+      IconButton(
+        tooltip: 'Recargar visor',
+        onPressed: () => _startViewer(),
+        icon: const Icon(Icons.refresh_rounded),
+      ),
+      if (running)
+        IconButton(
+          tooltip: 'Parar escritorio',
+          onPressed: _busy
+              ? null
+              : () => _run('Parar', () async {
+                  await widget.controller.stop();
+                  if (!mounted) return;
+                  await _startViewer();
+                }),
+          icon: const Icon(Icons.stop_circle_outlined),
+        )
+      else
+        IconButton(
+          tooltip: 'Iniciar escritorio',
+          onPressed: _busy
+              ? null
+              : () => _run('Iniciar', () async {
+                  await widget.controller.start();
+                  if (!mounted) return;
+                  // El arranque tarda (Xvnc + Xfce): esperar y observar.
+                  for (var i = 0; i < 20; i++) {
+                    await Future.delayed(const Duration(seconds: 2));
+                    final s = await widget.controller.refresh();
+                    if (s.state == 'running') break;
+                  }
+                  await _startViewer();
+                }),
+          icon: const Icon(Icons.desktop_windows_outlined),
+        ),
+    ];
+  }
+
+  /// Barra fina del modo pane: título + chip de estado + controles +
+  /// maximizar. Sustituye al AppBar de la ruta completa.
+  Widget _paneBar(ColorScheme cs) {
+    return Container(
+      height: 36,
+      color: cs.surfaceContainerHighest.withValues(alpha: 0.55),
+      padding: const EdgeInsets.only(left: 8),
+      child: Row(
+        children: [
+          Icon(
+            Icons.desktop_windows_outlined,
+            size: 15,
+            color: cs.onSurfaceVariant,
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              widget.botTitle,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: cs.onSurface,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          _ScreenStateBadge(key: _statusKey, controller: widget.controller),
+          const Spacer(),
+          IconButton(
+            tooltip: widget.maximized ? 'Restaurar' : 'Maximizar escritorio',
+            onPressed: widget.onToggleMaximize,
+            iconSize: 20,
+            icon: Icon(
+              widget.maximized
+                  ? Icons.fullscreen_exit_rounded
+                  : Icons.fullscreen_rounded,
+            ),
+          ),
+          ..._controlActions(),
+        ],
+      ),
+    );
+  }
+
+  /// El visor en sí (webview + overlays). Se comparte entre la ruta completa
+  /// y el panel embebido del chat.
+  Widget _viewerBody() {
+    final st = widget.controller.status;
+    final running = st?.running ?? false;
+    final humanControls = _controlling || (st?.humanControls ?? false);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        WebViewWidget(controller: _web),
+        if (_message.isNotEmpty && running && humanControls)
+          Align(
+            alignment: Alignment.topCenter,
+            child: Container(
+              margin: const EdgeInsets.all(Hp.s3),
+              padding: const EdgeInsets.symmetric(
+                horizontal: Hp.s3,
+                vertical: Hp.s2,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(Hp.rSm),
+              ),
+              child: Text(
+                _message,
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+              ),
+            ),
+          ),
+        if (_message.isNotEmpty && (!running || !_viewerReady))
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_busy || running)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: Hp.s3),
+                    child: CircularProgressIndicator(color: Colors.white54),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: Hp.s5),
+                  child: Text(
+                    _message,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                ),
+                if (!running && st?.state != 'installing')
+                  Padding(
+                    padding: const EdgeInsets.only(top: Hp.s4),
+                    child: FilledButton.icon(
+                      onPressed: _busy
+                          ? null
+                          : () => _run('Iniciar', () async {
+                              await widget.controller.start();
+                              await _startViewer();
+                            }),
+                      icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                      label: const Text('Iniciar escritorio'),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.mode == ScreenViewMode.pane) {
+      // Franja embebida en el chat: sin Scaffold (el chat ya lo aporta).
+      return ColoredBox(
+        color: Colors.black,
+        child: Column(
+          children: [
+            _paneBar(Theme.of(context).colorScheme),
+            Expanded(child: _viewerBody()),
+          ],
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         title: Row(
           children: [
-            Text('Screen · ${widget.botTitle}',
-                overflow: TextOverflow.ellipsis),
+            Text(
+              'Screen · ${widget.botTitle}',
+              overflow: TextOverflow.ellipsis,
+            ),
             const SizedBox(width: Hp.s2),
             _ScreenStateBadge(key: _statusKey, controller: widget.controller),
           ],
         ),
-        actions: [
-          if (running && !humanControls)
-            IconButton(
-              tooltip: _controlling ? 'Devolver control' : 'Tomar control',
-              onPressed: _busy
-                  ? null
-                  : () => _run(
-                      'Tomar control',
-                      () async {
-                        if (_controlling) {
-                          await widget.controller.releaseLease();
-                          if (!mounted) return;
-                          setState(() => _controlling = false);
-                          await _startViewer();
-                        } else {
-                          await widget.controller.acquireLease();
-                          if (!mounted) return;
-                          setState(() => _controlling = true);
-                          await _startViewer();
-                        }
-                      },
-                    ),
-              icon: Icon(
-                _controlling ? Icons.mouse_rounded : Icons.touch_app_rounded,
-              ),
-            ),
-          IconButton(
-            tooltip: 'Recargar visor',
-            onPressed: () => _startViewer(),
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-          if (running)
-            IconButton(
-              tooltip: 'Parar escritorio',
-              onPressed: _busy
-                  ? null
-                  : () => _run('Parar', () async {
-                        await widget.controller.stop();
-                        if (!mounted) return;
-                        await _startViewer();
-                      }),
-              icon: const Icon(Icons.stop_circle_outlined),
-            )
-          else
-            IconButton(
-              tooltip: 'Iniciar escritorio',
-              onPressed: _busy
-                  ? null
-                  : () => _run('Iniciar', () async {
-                        await widget.controller.start();
-                        if (!mounted) return;
-                        // El arranque tarda (Xvnc + Xfce): esperar y observar.
-                        for (var i = 0; i < 20; i++) {
-                          await Future.delayed(const Duration(seconds: 2));
-                          final s = await widget.controller.refresh();
-                          if (s.state == 'running') break;
-                        }
-                        await _startViewer();
-                      }),
-              icon: const Icon(Icons.desktop_windows_outlined),
-            ),
-        ],
+        actions: _controlActions(),
       ),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          WebViewWidget(controller: _web),
-          if (_message.isNotEmpty && running && humanControls)
-            Align(
-              alignment: Alignment.topCenter,
-              child: Container(
-                margin: const EdgeInsets.all(Hp.s3),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Hp.s3,
-                  vertical: Hp.s2,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.65),
-                  borderRadius: BorderRadius.circular(Hp.rSm),
-                ),
-                child: Text(
-                  _message,
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                ),
-              ),
-            ),
-          if (_message.isNotEmpty && (!running || !_viewerReady))
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_busy || running)
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: Hp.s3),
-                      child: CircularProgressIndicator(
-                        color: Colors.white54,
-                      ),
-                    ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: Hp.s5),
-                    child: Text(
-                      _message,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13.5,
-                      ),
-                    ),
-                  ),
-                  if (!running && st?.state != 'installing')
-                    Padding(
-                      padding: const EdgeInsets.only(top: Hp.s4),
-                      child: FilledButton.icon(
-                        onPressed: _busy
-                            ? null
-                            : () => _run('Iniciar', () async {
-                                  await widget.controller.start();
-                                  await _startViewer();
-                                }),
-                        icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                        label: const Text('Iniciar escritorio'),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-        ],
-      ),
+      body: _viewerBody(),
     );
   }
 }

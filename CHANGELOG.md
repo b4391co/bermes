@@ -1,3 +1,49 @@
+# Release 0.1.24 (2026-10-01)
+
+## Nuevo
+- **Nota de voz**: micrófono → m4a local → `POST /api/audio/transcribe` →
+  texto editable antes de enviar. La app NUNCA promete oír audio: el backend
+  no lo persiste; sólo el texto entra al chat (contrato verificado).
+- **Imágenes en bot 1-a-1**: botón clip → `image.attach_bytes` (WS, runtime
+  id) → `prompt.submit`; miniatura en burbuja con fallback a bytes locales
+  si `/api/media` no responde. Límite propio anunciado: 8 MB. Oculto en
+  grupos (motivo en tooltip).
+
+## Corregido
+- **Congelación al abrir un chat (Android)**: el `CompositedTransformFollower`
+  del menú de menciones se montaba ANTES de su `CompositedTransformTarget`
+  (el composer); la aserción de paint-order de FollowerLayer lanzaba un error
+  por frame y el reporte estructurado de Flutter se autoalimentaba → UI loop
+  al 100 % de CPU con el hilo raster colgado (pantalla congelada, sin frames).
+  El menú ahora vive en un `OverlayEntry` (root overlay) creado después del
+  composer: se pinta encima sin ocupar layout y sin violar la aserción.
+  Efecto secundario eliminado: el bloque in-line del follower ensanchaba el
+  Column del composer y deshabilitaba el botón Enviar sin señal visual.
+- Errores de framework en debug se vuelcan crudos vía `FlutterError.onError`
+  (log legible, sin bucle de inspección de widgets).
+
+## Corregido (continuación)
+- **Credencial en el borde**: un bearer viejo de otra sesión ya no reaparece
+  tras un 401 — `restartSession()` limpia cookies Y bearer (el reintento
+  con contraseña era saboteado por la sesión nativa anterior).
+- Transcripción: `transcript` vacío (silencio) ya no pasa por ok.
+
+## Docs / contratos
+- `docs/research/adjuntos-y-notas-de-voz.md`: cuerpo de `/api/audio/transcribe`
+  corregido contra la fuente real `main @ 5f23cac` (`{data_url}` con prefijo,
+  NO `{data, mime_type}`); sin STT → 400 (no 503); tope real 25 MB → 413;
+  `transcript: ""` por silencio.
+- `docs/protocol/hermes-map.md` §6b: audio/adjuntos accionables.
+- Fake gateway: `transcribe`, `image.attach_bytes`, `file.attach`,
+  `GET /api/media` (binario + JSON `data_url`), modos `?stt=off` /
+  `?no_media=1`; contrato de error del 413 documentado en el propio fake.
+
+## Infra
+- `record` pinchado en `^6.2.1`: con 5.x el federado `record_linux 0.7.2` no
+  compila contra `record_platform_interface` y el build dart rechaza TODO
+  los federados (también linux en un build android).
+
+
 # Release 0.1.15 (2026-09-29)
 Fase de fidelidad con Hermes Desktop cerrada (auditoría contra el backend
 real `e408d36`): transporte, bots, grupos y aprobaciones comportan como

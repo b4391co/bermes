@@ -103,6 +103,27 @@ Registrados en `tui_gateway/` (`@method(...)`). Confirmados en la fuente real `e
   (valida ticket single-use 30 s y cierra 4000 `fake-no-rfb`). Suficiente para
   probar handshake + ciclo de lease sin servidor VNC real.
 
+## 6b. Audio y adjuntos (HTTP del dashboard)
+
+Verificado contra `main` @ `5f23cac` (2026-10-01), fuente directa de GitHub raw:
+
+- `POST /api/audio/transcribe` — body `{data_url: "data:<mime>;base64,..."}`.
+  El campo es `data_url`; una clave `data` pelada se rechaza con 400
+  `bad_payload`. `mime` se lee del prefijo y debe ser `audio/*` o `video/webm`
+  (la extensión del tempfile sale de ahí: m4a/ogg/mp3/wav/flac/webm).
+  Sin STT configurado → **400 (NO 503)** con `detail: 'No STT provider
+  configured'` + lista de proveedores. Tope real 25 MB → 413 (`audio.py:108`).
+  Silencio → 200 con `transcript: ""` — la app lo trata como fallo legible.
+  Respuesta ok: `{ok, transcript, provider}`.
+- `GET /api/media?path=...` — JSON `{data_url: "data:<mime>;base64,..."}`
+  (NO binario; verificado en `main @ 5f23cac`, `web_routers/media.py`):
+  solo imagenes (png/jpg/jpeg/gif/webp/svg/bmp/ico) dentro de las raices
+  del gateway (`<HERMES_HOME>/{images,screenshots,cache}`), tope 25 MB.
+  403 fuera de raices -> fallback a los bytes locales (ya en RAM); 404 en
+  gateways antiguos sin la ruta.
+- Adjuntos: canal WS (`image.attach_bytes`, `file.attach`, `pdf.attach`) — ver
+  `docs/research/adjuntos-y-notas-de-voz.md` §A. En grupos hosted NO.
+
 ## 7. Terminal
 
 - WS `/api/pty?profile=&channel=` (bridge PTY POSIX del dashboard) — terminal del host del gateway, resize y resume vía query `resume`.

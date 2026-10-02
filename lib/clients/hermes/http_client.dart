@@ -27,6 +27,38 @@ class AuthResult {
   const AuthResult.fail(this.cause, [this.detail]) : ok = false;
 }
 
+/// Resultado de `POST /api/audio/transcribe` (web_models.py:84-86;
+/// audio.py:87-141).
+class TranscribeResult {
+  final bool ok;
+
+  /// Texto transcrito (el backend NO persiste el audio: no hay tipo
+  /// «voice note»; esto es lo único que viaja al chat).
+  final String text;
+
+  /// Causa diferenciada para diagnóstico:
+  /// [AuthFailureCause.version] = 400 sin proveedor STT (el gateway no
+  /// distingue por código: se saca del detail);
+  /// [AuthFailureCause.badCredentials] = 401 sesión muerta;
+  /// [AuthFailureCause.rateLimited] = 413 payload >25 MB;
+  /// [AuthFailureCause.serverError] = resto (incl. 200 sin habla).
+  final AuthFailureCause? cause;
+  final String? detail;
+
+  /// Proveedor STT que respondió (`provider` en la respuesta real,
+  /// audio.py:138-141); se muestra en el diagnóstico, no en el chat.
+  final String? provider;
+
+  const TranscribeResult.ok(this.text, this.provider)
+    : ok = true,
+      cause = null,
+      detail = null;
+  const TranscribeResult.fail(this.cause, [this.detail])
+    : ok = false,
+      text = '',
+      provider = null;
+}
+
 /// Sesión guardada en secure storage (tokens), una por conexión.
 class StoredSession {
   final String accessToken;
@@ -109,7 +141,7 @@ class RefreshResult {
 
   /// Nada que reintentar YA: hay que volver a autenticarse.
   bool get terminal => outcome == RefreshOutcome.expired;
- }
+}
 
 /// Cliente HTTP del dashboard Hermes (`hermes serve`).
 ///
@@ -276,9 +308,9 @@ class HermesHttpClient {
       final data = r.data;
       final rows = data is Map ? data['providers'] : const <Object?>[];
       if (rows is! List) return null;
-      return _providersCache = rows
-          .whereType<Map<String, Object?>>()
-          .toList(growable: false);
+      return _providersCache = rows.whereType<Map<String, Object?>>().toList(
+        growable: false,
+      );
     } on dio.DioException catch (e) {
       _log.info('/api/auth/providers no disponible: ${e.message}');
     } catch (_) {}
@@ -425,7 +457,9 @@ class HermesHttpClient {
       );
       final code = r.statusCode ?? 0;
       final body = r.data;
-      final map = body is Map<String, Object?> ? body : const <String, Object?>{};
+      final map = body is Map<String, Object?>
+          ? body
+          : const <String, Object?>{};
       if (code == 200) {
         final at = map['access_token'];
         final rt = map['refresh_token'];
@@ -484,6 +518,7 @@ class HermesHttpClient {
       );
     }
   }
+
   /// Mintea el ticket WS single-use de 30 s (routes.py:458-466).
   ///
   /// Idempotente-replay-seguro: si la sesión cookie caducó, el gate la renueva
@@ -513,6 +548,7 @@ class HermesHttpClient {
       final data = r;
       return data is Map ? data['ticket']?.toString() : null;
     }
+
     final first = await attempt();
     if (first != null) return first;
     final rotated = await _rotateBearer();
@@ -562,10 +598,7 @@ class HermesHttpClient {
 
   /// PUT JSON autenticado. `PUT /api/profiles/{name}/model`
   /// (hermes_cli/web_routers/profiles.py:1040-1051, body {provider, model}).
-  Future<dynamic> putJson(
-    String path, {
-    Map<String, Object?>? body,
-  }) async {
+  Future<dynamic> putJson(String path, {Map<String, Object?>? body}) async {
     final data = await _authorized<Object?>(
       send: (headers) => _dio.put<Object?>(
         path,
@@ -579,6 +612,133 @@ class HermesHttpClient {
       read: (r) => _unwrap(r),
     );
     return data;
+  }
+
+  /// Transcripción de una nota de voz: `POST /api/audio/transcribe`.
+  ///
+  /// Contrato VERIFICADO en main (no commit objetivo):
+  /// - request: web_models.py:84-86 `AudioTranscriptionRequest` exige
+  ///   `data_url` (data-url con prefijo `data:`, `;base64` y coma — sin eso
+  ///   400 "Audio payload must be base64 encoded", audio.py:87-95) y
+  ///   `mime_type?` opcional (default `audio/webm`; el gate exige `audio/*`
+  ///   o exactamente `video/webm`, audio.py:97-101).
+  /// - respuesta: audio.py:138-141 `{ok, transcript, provider}` — la clave es
+  ///   `transcript`, NO `text`. Silencio → 200 con `transcript: ""`
+  ///   (audio.py:133-136): el Pocket lo distingue de un fallo.
+  /// - sin proveedor STT configurado → 400 (NO 503); payload >25 MB → 413
+  ///   (_MAX_TRANSCRIPTION_UPLOAD_BYTES, audio.py:52). Causas que el Pocket
+  ///   diferencia de un fallo de red y NO reintenta a ciegas.
+  /// El resultado es TEXTO: el backend no persiste el audio (no existe tipo
+  /// 'voice note' en el contrato).
+  Future<TranscribeResult> transcribeAudio(
+    List<int> bytes, {
+    required String mimeType,
+  }) async {
+    final outcome = await _authorized<Object?>(
+      send: (headers) => _dio.post<Object?>(
+        '/api/audio/transcribe',
+        data: {
+          'data_url': 'data:${mimeType};base64,${base64Encode(bytes)}',
+          'mime_type': mimeType,
+        },
+        options: dio.Options(
+          headers: headers,
+          responseType: dio.ResponseType.json,
+          validateStatus: (c) => c != null && c < 600,
+          sendTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 60),
+        ),
+      ),
+      // El código importa para el diagnóstico: 400 sin STT ≠ 400 de payload,
+      // 413 demasiado grande, 401 sesión muerta. read ve la respuesta entera.
+      read: (r) => {'status': r?.statusCode ?? 0, 'body': r?.data},
+    );
+    final status = (outcome is Map ? outcome['status'] : null) as int? ?? 0;
+    final data = outcome is Map ? outcome['body'] : null;
+    final detail = data is Map
+        ? (data['detail'] as String? ??
+              (data['error'] is Map
+                  ? (data['error'] as Map)['message'] as String?
+                  : data['message'] as String?))
+        : null;
+    if (status == 200) {
+      final text = data is Map ? data['transcript'] : null;
+      if (text is String && text.isNotEmpty) {
+        return TranscribeResult.ok(text, data['provider'] as String?);
+      }
+      // 200 con transcript vacío = grabación sin habla (audio.py:133-136).
+      return const TranscribeResult.fail(
+        AuthFailureCause.serverError,
+        'No se reconoció ninguna palabra en la grabación',
+      );
+    }
+    if (status == 401) {
+      return const TranscribeResult.fail(
+        AuthFailureCause.badCredentials,
+        'La sesión caducó; vuelve a iniciar sesión en esta conexión',
+      );
+    }
+    if (status == 413) {
+      return const TranscribeResult.fail(
+        AuthFailureCause.rateLimited,
+        'La grabación supera el límite del gateway (25 MB)',
+      );
+    }
+    if (status == 400) {
+      // El gateway no distingue por código: sin STT y payload inválido son
+      // ambos 400. La causa se saca del detail cuando lo hay.
+      return TranscribeResult.fail(
+        AuthFailureCause.version,
+        detail == null || detail.isEmpty
+            ? 'Este gateway no pudo transcribir (proveedor STT sin configurar)'
+            : 'Transcripción rechazada: $detail',
+      );
+    }
+    return TranscribeResult.fail(
+      AuthFailureCause.serverError,
+      'transcribe respondió HTTP $status',
+    );
+  }
+
+  /// Bytes de un adjunto subido (imagen) vía `GET /api/media?path=…`.
+  /// Contrato VERIFICADO en main (hermes_cli/web_routers/files.py:301-339):
+  /// responde JSON `{data_url: "data:image/png;base64,…"}` — NO binario —,
+  /// sólo extensiones de imagen (png/jpg/jpeg/gif/webp/svg/bmp/ico) con tope
+  /// 25 MB, y restringido a las raíces `<HERMES_HOME>/{images,screenshots,
+  /// cache}`; fuera de ellas → 403 «Path outside media roots». En multiperfil
+  /// la imagen de OTRO perfil puede caer fuera de la raíz del dashboard →
+  /// el Pocket pinta entonces su respaldo local (MessageAttachment.localBytes)
+  /// o la ficha con nombre. null si el gateway no lo expone (versión antigua).
+  Future<List<int>?> fetchMedia(String path) async {
+    try {
+      final data = await _authorized<Object?>(
+        send: (headers) => _dio.get<Object?>(
+          '/api/media',
+          queryParameters: {'path': path},
+          options: dio.Options(
+            headers: headers,
+            responseType: dio.ResponseType.json,
+            validateStatus: (c) => c != null && c < 600,
+            receiveTimeout: const Duration(seconds: 20),
+          ),
+        ),
+        // Sólo 200 tiene {data_url}; 403 fuera de raíces, 404 inexistente,
+        // 415 no-imagen y versiones antiguas sin ruta → null (fallback UI).
+        read: (r) => (r?.statusCode ?? 0) == 200 ? _unwrap(r) : null,
+      );
+      final url = data is Map ? data['data_url'] : null;
+      if (url is! String || url.isEmpty) return null;
+      final comma = url.indexOf(',');
+      if (!url.startsWith('data:') || comma < 0) return null;
+      try {
+        final bytes = base64Decode(url.substring(comma + 1));
+        return bytes.isEmpty ? null : bytes;
+      } on FormatException {
+        return null;
+      }
+    } on dio.DioException {
+      return null;
+    }
   }
 
   /// Lee la identidad de la sesión vigente (routes.py:449-455):
@@ -666,8 +826,10 @@ class HermesHttpClient {
   /// sin bearer rotatable se propaga: eso es "sesión caducada" para la UI
   /// (connection-config.ts:99-108, 115-138).
   Future<T?> _authorized<T>({
-    required Future<dio.Response<Object?>?> Function(Map<String, String> headers)
-        send,
+    required Future<dio.Response<Object?>?> Function(
+      Map<String, String> headers,
+    )
+    send,
     required T? Function(dio.Response<Object?>? response) read,
     bool replayOn401 = true,
   }) async {
@@ -762,14 +924,15 @@ class HermesHttpClient {
     if (code == null) return AuthFailureCause.network;
     return _causeOf(code);
   }
+
   /// Devuelve true si la respuesta trae la cookie de sesión access-token
   /// (`hermes_session_at` o cualquiera de sus variantes de prefijo
   /// `__Host-`/`__Secure-`, cookies.py:27,34,47-51). Ésa es la única señal de
   /// que el gate aceptó la sesión: el body no trae tokens
   /// (routes.py:413-417 + `_set_session` routes.py:103-107).
   bool observeCookies(dio.Response<Object?> r) {
-    final setCookies = r.headers[HttpHeaders.setCookieHeader] ??
-        const <String>[];
+    final setCookies =
+        r.headers[HttpHeaders.setCookieHeader] ?? const <String>[];
     if (setCookies.isEmpty) return false;
     _cookies ??= CookieJarForConnection();
     _cookies!.storeFromHeaders(setCookies);
@@ -820,7 +983,9 @@ class CookieJarForConnection {
         // HttpDate.parse lanza con cualquier cosa que no sea IMF-fixdate;
         // un borrado cuyo formato no entendemos se aplica igualmente.
         try {
-          return !HttpDate.parse(kv.substring(8).trim()).isAfter(DateTime.now());
+          return !HttpDate.parse(
+            kv.substring(8).trim(),
+          ).isAfter(DateTime.now());
         } on FormatException {
           return true;
         }

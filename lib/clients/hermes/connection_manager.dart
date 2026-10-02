@@ -24,7 +24,11 @@ class ConnectionRuntime {
 
   factory ConnectionRuntime(ConnectionProfile profile) {
     final http = HermesHttpClient(profile);
-    return ConnectionRuntime._(profile, http, HermesGatewayClient(profile, http));
+    return ConnectionRuntime._(
+      profile,
+      http,
+      HermesGatewayClient(profile, http),
+    );
   }
 
   /// El gate rotó la sesión bearer en mitad de una ruta: hay que persistirla
@@ -72,9 +76,7 @@ class ConnectionManager {
       }
       // Un gateway recién listo refresca SU roster y luego aplica el espejo de
       // salas con el roster de las demás conexiones ya vistas.
-      unawaited(
-        _refreshOne(profile.id, db).then((_) => _syncGroupMirrors(db)),
-      );
+      unawaited(_refreshOne(profile.id, db).then((_) => _syncGroupMirrors(db)));
     });
     _runtimes[profile.id] = runtime;
     _notify();
@@ -92,7 +94,11 @@ class ConnectionManager {
   SecureStore? _secrets;
 
   /// Registra filas + DB (bootstrap) para el auto-sync en ready.
-  void registerRows(List<Connection> rows, AppDatabase db, {SecureStore? secrets}) {
+  void registerRows(
+    List<Connection> rows,
+    AppDatabase db, {
+    SecureStore? secrets,
+  }) {
     _db = db;
     if (secrets != null) _secrets = secrets;
     for (final r in rows) {
@@ -236,7 +242,8 @@ class ConnectionManager {
         host: row.host,
         port: row.port,
         basePath: row.basePath,
-        authKind: HermesAuthKind.values.asNameMap()[row.authKind] ??
+        authKind:
+            HermesAuthKind.values.asNameMap()[row.authKind] ??
             HermesAuthKind.password,
         username: row.username,
         allowInsecureTls: row.allowInsecureTls,
@@ -320,10 +327,12 @@ class ConnectionManager {
       _log.info('restore ${row.name}: authMe=${me != null}');
       if (me != null) return true;
       runtime.http.forgetGatewayToken();
-      _log.warning('restore ${row.name}: el session token fue rechazado por '
-          'el gateway. Si el gateway está tras un portal OAuth (gate), el '
-          'token NO vale: vuelve al método Usuario. Se intenta la contraseña '
-          'recordada como respaldo.');
+      _log.warning(
+        'restore ${row.name}: el session token fue rechazado por '
+        'el gateway. Si el gateway está tras un portal OAuth (gate), el '
+        'token NO vale: vuelve al método Usuario. Se intenta la contraseña '
+        'recordada como respaldo.',
+      );
       // FALLBACK: si hay contraseña recordada, recuperar el acceso en vez de
       // quedarse sin conexión (el usuario puede haber migrado a token por
       // error contra un gateway gated).
@@ -430,24 +439,25 @@ class ConnectionManager {
       // cambios: reescribir el row reemite el watch de la lista y los
       // avatares parpadean (re-decodificación) en cada sync.
       final priorRows = {
-        for (final r in await db.select(db.conversations).get())
-          r.id: r,
+        for (final r in await db.select(db.conversations).get()) r.id: r,
       };
       final priorPins = {
-        for (final e in priorRows.entries) e.key: (e.value.pinned, e.value.pinnedGateway),
+        for (final e in priorRows.entries)
+          e.key: (e.value.pinned, e.value.pinnedGateway),
       };
       // Decisión del usuario (27/09): SOLO bots en la lista — las sesiones
       // de Desktop se vieron aquí por error y se purgan al primer sync.
-      await (db.delete(db.conversations)
-            ..where((x) => x.kind.equals('session')))
-          .go();
+      await (db.delete(
+        db.conversations,
+      )..where((x) => x.kind.equals('session'))).go();
       // Limpieza de huérfanas: conversaciones de conexiones ya eliminadas
       // (el alta de una conexión nueva no debe dejar filas fantasma duplicadas).
       final live = (await db.select(db.connections).get())
           .map((c) => c.id)
           .toSet();
-      await (db.delete(db.conversations)
-            ..where((x) => x.connectionId.isNotIn(live.isEmpty ? ['@'] : live.toList())))
+      await (db.delete(db.conversations)..where(
+            (x) => x.connectionId.isNotIn(live.isEmpty ? ['@'] : live.toList()),
+          ))
           .go();
       final profiles = await runtime.gateway.listProfiles();
       // Identidad portable del backend para los descriptores de miembro de
@@ -457,8 +467,7 @@ class ConnectionManager {
       try {
         final iid = await runtime.http.installId();
         if (iid != null && iid != row.installId) {
-          await (db.update(db.connections)
-                ..where((c) => c.id.equals(row.id)))
+          await (db.update(db.connections)..where((c) => c.id.equals(row.id)))
               .write(ConnectionsCompanion(installId: Value(iid)));
         }
       } catch (_) {}
@@ -474,8 +483,8 @@ class ConnectionManager {
         final displayName = (botMeta?.title?.isNotEmpty ?? false)
             ? botMeta!.title!
             : ((p['display_name'] as String?)?.isNotEmpty ?? false)
-                ? p['display_name'] as String
-                : name;
+            ? p['display_name'] as String
+            : name;
         roster.titles[name] = displayName;
         // Espejo de salas: SOLO el perfil `default` de cada gateway lo lleva
         // (Desktop lo publica ahí, `group-chat.ts:1180-1182`).
@@ -502,21 +511,33 @@ class ConnectionManager {
             );
           }
         }
-        // Avatar (hermes-mobile BotAvatar): ui_meta.hermes-bots.avatar
-        // {shape,color,icon,image_url} render nativo; data-url de
-        // profiles.get_asset como ÚLTIMO recurso (más barato: solo si no
-        // hay meta). image_url del meta puede ser data: o http(s):.
-        String? avatarUrl = botMeta?.avatar?.imageUrl;
-        if (avatarUrl == null && p['has_avatar'] == true) {
-          try {
-            avatarUrl = await runtime.gateway.profileAvatar(name);
-          } catch (_) {}
+        // Avatar: tres fuentes, en este orden de prioridad.
+        //  1. `ui_meta.hermes-bots.avatar.icon` (Material) — el icono que el
+        //     usuario ELIGIÓ en Pocket; manda sobre lo que publique el host
+        //     para que "quitar el icono" sea posible en un bot con asset.
+        //  2. `avatar.image_url` del meta (data: o http(s)) — filing de
+        //     otros clientes.
+        //  3. asset `profiles.get_asset` (data-url) — sólo si `has_avatar` y
+        //     no hay nada anterior (es la más cara: viaja entera en cada
+        //     sync). Si el gateway ya tenía asset y el usuario puso icono,
+        //     se limpia la caché para no seguir mostrándolo.
+        String? avatarUrl;
+        final pickedIcon = botMeta?.avatar?.icon;
+        if (pickedIcon == null) {
+          avatarUrl = botMeta?.avatar?.imageUrl;
+          if (avatarUrl == null && p['has_avatar'] == true) {
+            try {
+              avatarUrl = (await runtime.gateway.profileAvatar(name))?.dataUrl;
+            } catch (_) {}
+          }
         }
         // Diagnóstico: claves crudas del primer perfil (gateways reales).
         if (profiles.indexOf(p) == 0) {
-          _log.info('profiles[0] keys=${p.keys.toList()} '
-              'title=${botMeta?.title} display_name=${p['display_name']} '
-              'avatar_meta=${botMeta?.avatar != null}');
+          _log.info(
+            'profiles[0] keys=${p.keys.toList()} '
+            'title=${botMeta?.title} display_name=${p['display_name']} '
+            'avatar_meta=${botMeta?.avatar != null}',
+          );
         }
         // Chat canónico: la sesión la posee DESKTOP. La app NUNCA crea
         // sesiones nuevas (session.create inventaría una sesión que Desktop
@@ -545,7 +566,8 @@ class ConnectionManager {
         final newMeta = botMeta?.avatar == null
             ? null
             : const JsonEncoder().convert(botMeta!.avatar!.toJson());
-        final unchanged = prior != null &&
+        final unchanged =
+            prior != null &&
             prior.title == displayName &&
             prior.subtitle == subtitle &&
             prior.avatarUrl == avatarUrl &&
@@ -554,7 +576,9 @@ class ConnectionManager {
         if (unchanged) {
           continue; // nada cambió: no reemitir el watch (parpadeo de iconos)
         }
-        await db.into(db.conversations).insertOnConflictUpdate(
+        await db
+            .into(db.conversations)
+            .insertOnConflictUpdate(
               ConversationsCompanion.insert(
                 id: id,
                 connectionId: row.id,

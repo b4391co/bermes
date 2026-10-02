@@ -178,11 +178,7 @@ class GroupSyncSnapshot {
     final version = raw['version'] is int
         ? raw['version'] as int
         : num.tryParse('${raw['version'] ?? ''}')?.toInt() ?? 3;
-    return GroupSyncSnapshot(
-      version: version,
-      rooms: rooms,
-      deleted: deleted,
-    );
+    return GroupSyncSnapshot(version: version, rooms: rooms, deleted: deleted);
   }
 
   static GroupRoom _room(
@@ -260,8 +256,9 @@ Map<String, GroupRoom> mergeGroupRooms({
   };
   for (final entry in other.entries) {
     final incoming = entry.value;
-    final existingKey =
-        incoming.roomId == null ? entry.key : (baseKeyByRoomId[incoming.roomId!] ?? entry.key);
+    final existingKey = incoming.roomId == null
+        ? entry.key
+        : (baseKeyByRoomId[incoming.roomId!] ?? entry.key);
     final current = out[existingKey];
     if (current == null) {
       out[existingKey] = incoming;
@@ -276,11 +273,7 @@ Map<String, GroupRoom> mergeGroupRooms({
   return out;
 }
 
-GroupRoom _mergeRoom(
-  GroupRoom a,
-  GroupRoom b, {
-  required bool baseWinsTies,
-}) {
+GroupRoom _mergeRoom(GroupRoom a, GroupRoom b, {required bool baseWinsTies}) {
   final GroupRoom head;
   final List<GroupMember> members;
   if (a.revision != b.revision) {
@@ -323,10 +316,7 @@ String groupConversationId(String connectionId, String identity) =>
 /// (`host.state.connectionId`), que aquí no significa nada; el perfil
 /// (`name`) sí, igual que `previous_names` tras un `hermes profile rename`.
 /// Devuelve null cuando el miembro no pertenece a este gateway.
-String? memberProfileHere(
-  GroupMember member,
-  Set<String> localProfiles,
-) {
+String? memberProfileHere(GroupMember member, Set<String> localProfiles) {
   final direct = member.name;
   if (direct != null && localProfiles.contains(direct)) return direct;
   for (final prev in member.previousNames) {

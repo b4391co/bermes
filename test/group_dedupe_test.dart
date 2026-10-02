@@ -1,21 +1,22 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_pocket/features/conversations/group_create.dart';
-import 'package:hermes_pocket/data/database/app_database.dart' show Conversation;
+import 'package:hermes_pocket/data/database/app_database.dart'
+    show Conversation;
 
 void main() {
   Conversation conv(String id, String connId, String gatewayId) => Conversation(
-        id: id,
-        connectionId: connId,
-        kind: 'bot',
-        gatewayId: gatewayId,
-        title: gatewayId,
-        isGroup: false,
-        unreadCount: 0,
-        pinned: false,
-        pinnedGateway: false,
-        sortOrder: 0,
-        groupSyncRevision: 0,
-      );
+    id: id,
+    connectionId: connId,
+    kind: 'bot',
+    gatewayId: gatewayId,
+    title: gatewayId,
+    isGroup: false,
+    unreadCount: 0,
+    pinned: false,
+    pinnedGateway: false,
+    sortOrder: 0,
+    groupSyncRevision: 0,
+  );
 
   test('mismo perfil en dos gateways: una sola entrada (primer gateway)', () {
     final raw = [

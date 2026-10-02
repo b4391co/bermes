@@ -70,7 +70,6 @@ class ConnectionGroupState {
   });
 }
 
-
 /// Fusiona los espejos de grupos de TODAS las conexiones en un único mapa
 /// global `identidad → sala`, al estilo de `mergeGroupChatSyncSnapshots`
 /// (`group-chat.ts:457-620`):
@@ -79,8 +78,9 @@ class ConnectionGroupState {
 ///   (estable entre llamadas);
 /// - la lista de miembros se une por `rosterKey`;
 /// - los tombstones se unen tomando la revisión máxima por clave.
-({Map<String, GroupRoom> rooms, Map<String, int> deleted})
-    mergeGroupMirrors(List<ConnectionGroupState> connections) {
+({Map<String, GroupRoom> rooms, Map<String, int> deleted}) mergeGroupMirrors(
+  List<ConnectionGroupState> connections,
+) {
   var rooms = <String, GroupRoom>{};
   final deleted = <String, int>{};
   for (final conn in connections) {
@@ -122,8 +122,7 @@ Future<void> syncGroupMirrors({
   // Conjunto de perfiles de TODAS las conexiones: el espejo de una puede
   // nombrar miembros de otra.
   final profilesByConn = {
-    for (final c in conns)
-      c.id: {for (final p in c.profiles) p.name},
+    for (final c in conns) c.id: {for (final p in c.profiles) p.name},
   };
   final allProfiles = <String>{for (final s in profilesByConn.values) ...s};
   // Primer título visto por perfil: estable entre llamadas (orden de
@@ -135,11 +134,15 @@ Future<void> syncGroupMirrors({
   }
 
   final merged = mergeGroupMirrors(conns);
-  final snapshot = GroupSyncSnapshot(rooms: merged.rooms, deleted: merged.deleted);
+  final snapshot = GroupSyncSnapshot(
+    rooms: merged.rooms,
+    deleted: merged.deleted,
+  );
   final live = snapshot.liveRooms();
 
   // 1) Colocar cada sala por conexión: `<connectionId>|<identidad>` → miembros.
-  final placements = <String, ({GroupRoom room, String connId, List<String> members})>{};
+  final placements =
+      <String, ({GroupRoom room, String connId, List<String> members})>{};
   for (final room in live) {
     final here = <String, List<String>>{};
     for (final c in conns) {
@@ -175,8 +178,11 @@ Future<void> syncGroupMirrors({
       orElse: () => conns.first,
     );
     if (here.containsKey(owner.id)) {
-      placements['${owner.id}|${room.identity}'] =
-          (room: room, connId: owner.id, members: here[owner.id]!);
+      placements['${owner.id}|${room.identity}'] = (
+        room: room,
+        connId: owner.id,
+        members: here[owner.id]!,
+      );
     }
   }
 
@@ -198,10 +204,11 @@ Future<void> syncGroupMirrors({
   //     conexión, la anterior no debe seguir visible ni siquiera caída.
   final placedIds = placements.keys.toSet();
   final liveIdentities = {for (final r in live) r.identity};
-  final orphans = await (db.select(db.conversations)
-        ..where((c) => c.kind.equals('group'))
-        ..where((c) => c.groupRoomId.isNotNull()))
-      .get();
+  final orphans =
+      await (db.select(db.conversations)
+            ..where((c) => c.kind.equals('group'))
+            ..where((c) => c.groupRoomId.isNotNull()))
+          .get();
   for (final row in orphans) {
     if (placedIds.contains('${row.connectionId}|${row.groupRoomId}')) continue;
     if (!liveIdentities.contains(row.groupRoomId)) continue;
@@ -209,9 +216,7 @@ Future<void> syncGroupMirrors({
   }
   // 3) Caídas por conexión: solo tombstones y solo si la fila local no va más
   //    alta (un gateway rezagado no puede matar una sala viva en otro).
-  final revisionByIdentity = {
-    for (final r in live) r.identity: r.revision,
-  };
+  final revisionByIdentity = {for (final r in live) r.identity: r.revision};
   for (final conn in conns) {
     final prior = await db.groupSyncState(conn.id);
     for (final entry in merged.deleted.entries) {
@@ -229,9 +234,7 @@ Future<void> syncGroupMirrors({
           revisionByIdentity[roomId]! > entry.value) {
         continue; // una proyección más nueva revivió la sala en otro lado
       }
-      await (db.delete(db.conversations)
-            ..where((c) => c.id.equals(id)))
-          .go();
+      await (db.delete(db.conversations)..where((c) => c.id.equals(id))).go();
     }
   }
   // 4) Canal legacy: antes, la ÚNICA fuente de grupos era
@@ -251,11 +254,12 @@ Future<void> syncGroupMirrors({
   final liveNames = {for (final r in live) r.name};
   final coveredByMirror = live.isNotEmpty;
   for (final conn in conns) {
-    final stale = await (db.select(db.conversations)
-          ..where((c) => c.connectionId.equals(conn.id))
-          ..where((c) => c.kind.equals('group'))
-          ..where((c) => c.groupRoomId.isNull()))
-        .get();
+    final stale =
+        await (db.select(db.conversations)
+              ..where((c) => c.connectionId.equals(conn.id))
+              ..where((c) => c.kind.equals('group'))
+              ..where((c) => c.groupRoomId.isNull()))
+            .get();
     for (final row in stale) {
       // El espejo cubre este nombre con una sala real → la fila legacy
       // (indexada por nombre) es un duplicado de esa misma sala.
@@ -264,9 +268,9 @@ Future<void> syncGroupMirrors({
       // membresía): la pertenencia desapareció del roster.
       final orphaned = coveredByMirror && !legacyNames.contains(row.gatewayId);
       if (!superseded && !orphaned) continue;
-      await (db.delete(db.conversations)
-            ..where((c) => c.id.equals(row.id)))
-          .go();
+      await (db.delete(
+        db.conversations,
+      )..where((c) => c.id.equals(row.id))).go();
     }
   }
 }
@@ -290,31 +294,32 @@ Future<void> _writeRoom({
 
   final title = room.name.isNotEmpty
       ? room.name
-      : (canonicalGroupName(
-            room,
-            {for (final p in memberProfiles) p: titleByProfile[p] ?? p},
-          ) ??
-          room.identity);
+      : (canonicalGroupName(room, {
+              for (final p in memberProfiles) p: titleByProfile[p] ?? p,
+            }) ??
+            room.identity);
   final prefs = await db.localConvPrefs(id);
-  await db.into(db.conversations).insertOnConflictUpdate(
-    ConversationsCompanion.insert(
-      id: id,
-      connectionId: conn.id,
-      kind: 'group',
-      gatewayId: room.identity,
-      title: title,
-      subtitle: Value(_subtitle(memberProfiles, conn.label)),
-      avatarSeed: Value(room.identity),
-      isGroup: const Value(true),
-      gatewayLabel: Value(conn.label),
-      pinned: Value(prefs.pinned),
-      pinnedGateway: Value(prefs.pinnedGateway),
-      sortOrder: Value(prefs.sortOrder),
-      groupRoomId: Value(room.roomId),
-      groupSyncRevision: Value(room.revision),
-      groupSyncName: Value(room.name),
-    ),
-  );
+  await db
+      .into(db.conversations)
+      .insertOnConflictUpdate(
+        ConversationsCompanion.insert(
+          id: id,
+          connectionId: conn.id,
+          kind: 'group',
+          gatewayId: room.identity,
+          title: title,
+          subtitle: Value(_subtitle(memberProfiles, conn.label)),
+          avatarSeed: Value(room.identity),
+          isGroup: const Value(true),
+          gatewayLabel: Value(conn.label),
+          pinned: Value(prefs.pinned),
+          pinnedGateway: Value(prefs.pinnedGateway),
+          sortOrder: Value(prefs.sortOrder),
+          groupRoomId: Value(room.roomId),
+          groupSyncRevision: Value(room.revision),
+          groupSyncName: Value(room.name),
+        ),
+      );
 }
 
 /// Localiza la fila local que un tombstone del espejo debe retirar.
@@ -326,7 +331,7 @@ String? _localIdForDeleted({
   required String connectionId,
   required String key,
   required Map<String, ({String? roomId, int revision, String? syncName})>
-      prior,
+  prior,
 }) {
   if (key.startsWith('id:')) {
     return groupConversationId(connectionId, key.substring(3));

@@ -162,19 +162,21 @@ class SessionReplay {
     return SessionReplay(
       events: rawEvents is List
           ? rawEvents
-              .whereType<Map<Object?, Object?>>()
-              .map((e) => GatewayEvent.fromParams(Map<String, Object?>.from(e)))
-              .toList(growable: false)
+                .whereType<Map<Object?, Object?>>()
+                .map(
+                  (e) => GatewayEvent.fromParams(Map<String, Object?>.from(e)),
+                )
+                .toList(growable: false)
           : const [],
       latestSeq: (map['latest_seq'] as num?)?.toInt() ?? 0,
       truncated: map['truncated'] == true,
       epoch: map['epoch'] is String ? map['epoch'] as String : null,
       openRequests: rawRequests is List
           ? rawRequests
-              .whereType<Map<Object?, Object?>>()
-              .map(ServerRequest.fromSnapshot)
-              .nonNulls
-              .toList(growable: false)
+                .whereType<Map<Object?, Object?>>()
+                .map(ServerRequest.fromSnapshot)
+                .nonNulls
+                .toList(growable: false)
           : const [],
     );
   }

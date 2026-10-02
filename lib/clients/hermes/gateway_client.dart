@@ -87,19 +87,25 @@ class HermesGatewayClient {
       t.cancel();
       err == null ? done.complete() : done.completeError(err);
     }
+
     sub = _stateController.stream.listen((s) {
       if (s == GatewayLinkState.ready) finish();
       if (s == GatewayLinkState.error || s == GatewayLinkState.authExpired) {
         finish(StateError('enlace en estado $s'));
       }
     });
-    t = Timer(timeout, () => finish(TimeoutException('gateway no ready', timeout)));
+    t = Timer(
+      timeout,
+      () => finish(TimeoutException('gateway no ready', timeout)),
+    );
     return done.future;
   }
+
   GatewayReady? get readyInfo => _ready;
   Stream<GatewayLinkState> get stateStream => _stateController.stream;
   Stream<GatewayEvent> get events => _eventsController.stream;
   Stream<ServerRequest> get serverRequests => _serverRequestsController.stream;
+
   /// `replay_epoch` del proceso backend (gateway.ready). Un cambio significa
   /// que los watermarks describen una numeración que ya no existe
   /// (apps/shared/src/json-rpc-gateway.ts:613-625).
@@ -130,7 +136,6 @@ class HermesGatewayClient {
             : {'ticket': await _mintTicketOrExpire()},
       );
       final ws = WebSocketChannel.connect(uri);
-
 
       _ws = ws;
 
@@ -164,8 +169,10 @@ class HermesGatewayClient {
             return;
           }
           if (code == 4403) {
-            _log.error('gate rechazó el canal de chat (close 4403): '
-                'chat deshabilitado, Host-Origin o peer no local');
+            _log.error(
+              'gate rechazó el canal de chat (close 4403): '
+              'chat deshabilitado, Host-Origin o peer no local',
+            );
             _setState(GatewayLinkState.error);
             return;
           }
@@ -220,15 +227,17 @@ class HermesGatewayClient {
       _pingTimer = Timer.periodic(const Duration(seconds: 15), (_) {
         _unansweredPings++;
         if (_unansweredPings >= 3) {
-          _log.warning('sin respuesta a 3 pings (45 s): socket half-open, '
-              'forzando reconexión');
+          _log.warning(
+            'sin respuesta a 3 pings (45 s): socket half-open, '
+            'forzando reconexión',
+          );
           _unansweredPings = 0;
           _scheduleReconnect();
           return;
         }
-        _request('gateway.ping')
-            .whenComplete(() => _unansweredPings = 0)
-            .ignore();
+        _request(
+          'gateway.ping',
+        ).whenComplete(() => _unansweredPings = 0).ignore();
       });
     } catch (e, st) {
       _log.warning('connect failed', e, st);
@@ -407,7 +416,10 @@ class HermesGatewayClient {
   /// el emisor del cliente es `{jsonrpc,id,result}` en
   /// apps/shared/src/json-rpc-channel.ts:344). Un frame con `method` sería
   /// otro request del cliente, nunca una respuesta.
-  Future<void> respondToServerRequest(Object requestId, Map<String, Object?> result) {
+  Future<void> respondToServerRequest(
+    Object requestId,
+    Map<String, Object?> result,
+  ) {
     final ws = _ws;
     if (ws == null) return Future.error(JsonRpcError(-32000, 'not connected'));
     ws.sink.add(
@@ -449,12 +461,15 @@ class HermesGatewayClient {
   /// `omit_messages: true`: el transcript lo pinta la línea local; evita
   /// duplicar historial en la respuesta (igual que Desktop).
   Future<String> resumeSession(String storedId, {String? profile}) async {
-    final result = await _request('session.resume', params: {
-      'session_id': storedId,
-      'source': 'hermes-pocket',
-      'omit_messages': true,
-      if (profile != null && profile.isNotEmpty) 'profile': profile,
-    });
+    final result = await _request(
+      'session.resume',
+      params: {
+        'session_id': storedId,
+        'source': 'hermes-pocket',
+        'omit_messages': true,
+        if (profile != null && profile.isNotEmpty) 'profile': profile,
+      },
+    );
     final sid = result is Map<String, Object?> ? result['session_id'] : null;
     if (sid is! String || sid.isEmpty) {
       throw JsonRpcError(-32000, 'resume sin session_id');
@@ -522,8 +537,8 @@ class HermesGatewayClient {
     Object? decode(Object? data) => data is List
         ? {'profiles': data}
         : data is Map<String, Object?> && data['profiles'] is List
-            ? data
-            : null;
+        ? data
+        : null;
 
     Object? result;
     try {
@@ -564,8 +579,8 @@ class HermesGatewayClient {
     final decoded = result is List
         ? {'profiles': result}
         : result is Map<String, Object?> && result['profiles'] is List
-            ? result
-            : null;
+        ? result
+        : null;
     if (decoded != null) {
       profiles = (decoded['profiles'] as List)
           .whereType<Map<String, Object?>>()
@@ -653,8 +668,10 @@ class HermesGatewayClient {
       create: () => _createCanonicalSession(profile),
     );
     if (r.created) {
-      _log.info("canonical 'Bot Chat' creada vía session.create para "
-          "$profile: ${r.sessionId}");
+      _log.info(
+        "canonical 'Bot Chat' creada vía session.create para "
+        "$profile: ${r.sessionId}",
+      );
     }
     return r.sessionId;
   }
@@ -677,12 +694,15 @@ class HermesGatewayClient {
   /// escritor ganó el título canónico — se readopta SU fila en vez de crear una
   /// segunda (canonical-chat.ts:472-494).
   Future<Map<String, Object?>?> _createCanonicalSession(String profile) async {
-    final created = await _request('session.create', params: {
-      'profile': profile,
-      'title': canonicalChatTitle,
-      'hidden': true,
-      'follow_profile_config': true,
-    });
+    final created = await _request(
+      'session.create',
+      params: {
+        'profile': profile,
+        'title': canonicalChatTitle,
+        'hidden': true,
+        'follow_profile_config': true,
+      },
+    );
     if (created is! Map) return null;
     final map = Map<String, Object?>.from(created);
     final runtime = map['session_id'];
@@ -691,12 +711,15 @@ class HermesGatewayClient {
         // Escribe el título de inmediato: materializa la fila y cierra la
         // ventana sin-título en la que un segundo clic mintearía un duplicado
         // (canonical-chat.ts:456-470).
-        await _request('session.title', params: {
-          'session_id': runtime,
-          'title': canonicalChatTitle,
-        });
+        await _request(
+          'session.title',
+          params: {'session_id': runtime, 'title': canonicalChatTitle},
+        );
       } on JsonRpcError catch (e) {
-        if (RegExp(r'already in use', caseSensitive: false).hasMatch(e.message)) {
+        if (RegExp(
+          r'already in use',
+          caseSensitive: false,
+        ).hasMatch(e.message)) {
           final rows = await _canonicalListRows(profile);
           final winner = rows
               .map(CanonicalChain.registryId)
@@ -714,14 +737,17 @@ class HermesGatewayClient {
   }
 
   Future<List<Map<String, Object?>>> _canonicalListRows(String profile) async {
-    final listed = await _request('session.list', params: {
-      'profile': profile,
-      'title': canonicalChatTitle,
-      // Límite del escaneo por perfil, el mismo que Desktop
-      // (canonical-chat.ts:43 PROFILE_SESSION_LIST_LIMIT).
-      'limit': profileSessionListLimit,
-      'include_hidden': true,
-    });
+    final listed = await _request(
+      'session.list',
+      params: {
+        'profile': profile,
+        'title': canonicalChatTitle,
+        // Límite del escaneo por perfil, el mismo que Desktop
+        // (canonical-chat.ts:43 PROFILE_SESSION_LIST_LIMIT).
+        'limit': profileSessionListLimit,
+        'include_hidden': true,
+      },
+    );
     final rows =
         (listed is Map<String, Object?> ? listed['sessions'] : listed) ??
         const <Object?>[];
@@ -731,14 +757,15 @@ class HermesGatewayClient {
     return const [];
   }
 
-
-  /// Avatar de un perfil como data-URL.
+  /// Avatar de un perfil como data-URL, o null si el perfil no tiene.
   ///
-  /// Contrato real (`tui_gateway/contracts/profiles_vault_complete_foreign_subagents.py:334-349`):
-  /// params `{profile?, name?, asset?}` y resultado
-  /// `ProfilesGetAssetResult {found, mime?, size?, data?}` — el data-url viaja
-  /// en **`data`**, NO en `data_url`, y la ausencia es `found:false`, no error.
-  Future<String?> profileAvatar(String name) async {
+  /// Contrato real (`tui_gateway/contracts/profiles_vault_complete_foreign_
+  /// subagents.py:334-349`): params `{name, asset:'avatar'}` y resultado
+  /// `{found, mime?, size?, data}` — el data-url viaja en **`data`**, NO en
+  /// `data_url` (se tolera el alias por compatibilidad), y la ausencia es
+  /// `found:false`, no error. `size` son bytes reales publicados por el
+  /// gateway (0 si no lo informa).
+  Future<({String dataUrl, int size})?> profileAvatar(String name) async {
     final result = await _request(
       'profiles.get_asset',
       params: {'name': name, 'asset': 'avatar'},
@@ -746,7 +773,40 @@ class HermesGatewayClient {
     if (result is! Map) return null;
     if (result['found'] == false) return null;
     final url = result['data'] ?? result['data_url'];
-    return url is String && url.startsWith('data:') ? url : null;
+    if (url is! String || !url.startsWith('data:')) return null;
+    return (dataUrl: url, size: result['size'] as int? ?? 0);
+  }
+
+  /// Publica (o borra) la imagen de avatar de un perfil.
+  ///
+  /// Contrato real (`tui_gateway/methods_profiles.py:408-442`):
+  /// `{name, asset:'avatar', data}` con `data` = data-URL
+  /// `image/png|jpeg|webp` ≤2 MB (el gateway sniffá la mágia), o
+  /// `{name, asset, clear: true}` para borrarla. Respuesta `{ok, asset,
+  /// size?, removed?}`; los rechazos salen como error JSON-RPC (4063 name,
+  /// 4066 asset, 4067 data, 4069 tamaño, 4070 formato). Es el MISMO canal que
+  /// usa Hermes Desktop (`apps/desktop/src/plugins/hermes-bots/data.ts:
+  /// 380-408`): la imagen viaja aquí, NO en `ui_meta`, porque los data-URL se
+  /// expulsan de `profiles.configure` (tope de 64 KB por clave, y viajarían en
+  /// cada `profiles.list`). Gateways antiguos sin el método → false.
+  Future<bool> setProfileAvatar(
+    String name, {
+    String? dataUrl,
+    bool clear = false,
+  }) async {
+    try {
+      final result = await _request(
+        'profiles.set_asset',
+        params: {
+          'name': name,
+          'asset': 'avatar',
+          if (clear) 'clear': true else 'data': dataUrl,
+        },
+      );
+      return result is Map && result['ok'] == true;
+    } on JsonRpcError {
+      return false;
+    }
   }
 
   /// Sesiones de un perfil (hermes-map §2: session.list viaja con `profile`
@@ -755,10 +815,10 @@ class HermesGatewayClient {
   /// y session_id cuando la versión del gateway lo incluye.
   Future<List<Map<String, Object?>>> listSessions(String profile) async {
     try {
-      final result = await _request('session.list', params: {
-        'profile': profile,
-        'limit': 100,
-      });
+      final result = await _request(
+        'session.list',
+        params: {'profile': profile, 'limit': 100},
+      );
       final List raw = switch (result) {
         {'sessions': final List s} => s,
         {'rows': final List r} => r,
@@ -778,13 +838,16 @@ class HermesGatewayClient {
   /// `{profile?, explicit_only?, include_unconfigured?, refresh?}`, result
   /// `{providers: [{slug, name, models[], is_current?, authenticated?, ...}],
   /// model, provider}`.
-  Future<ModelOptions?> modelOptions(String profile, {bool refresh = false}) async {
+  Future<ModelOptions?> modelOptions(
+    String profile, {
+    bool refresh = false,
+  }) async {
     final Object? result;
     try {
-      result = await _request('model.options', params: {
-        'profile': profile,
-        if (refresh) 'refresh': true,
-      });
+      result = await _request(
+        'model.options',
+        params: {'profile': profile, if (refresh) 'refresh': true},
+      );
     } catch (_) {
       return null; // gateway antiguo sin model.options: picker degradado
     }
@@ -800,7 +863,9 @@ class HermesGatewayClient {
     return ModelOptions(
       providers: providers,
       model: result['model'] is String ? result['model'] as String : '',
-      provider: result['provider'] is String ? result['provider'] as String : '',
+      provider: result['provider'] is String
+          ? result['provider'] as String
+          : '',
     );
   }
 
@@ -827,16 +892,28 @@ class HermesGatewayClient {
   /// Devuelve también `revision` (`ui_meta_revisions['hermes-bots']`, siempre
   /// presente en gateways con CAS — methods_profiles.py:242-251) para que el
   /// guardado pueda ir con `ui_meta_expected_revisions`.
+  ///
+  /// Se lee ADEMÁS el asset de avatar (`profiles.get_asset`) sólo cuando el
+  /// perfil lo anuncia (`has_avatar`): esa imagen vive fuera de `ui_meta` y
+  /// hay que reenviar su proyección al guardar, si no un `configureBot` desde
+  /// Pocket la desreferencia. Coste: un RPC por apertura del editor (el sync
+  /// de roster NO pasa por aquí).
   Future<({BotRosterMeta? meta, int revision})> profileRosterMeta(
-    String name,
-  ) async {
+    String name, {
+    bool withAvatar = false,
+  }) async {
     try {
       final profiles = await listProfiles();
       for (final p in profiles) {
         if (p['name'] != name) continue;
         final revs = p['ui_meta_revisions'];
         final rev = revs is Map ? (revs['hermes-bots'] as int? ?? 0) : 0;
-        return (meta: BotRosterMeta.fromProfile(p), revision: rev);
+        var meta = BotRosterMeta.fromProfile(p);
+        if (withAvatar && meta != null && p['has_avatar'] == true) {
+          final asset = await profileAvatar(name);
+          if (asset != null) meta = meta.withImage(asset.dataUrl);
+        }
+        return (meta: meta, revision: rev);
       }
     } catch (e) {
       _log.info('profileRosterMeta $name no disponible: $e');
@@ -851,8 +928,23 @@ class HermesGatewayClient {
   /// cliente (Desktop) tocó la sección desde que se leyó, el gateway rechaza
   /// la escritura y `applied.ui_meta` sale false → devolvemos false, así la
   /// UI avisa en vez de pisar el cambio ajeno.
-  /// Nota: el merge del gateway es POR CLAVE de ui_meta — la sección
-  /// `hermes-bots` se reemplaza entera (ver `rawSection`).
+  ///
+  /// Contrato de escritura (verificado contra `methods_profiles.py:600-606` y
+  /// contra lo que manda Desktop, `plugins/hermes-bots/data.ts:353-372`): el
+  /// gateway FUSIONA `ui_meta` por clave y la sección `hermes-bots` viaja
+  /// COMPLETA desde el cliente — no hay fusión profunda dentro de `avatar`.
+  /// De ahí las dos reglas de esta función:
+  ///  - `rawSection` se reenvía entera (claves de Desktop que Pocket no
+  ///    modela: `pinned`, `sectionId`, `sectionName`, `screenAutoOpen`,
+  ///    `created`). Sin eso un guardado desde Pocket las borra.
+  ///  - `avatar` se REEMPLAZA entero: por eso `BotAvatarMeta.icon` null
+  ///    significa "quitar el icono" (mandar `icon: null` no lo borra; hay que
+  ///    no mandarlo, y para eso se reconstruye la clave aquí).
+  ///  - title/description vacíos = "el usuario lo borró" → se omite la clave
+  ///    (no se escribe `''`).
+  ///
+  /// La IMAGEN del avatar no viaja por aquí: es [setProfileAvatar], como en
+  /// Desktop. Sólo se re-proyecta su `image_url` si [avatar] lo trae.
   Future<bool> configureBot(
     String name, {
     String? title,
@@ -862,40 +954,26 @@ class HermesGatewayClient {
     int? expectedRevision,
 
     /// Sección `hermes-bots` CRUDA leída del gateway (`BotRosterMeta.raw`).
-    /// El servidor REEMPLAZA la sección entera (methods_profiles.py:600-606):
-    /// sin reenviar `pinned`/`sectionId`/`sectionName`/`screenAutoOpen`/
-    /// `created`, un guardado desde Pocket los borra y Desktop los pierde
-    /// (group-chat.ts:1184-1206 envía la sección completa desde next[key]).
     Map<String, Object?> rawSection = const {},
   }) async {
-    final metaMap = Map<String, Object?>.from(rawSection)
-      ..remove('group'); // proyección legacy: Desktop la regenera
-    if (title != null && title.isNotEmpty) {
-      metaMap['title'] = title;
-    } else {
-      metaMap.remove('title');
-    }
-    if (description != null && description.isNotEmpty) {
-      metaMap['description'] = description;
-    } else {
-      metaMap.remove('description');
-    }
-    if (avatar != null &&
-        (avatar.shape != null ||
-            avatar.color != null ||
-            avatar.icon != null)) {
-      metaMap['avatar'] = avatar.toJson();
-    }
-    if (groups.isNotEmpty) metaMap['groups'] = groups;
+    final metaMap = BotRosterMeta(
+      title: title,
+      description: description,
+      avatar: avatar,
+      groups: groups,
+      imageDataUrl: avatar?.imageUrl,
+      raw: rawSection,
+    ).toUiMetaSection();
     try {
-      final result = await _request('profiles.configure', params: {
-        'name': name,
-        'ui_meta': {
-          'hermes-bots': metaMap,
+      final result = await _request(
+        'profiles.configure',
+        params: {
+          'name': name,
+          'ui_meta': {'hermes-bots': metaMap},
+          if (expectedRevision != null)
+            'ui_meta_expected_revisions': {'hermes-bots': expectedRevision},
         },
-        if (expectedRevision != null)
-          'ui_meta_expected_revisions': {'hermes-bots': expectedRevision},
-      });
+      );
       // applied.ui_meta dice si la sección se escribió (false = conflicto CAS
       // o fallo best-effort, methods_profiles.py:579, :391).
       if (result is Map) {
@@ -921,12 +999,17 @@ class HermesGatewayClient {
     int? expectedRevision,
   }) async {
     try {
-      final result = await _request('profiles.configure', params: {
-        'name': 'default',
-        'ui_meta': {'hermes-bots-groups': snapshot},
-        if (expectedRevision != null)
-          'ui_meta_expected_revisions': {'hermes-bots-groups': expectedRevision},
-      });
+      final result = await _request(
+        'profiles.configure',
+        params: {
+          'name': 'default',
+          'ui_meta': {'hermes-bots-groups': snapshot},
+          if (expectedRevision != null)
+            'ui_meta_expected_revisions': {
+              'hermes-bots-groups': expectedRevision,
+            },
+        },
+      );
       if (result is Map) {
         final applied = result['applied'];
         if (applied is Map && applied['ui_meta'] == false) return false;
@@ -1014,9 +1097,7 @@ class HermesGatewayClient {
     String order = 'latest',
   }) async {
     try {
-      final query = StringBuffer(
-        '?limit=$limit&offset=$offset&order=$order',
-      );
+      final query = StringBuffer('?limit=$limit&offset=$offset&order=$order');
       if (profile != null && profile.isNotEmpty) {
         query.write('&profile=${Uri.encodeQueryComponent(profile)}');
       }
@@ -1164,8 +1245,9 @@ class ModelOptionProvider {
       name: name is String && name.isNotEmpty ? name : slug,
       models: models,
       isCurrent: raw['is_current'] is bool ? raw['is_current'] as bool : null,
-      authenticated:
-          raw['authenticated'] is bool ? raw['authenticated'] as bool : null,
+      authenticated: raw['authenticated'] is bool
+          ? raw['authenticated'] as bool
+          : null,
     );
   }
 }

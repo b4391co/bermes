@@ -21,55 +21,67 @@ void main() {
     expect(r.created, isFalse);
   });
 
-  test('resume mentiroso de otro perfil: la verificación por lista manda', () async {
-    // `resume` contestó 'sess-canonical-default' (el de default). Para
-    // researcher la lista no tiene ninguna fila canónica y el roster tampoco
-    // la confirma => NO se usa la mentira, se crea sobre el perfil correcto.
-    final liar = {'session_id': 'sess-canonical-default'};
-    final r = await CanonicalChain.resolve(
-      listByTitle: () async => const [],
-      rosterConfirmsCanonical: () async => false,
-      create: () async => {'session_id': 'sess-new-researcher'},
-    );
-    expect(r.sessionId, isNot(equals(CanonicalChain.registryId(liar))));
-    expect(r.sessionId, 'sess-new-researcher');
-    expect(r.created, isTrue);
-  });
-
-  test('fila con título distinto => se descarta; manda la canónica exacta', () async {
-    final r = await CanonicalChain.resolve(
-      listByTitle: () async => [
-        {'title': 'Otra sesión', 'session_id': 'sess-wrong'},
-        {'title': 'Bot Chat', 'session_id': 'sess-right'},
-      ],
-      rosterConfirmsCanonical: () async => false,
-      create: () async => {'session_id': 'NEVER'},
-    );
-    expect(r.sessionId, 'sess-right');
-  });
-
-  test('lista vacía + roster la confirma (gateway antiguo) => sin crear a ciegas', () async {
-    // El roster ya anunció canonical_session: no hay nada que crear.
-    expect(
-      () => CanonicalChain.resolve(
+  test(
+    'resume mentiroso de otro perfil: la verificación por lista manda',
+    () async {
+      // `resume` contestó 'sess-canonical-default' (el de default). Para
+      // researcher la lista no tiene ninguna fila canónica y el roster tampoco
+      // la confirma => NO se usa la mentira, se crea sobre el perfil correcto.
+      final liar = {'session_id': 'sess-canonical-default'};
+      final r = await CanonicalChain.resolve(
         listByTitle: () async => const [],
-        rosterConfirmsCanonical: () async => true,
-        create: () async => {'session_id': 'NEVER'},
-      ),
-      throwsA(isA<CanonicalResolutionFailed>()),
-    );
-  });
+        rosterConfirmsCanonical: () async => false,
+        create: () async => {'session_id': 'sess-new-researcher'},
+      );
+      expect(r.sessionId, isNot(equals(CanonicalChain.registryId(liar))));
+      expect(r.sessionId, 'sess-new-researcher');
+      expect(r.created, isTrue);
+    },
+  );
 
-  test('fallo de lista => CanonicalResolutionFailed con causa legible', () async {
-    await expectLater(
-      CanonicalChain.resolve(
-        listByTitle: () async => throw StateError('offline'),
+  test(
+    'fila con título distinto => se descarta; manda la canónica exacta',
+    () async {
+      final r = await CanonicalChain.resolve(
+        listByTitle: () async => [
+          {'title': 'Otra sesión', 'session_id': 'sess-wrong'},
+          {'title': 'Bot Chat', 'session_id': 'sess-right'},
+        ],
         rosterConfirmsCanonical: () async => false,
         create: () async => {'session_id': 'NEVER'},
-      ),
-      throwsA(isA<CanonicalResolutionFailed>()),
-    );
-  });
+      );
+      expect(r.sessionId, 'sess-right');
+    },
+  );
+
+  test(
+    'lista vacía + roster la confirma (gateway antiguo) => sin crear a ciegas',
+    () async {
+      // El roster ya anunció canonical_session: no hay nada que crear.
+      expect(
+        () => CanonicalChain.resolve(
+          listByTitle: () async => const [],
+          rosterConfirmsCanonical: () async => true,
+          create: () async => {'session_id': 'NEVER'},
+        ),
+        throwsA(isA<CanonicalResolutionFailed>()),
+      );
+    },
+  );
+
+  test(
+    'fallo de lista => CanonicalResolutionFailed con causa legible',
+    () async {
+      await expectLater(
+        CanonicalChain.resolve(
+          listByTitle: () async => throw StateError('offline'),
+          rosterConfirmsCanonical: () async => false,
+          create: () async => {'session_id': 'NEVER'},
+        ),
+        throwsA(isA<CanonicalResolutionFailed>()),
+      );
+    },
+  );
 
   test('registryId: id del registro manda sobre resolved_id (punta viva)', () {
     expect(
@@ -79,10 +91,7 @@ void main() {
       }),
       'sess-canon',
     );
-    expect(
-      CanonicalChain.registryId({'session_id': 'sess-x'}),
-      'sess-x',
-    );
+    expect(CanonicalChain.registryId({'session_id': 'sess-x'}), 'sess-x');
     expect(CanonicalChain.registryId({'foo': 1}), isNull);
   });
 }

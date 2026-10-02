@@ -63,7 +63,8 @@ List<GroupCandidate> dedupeCandidates(
   final out = <GroupCandidate>[];
   final seenPerGateway = <String>{};
   // Orden de prioridad: el orden de conexiones del usuario decide el dueño.
-  final ordered = [...raw]..sort((a, b) {
+  final ordered = [...raw]
+    ..sort((a, b) {
       final ra = connectionOrder.indexOf(a.connectionId);
       final rb = connectionOrder.indexOf(b.connectionId);
       return (ra < 0 ? 999 : ra).compareTo(rb < 0 ? 999 : rb);
@@ -88,9 +89,9 @@ class GroupCreateOutcome {
 
   const GroupCreateOutcome._(this.ok, this.error, this.conversationId);
   const GroupCreateOutcome.success(String conversationId)
-      : this._(true, null, conversationId);
+    : this._(true, null, conversationId);
   const GroupCreateOutcome.failure(String message)
-      : this._(false, message, null);
+    : this._(false, message, null);
 }
 
 /// Crea el grupo: parche de membresía por bot + publicación del espejo con
@@ -142,15 +143,15 @@ Future<GroupCreateOutcome> createGroup({
     if (runtime == null) continue;
     try {
       final profiles = await runtime.gateway.listProfiles();
-      final p = profiles.where((x) => x['name'] == m.conv.gatewayId).firstOrNull;
+      final p = profiles
+          .where((x) => x['name'] == m.conv.gatewayId)
+          .firstOrNull;
       if (p == null) {
         membershipErrors.add(m.conv.title);
         continue;
       }
       final raw = BotRosterMeta.fromProfile(p)?.raw ?? const {};
-      final existing = <String>[
-        ...?BotRosterMeta.fromProfile(p)?.groups,
-      ];
+      final existing = <String>[...?BotRosterMeta.fromProfile(p)?.groups];
       if (!existing.contains(trimmed)) existing.add(trimmed);
       // CAS: la revisión actual de la clave hermes-bots del perfil.
       final rev = (p['ui_meta_revisions'] is Map)
@@ -181,9 +182,7 @@ Future<GroupCreateOutcome> createGroup({
     try {
       // Espejo ACTUAL del owner (fuente de verdad: profiles.list fresco).
       final profiles = await ownerRuntime.gateway.listProfiles();
-      final def = profiles
-          .where((x) => x['name'] == 'default')
-          .firstOrNull;
+      final def = profiles.where((x) => x['name'] == 'default').firstOrNull;
       final current = GroupSyncSnapshot.tryParse(
         def != null && def['ui_meta'] is Map
             ? (def['ui_meta'] as Map)['hermes-bots-groups']
@@ -240,7 +239,7 @@ Future<GroupCreateOutcome> createGroup({
       // CAS sobre la revisión de la clave leída (profiles.list ui_meta_revisions).
       final expected = def != null && def['ui_meta_revisions'] is Map
           ? ((def['ui_meta_revisions'] as Map)['hermes-bots-groups'] as num?)
-              ?.toInt()
+                ?.toInt()
           : null;
       published = await ownerRuntime.gateway.publishGroupMirror(
         snapshot: snapshot,
@@ -266,7 +265,9 @@ Future<GroupCreateOutcome> createGroup({
   //      inserta YA para abrir el chat al instante).
   final ownerConn = connections[owner.connectionId];
   final convId = '${owner.connectionId}/group/$roomId';
-  await db.into(db.conversations).insertOnConflictUpdate(
+  await db
+      .into(db.conversations)
+      .insertOnConflictUpdate(
         ConversationsCompanion.insert(
           id: convId,
           connectionId: owner.connectionId,

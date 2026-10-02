@@ -90,7 +90,9 @@ class _HerdrFleetSheetState extends State<HerdrFleetSheet> {
             children: [
               Expanded(
                 child: Text(
-                  _done ? 'Flota Herdr' : 'Sondeando… ($probed/${widget.hosts.length})',
+                  _done
+                      ? 'Flota Herdr'
+                      : 'Sondeando… ($probed/${widget.hosts.length})',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
               ),

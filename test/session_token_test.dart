@@ -14,18 +14,21 @@ import 'package:hermes_pocket/domain/connection/connection_profile.dart';
 const _token = 'loopback-session-token-1';
 
 ConnectionProfile _profile() => const ConnectionProfile(
-      id: 'test-token',
-      name: 'TokenGW',
-      scheme: 'http',
-      host: '127.0.0.1',
-      port: 9120,
-      authKind: HermesAuthKind.sessionToken,
-    );
+  id: 'test-token',
+  name: 'TokenGW',
+  scheme: 'http',
+  host: '127.0.0.1',
+  port: 9120,
+  authKind: HermesAuthKind.sessionToken,
+);
 
 Future<bool> _fakeReady() async {
   try {
-    final s = await Socket.connect('127.0.0.1', 9120,
-        timeout: const Duration(seconds: 2));
+    final s = await Socket.connect(
+      '127.0.0.1',
+      9120,
+      timeout: const Duration(seconds: 2),
+    );
     s.destroy();
     return true;
   } catch (_) {
@@ -46,7 +49,6 @@ Future<void> _tokenMode() async {
 }
 
 void main() {
-
   test('session token: REST autentica y WS abre con ?token=', () async {
     if (!await _fakeReady()) {
       // El fake no corre: es una prueba de integración, se salta limpia.
@@ -67,14 +69,16 @@ void main() {
     final gateway = HermesGatewayClient(_profile(), http);
     final first = gateway.stateStream
         .firstWhere(
-          (s) =>
-              s == GatewayLinkState.ready || s == GatewayLinkState.error,
+          (s) => s == GatewayLinkState.ready || s == GatewayLinkState.error,
         )
         .timeout(const Duration(seconds: 10));
     unawaited(gateway.connect());
     final state = await first;
-    expect(state, GatewayLinkState.ready,
-        reason: 'el WS debe abrir con ?token= en modo loopback');
+    expect(
+      state,
+      GatewayLinkState.ready,
+      reason: 'el WS debe abrir con ?token= en modo loopback',
+    );
 
     // 3) El roster por WS responde (profiles.list).
     final profiles = await gateway.listProfiles();

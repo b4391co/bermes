@@ -23,13 +23,12 @@ import '../../core/logger.dart';
 /// Un agente detectado por Herdr NO es automáticamente un bot de Hermes:
 /// identidades separadas; la vinculación es explícita (agentSession source herdr:hermes).
 class HerdrClient {
-  final _log = Logger('Herdr');
   SSHClient _ssh;
   String _resolvedBinary; // ruta absoluta resuelta por isAvailable()
 
   HerdrClient({required SSHClient ssh, String binary = 'herdr'})
-      : _ssh = ssh,
-        _resolvedBinary = binary;
+    : _ssh = ssh,
+      _resolvedBinary = binary;
 
   String get binary => _resolvedBinary;
 
@@ -47,7 +46,8 @@ class HerdrClient {
     // Candidatos: PATH extendida (no-interactiva) y, si no, login shell.
     // Comprobados con `test -x` en el REMOTO: la ruta solo vale si existe.
     // La salida de `command -v` por sí sola no basta: un .bashrc con eco
-    final script = 'for p in \$PATH:$_pathFallback; do '
+    final script =
+        'for p in \$PATH:$_pathFallback; do '
         'for c in "\$p/$binary" \$(bash -lc "command -v $binary" 2>/dev/null); do '
         'test -x "\$c" && echo "\$c" && exit 0; done; done; true';
     final r = await _run(script);
@@ -61,8 +61,6 @@ class HerdrClient {
     return true;
   }
 
-
-
   /// Versión (o cadena vacía si falla).
   Future<String> version() => _run('$binary --version 2>/dev/null || true');
 
@@ -74,8 +72,10 @@ class HerdrClient {
     // La CLI `herdr api snapshot` espera al daemon: si no está levantado, el
     // comando CUELGA (verificado aquí: sin daemon no termina nunca). `timeout`
     // (coreutils) lo remata en el host; si no existe, el techo de _run cubre.
-    final raw = await _run('$binary api snapshot 2>/dev/null',
-        timeout: const Duration(seconds: 12));
+    final raw = await _run(
+      '$binary api snapshot 2>/dev/null',
+      timeout: const Duration(seconds: 12),
+    );
     if (raw.trim().isEmpty) {
       // Fallback a session list --json (formato {"sessions":[...]}, cli.rs:459).
       final sessionsRaw = await _run('$binary session list --json 2>/dev/null');
@@ -94,8 +94,9 @@ class HerdrClient {
       final snapshot = result is Map<String, Object?>
           ? (result['snapshot'] ?? result)
           : json;
-      final agents =
-          snapshot is Map<String, Object?> ? snapshot['agents'] : null;
+      final agents = snapshot is Map<String, Object?>
+          ? snapshot['agents']
+          : null;
       if (agents is! List) return const [];
       return agents
           .whereType<Map<String, Object?>>()
@@ -208,11 +209,15 @@ class HerdrAgent {
       // Solo el PREFIJO de decoración: π/ϖ/›/·/•, spinner (U+2800-28FF),
       // '>' o espacio. 'Fix bot...' conserva su F.
       final decorative =
-          junk.contains(c) || c == '>' || c == ' ' || (cp >= 0x2800 && cp <= 0x28ff);
+          junk.contains(c) ||
+          c == '>' ||
+          c == ' ' ||
+          (cp >= 0x2800 && cp <= 0x28ff);
       if (!decorative) break;
       stripped = stripped.substring(1).trim();
     }
-    final name = (j['name'] as String?) ??
+    final name =
+        (j['name'] as String?) ??
         (stripped.isNotEmpty
             ? stripped
             : agent != null && j['pane_id'] != null

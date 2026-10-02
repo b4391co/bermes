@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
-
 import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/material.dart';
 import 'package:xterm2/xterm.dart';
@@ -35,8 +33,8 @@ class ConnectingSession implements TermSession {
   bool get isHerdrBridge => false;
 
   @override
-  Widget get pane => const Center(child: 
-    Column(
+  Widget get pane => const Center(
+    child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         CircularProgressIndicator(),
@@ -130,10 +128,7 @@ class _HerdrPaneState extends State<HerdrPane> {
       onResize: (w, h, _, _) => widget.bridge.resize(w, h),
     );
     _sub = widget.bridge.output.listen((data) {
-      final bytes = data is Uint8List
-          ? data
-          : Uint8List.fromList((data as List<int>));
-      _terminal.write(String.fromCharCodes(bytes));
+      _terminal.write(String.fromCharCodes(data));
     });
     widget.bridge.onClosed.listen((_) {
       if (mounted) {
@@ -156,7 +151,10 @@ class _HerdrPaneState extends State<HerdrPane> {
       _terminal,
       controller: _controller,
       theme: isDark ? TerminalThemes.whiteOnBlack : TerminalThemes.defaultTheme,
-      textStyle: const TerminalStyle(fontFamily: 'JetBrainsMonoNerd', fontSize: 13.5),
+      textStyle: const TerminalStyle(
+        fontFamily: 'JetBrainsMonoNerd',
+        fontSize: 13.5,
+      ),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       autofocus: true,
     );

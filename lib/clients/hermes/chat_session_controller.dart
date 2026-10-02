@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../../core/logger.dart';
+import '../../features/chat/media_cache.dart';
 import '../../domain/message/chat_models.dart';
 import 'gateway_client.dart';
 import 'rpc_types.dart';
@@ -59,7 +60,8 @@ class ChatSessionController {
   final _messages = <ChatMessage>[];
   final _messagesController = StreamController<List<ChatMessage>>.broadcast();
   final _approvals = <String, ApprovalRequest>{};
-  final _approvalController = StreamController<List<ApprovalRequest>>.broadcast();
+  final _approvalController =
+      StreamController<List<ApprovalRequest>>.broadcast();
   final _subs = <StreamSubscription<dynamic>>[];
   bool _attached = false;
   bool _disposed = false;
@@ -69,15 +71,20 @@ class ChatSessionController {
   String? _runtimeId;
   Future<String>? _resuming;
 
-  ChatSessionController(this.path, this.gateway, this.sessionId,
-      {this.profile});
+  ChatSessionController(
+    this.path,
+    this.gateway,
+    this.sessionId, {
+    this.profile,
+  });
 
   List<ChatMessage> get messages => List.unmodifiable(_messages);
   Stream<List<ChatMessage>> get stream => _messagesController.stream;
 
   /// Aprobaciones abiertas de ESTA sesión, en orden de llegada.
   List<ApprovalRequest> get approvals => List.unmodifiable(_approvals.values);
-  Stream<List<ApprovalRequest>> get approvalStream => _approvalController.stream;
+  Stream<List<ApprovalRequest>> get approvalStream =>
+      _approvalController.stream;
 
   /// Suscribe el controller a eventos y server-requests del gateway.
   /// Idempotente: un re-adjunto no duplica la aplicación de eventos.
@@ -87,11 +94,13 @@ class ChatSessionController {
     _subs.add(gateway.events.listen(_onEvent));
     _subs.add(gateway.serverRequests.listen(_onServerRequest));
     // Replay de eventos perdidos tras reconexión.
-    _subs.add(gateway.stateStream.listen((s) {
-      if (s == GatewayLinkState.ready) {
-        _replay().catchError((Object e) => _log.warning('replay failed: $e'));
-      }
-    }));
+    _subs.add(
+      gateway.stateStream.listen((s) {
+        if (s == GatewayLinkState.ready) {
+          _replay().catchError((Object e) => _log.warning('replay failed: $e'));
+        }
+      }),
+    );
   }
 
   Future<void> _replay() async {
@@ -197,7 +206,8 @@ class ChatSessionController {
           ToolActivity(
             toolId: toolId,
             name: e.payload['name'] as String? ?? 'tool',
-            argsText: _stringify(e.payload['args']) ??
+            argsText:
+                _stringify(e.payload['args']) ??
                 e.payload['args_text'] as String?,
             preview: e.payload['preview'] as String?,
             running: true,
@@ -223,8 +233,10 @@ class ChatSessionController {
         // posterior a este sessionId es inútil. Se cierra el segmento y la UI
         // re-resuelve la sesión (openBotCanonicalChat la reabre por título).
         _sealStreaming();
-        _systemLine('El gateway retiró esta sesión viva; reabriendo.',
-            failed: false);
+        _systemLine(
+          'El gateway retiró esta sesión viva; reabriendo.',
+          failed: false,
+        );
         onSessionReclaimed?.call();
         break;
 
@@ -310,7 +322,8 @@ class ChatSessionController {
     // summary?, result_text?, inline_diff?}. `summary` es opcional: sin él se
     // usa `result_text` (o el resultado serializado), nunca se deja la
     // herramienta colgada sin desenlace.
-    final detail = payload['summary'] as String? ??
+    final detail =
+        payload['summary'] as String? ??
         payload['result_text'] as String? ??
         _stringify(payload['result']);
     tools[ti] = tools[ti].copyWith(running: false, summary: detail);
@@ -362,13 +375,16 @@ class ChatSessionController {
   }) async {
     if (approval.serverRequestId == null) {
       // Sin request abierto: único camino posible es el RPC de sesión.
-      await gateway.rawCall('approval.respond', params: {
-        'session_id': sessionId,
-        if (profile != null) 'profile': profile,
-        'choice': choice.wire,
-        if (all) 'all': true,
-        if (approval.requestId != null) 'request_id': approval.requestId,
-      });
+      await gateway.rawCall(
+        'approval.respond',
+        params: {
+          'session_id': sessionId,
+          if (profile != null) 'profile': profile,
+          'choice': choice.wire,
+          if (all) 'all': true,
+          if (approval.requestId != null) 'request_id': approval.requestId,
+        },
+      );
       _approvals.remove(approval.serverRequestId);
       _notifyApprovals();
       return;
@@ -385,10 +401,13 @@ class ChatSessionController {
   /// (RpcMethods:4743 ApprovalPendingResult `{approvals: PendingApproval[]}`).
   Future<void> refreshApprovals() async {
     try {
-      final result = await gateway.rawCall('approval.pending', params: {
-        'session_id': sessionId,
-        if (profile != null) 'profile': profile,
-      });
+      final result = await gateway.rawCall(
+        'approval.pending',
+        params: {
+          'session_id': sessionId,
+          if (profile != null) 'profile': profile,
+        },
+      );
       final list = result is Map ? result['approvals'] : null;
       if (list is! List) return;
       for (final entry in list.whereType<Map<Object?, Object?>>()) {
@@ -475,12 +494,12 @@ class ChatSessionController {
     final idx = _lastStreamingIndex();
     if (idx == null) {
       _openStreamingSegment();
-      _messages[_messages.length - 1] = _messages.last
-          .copyWith(reasoning: (_messages.last.reasoning ?? '') + text);
+      _messages[_messages.length - 1] = _messages.last.copyWith(
+        reasoning: (_messages.last.reasoning ?? '') + text,
+      );
     } else {
       final m = _messages[idx];
-      _messages[idx] =
-          m.copyWith(reasoning: (m.reasoning ?? '') + text);
+      _messages[idx] = m.copyWith(reasoning: (m.reasoning ?? '') + text);
     }
     _notify();
   }
@@ -521,7 +540,15 @@ class ChatSessionController {
       _approvalController.add(List.unmodifiable(_approvals.values));
 
   /// Enviar texto. Estados de envío inequívocos; NO reenviar automático.
-  Future<void> send(String text) async {
+  ///
+  /// [attachments] (bots sólo): imágenes ya seleccionadas, en bruto. El
+  /// contrato las pone EN COLA antes del turno (`image.attach_bytes` →
+  /// `prompt.submit`, prompt_voice.py:120-131); si la cola no se monta, no se
+  /// envía — nunca se manda un turno sin la imagen que el usuario pidió.
+  Future<void> send(
+    String text, {
+    List<MessageAttachment> attachments = const [],
+  }) async {
     if (sessionId.isEmpty) {
       // Sin sesión canónica: no se inventa destino. Reintento resolver AHORA
       // por el registro de título (session.list → session.create si el roster
@@ -561,8 +588,18 @@ class ChatSessionController {
       // rechaza con 4001 "session not found" — por eso fallaba el envío en
       // cualquier bot. `profile` es el enrutado de perfil (ProfileParams).
       final runtimeId = await _ensureResumed();
+      final attached = attachments.isEmpty
+          ? const <MessageAttachment>[]
+          : await _attachAndCache(attachments, runtimeId);
+      final idxAdd = _messages.indexOf(optimistic);
+      if (idxAdd >= 0 && attached.isNotEmpty) {
+        _messages[idxAdd] = optimistic.copyWith(attachments: attached);
+        _notify();
+      }
       final result = await _submitWithRetry(text, runtimeId);
-      final map = result is Map ? Map<String, Object?>.from(result) : const <String, Object?>{};
+      final map = result is Map
+          ? Map<String, Object?>.from(result)
+          : const <String, Object?>{};
       final status = map['status'] as String?;
       // PromptSubmitResult: status ∈ streaming|queued|steered|redirected y
       // `user_row_id` es la fila duradera escrita para ESTE input
@@ -627,13 +664,13 @@ class ChatSessionController {
   /// withSessionNotFoundResume). Nunca reintenta en otros errores.
   Future<Object?> _submitWithRetry(String text, String runtimeId) async {
     Future<Object?> submit(String sid) => gateway.rawCall(
-          'prompt.submit',
-          params: {
-            'session_id': sid,
-            'text': text,
-            if (profile != null) 'profile': profile,
-          },
-        );
+      'prompt.submit',
+      params: {
+        'session_id': sid,
+        'text': text,
+        if (profile != null) 'profile': profile,
+      },
+    );
     try {
       return await submit(runtimeId);
     } on JsonRpcError catch (e) {
@@ -644,12 +681,50 @@ class ChatSessionController {
     }
   }
 
+  /// Encola imágenes en la sesión viva: `image.attach_bytes`
+  /// (prompt_voice.py:120-131; métodos en methods_prompt.py ~794/~822; límite
+  /// real 25 MB por attach, prompt_attachments.py:18-20). Los magic bytes
+  /// deciden el tipo. params = SessionParams → `session_id` (runtime) + `profile?`.
+  /// AttachedImageResult (:92-101): `{attached, path?, name?, bytes?, text?,
+  /// message?}` — si `attached != true` el envío se ABORTA con el mensaje del
+  /// gateway: nunca se manda un turno sin la imagen que el usuario pidió.
+  Future<List<MessageAttachment>> _attachAndCache(
+    List<MessageAttachment> items,
+    String runtimeId,
+  ) async {
+    final out = <MessageAttachment>[];
+    for (final a in items) {
+      final raw = a.localBytes;
+      if (raw == null || raw.isEmpty) {
+        throw const ChatSendException('La imagen ya no está disponible.');
+      }
+      final result = await gateway.rawCall(
+        'image.attach_bytes',
+        params: {
+          'session_id': runtimeId,
+          if (profile != null) 'profile': profile,
+          'content_base64': base64Encode(raw),
+          'filename': a.name,
+        },
+      );
+      final map = result is Map
+          ? Map<String, Object?>.from(result)
+          : const <String, Object?>{};
+      if (map['attached'] != true) {
+        final why = map['message'] as String? ?? 'el gateway rechazó la imagen';
+        throw ChatSendException('No se pudo adjuntar $why');
+      }
+      final attached = MessageAttachment(
+        path: map['path'] as String? ?? '',
+        name: map['name'] as String? ?? a.name,
+        bytes: (map['bytes'] as num?)?.toInt() ?? raw.length,
+        localBytes: raw,
+      );
+      out.add(await MediaCache.put(attached, raw));
+    }
+    return out;
+  }
 
-  /// Cancelación: `session.interrupt` (SessionInterruptParams =
-  /// `{session_id, profile?, expected_hosted_task_id?}`, SessionInterruptResult
-  /// = `{status: 'interrupted'|'not_interrupted', interrupted?,
-  /// turn_isolation?}`).
-  ///
   /// El UI NO asume éxito: el resultado dice si de verdad se cortó, y el
   /// `message.complete` con `status:'interrupted'` es el cierre definitivo de
   /// la línea. Los params del contrato son extra="forbid" — nada de campos de
@@ -663,10 +738,13 @@ class ChatSessionController {
           if (profile != null) 'profile': profile,
         },
       );
-      final map = result is Map ? Map<String, Object?>.from(result) : const <String, Object?>{};
-      final interrupted = map['interrupted'] == true ||
-          map['status'] == 'interrupted';
-      if (!interrupted) _log.info('interrupt: ${map['status'] ?? 'sin status'}');
+      final map = result is Map
+          ? Map<String, Object?>.from(result)
+          : const <String, Object?>{};
+      final interrupted =
+          map['interrupted'] == true || map['status'] == 'interrupted';
+      if (!interrupted)
+        _log.info('interrupt: ${map['status'] ?? 'sin status'}');
       return interrupted;
     } on JsonRpcError catch (e) {
       _log.warning('interrupt failed ${e.code} ${e.message}');

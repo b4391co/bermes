@@ -27,14 +27,22 @@ void main() {
 
   group('MentionToken.replace', () {
     test('sustituye el token y deja el caret tras el nombre', () {
-      final (text, caret) = MentionToken.replace('hola @inv', 5, 9, 'Investigador');
+      final (text, caret) = MentionToken.replace(
+        'hola @inv',
+        5,
+        9,
+        'Investigador',
+      );
       expect(text, 'hola @Investigador ');
       expect(caret, 5 + 'Investigador'.length + 2);
     });
 
     test('conserva lo que había detrás del caret', () {
       final (text, _) = MentionToken.replace('@Co mundo', 0, 3, 'Compi');
-      expect(text, '@Compi  mundo'); // caret 3 deja el espacio del texto original
+      expect(
+        text,
+        '@Compi  mundo',
+      ); // caret 3 deja el espacio del texto original
     });
   });
 }

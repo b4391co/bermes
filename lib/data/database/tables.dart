@@ -40,8 +40,10 @@ class Conversations extends Table {
   TextColumn get subtitle => text().nullable()();
   TextColumn get avatarSeed => text().nullable()();
   TextColumn get avatarUrl => text().nullable()(); // data-url o http(s)
-  TextColumn get botAvatarMeta => text().nullable()(); // JSON hermes-bots.avatar
-  TextColumn get canonicalSession => text().nullable()(); // sesión canónica Bot Chat
+  TextColumn get botAvatarMeta =>
+      text().nullable()(); // JSON hermes-bots.avatar
+  TextColumn get canonicalSession =>
+      text().nullable()(); // sesión canónica Bot Chat
   BoolColumn get isGroup => boolean().withDefault(const Constant(false))();
   TextColumn get gatewayLabel => text().nullable()();
   DateTimeColumn get lastActivity => dateTime().nullable()();
@@ -52,14 +54,14 @@ class Conversations extends Table {
   // pinned global (arriba de todo) y pinnedGateway (destacado dentro de
   // la sección de su gateway). v6.
   BoolColumn get pinned => boolean().withDefault(const Constant(false))();
-  BoolColumn get pinnedGateway => boolean().withDefault(const Constant(false))();
+  BoolColumn get pinnedGateway =>
+      boolean().withDefault(const Constant(false))();
   // Espejo de grupos de Desktop (`ui_meta['hermes-bots-groups']` del perfil
   // `default`): roomId inmutable de la sala (null en salas legacy sin id),
   // revisión del gateway que la proyectó, y nombre que tenía al sincronizarla
   // — permite detectar un rename remoto sin pisar el título local. v7.
   TextColumn get groupRoomId => text().nullable()();
-  IntColumn get groupSyncRevision =>
-      integer().withDefault(const Constant(0))();
+  IntColumn get groupSyncRevision => integer().withDefault(const Constant(0))();
   TextColumn get groupSyncName => text().nullable()();
 
   @override
@@ -82,6 +84,9 @@ class Messages extends Table {
   IntColumn get gatewayRowId =>
       integer().nullable()(); // row_id del gateway si existe
   IntColumn get seq => integer().nullable()(); // seq de eventos para replay
+  // JSON [{path,name,bytes}] de las imágenes del turno (MessageAttachment);
+  // los bytes se re-resuelven contra el gateway (ver fetchMedia).
+  TextColumn get attachmentsJson => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};

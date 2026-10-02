@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../domain/entity/entity_ref.dart';
 
 /// Modelo de mensaje de chat.
@@ -34,19 +36,16 @@ class ToolActivity {
     required this.running,
   });
 
-  ToolActivity copyWith({
-    bool? running,
-    String? summary,
-    double? durationS,
-  }) => ToolActivity(
-    toolId: toolId,
-    name: name,
-    argsText: argsText,
-    preview: preview,
-    summary: summary ?? this.summary,
-    durationS: durationS ?? this.durationS,
-    running: running ?? this.running,
-  );
+  ToolActivity copyWith({bool? running, String? summary, double? durationS}) =>
+      ToolActivity(
+        toolId: toolId,
+        name: name,
+        argsText: argsText,
+        preview: preview,
+        summary: summary ?? this.summary,
+        durationS: durationS ?? this.durationS,
+        running: running ?? this.running,
+      );
 }
 
 /// Aprobación accionable (server-request `approval`).
@@ -101,6 +100,69 @@ ApprovalChoice? approvalChoiceFromWire(Object? raw) {
   return null;
 }
 
+/// Imagen adjunta a un turno vía `image.attach_bytes`
+/// (tui_gateway/contracts/prompt_voice.py:120-131: el contenido va en
+/// base64, los magic bytes deciden el tipo; AttachedImageResult :92-101
+/// devuelve `path`). La imagen queda EN COLA para el siguiente turno: se
+/// adjunta ANTES de `prompt.submit`. `localBytes` es el respaldo del
+/// selector para pintar sin depender de la URL de lectura del gateway.
+class MessageAttachment {
+  final String path; // path gateway-visible devuelto por attach
+  final String name;
+  final int? bytes;
+
+  /// Miniatura en RAM (bytes del selector local). No se persiste: tras
+  /// reiniciar la app, la imagen se re-resuelve contra el gateway.
+  final List<int>? localBytes;
+
+  const MessageAttachment({
+    required this.path,
+    required this.name,
+    this.bytes,
+    this.localBytes,
+  });
+
+  MessageAttachment withLocalBytes(List<int>? b) => MessageAttachment(
+    path: path,
+    name: name,
+    bytes: bytes,
+    localBytes: b ?? localBytes,
+  );
+
+  Map<String, Object?> toJson() => {
+    'path': path,
+    'name': name,
+    if (bytes != null) 'bytes': bytes,
+  };
+
+  static MessageAttachment? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final path = raw['path'] as String?;
+    if (path == null || path.isEmpty) return null;
+    return MessageAttachment(
+      path: path,
+      name: raw['name'] as String? ?? path.split('/').last,
+      bytes: (raw['bytes'] as num?)?.toInt(),
+    );
+  }
+
+  static List<MessageAttachment> decodeJson(String? raw) {
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final list = jsonDecode(raw) as List;
+      return list
+          .map(fromJson)
+          .whereType<MessageAttachment>()
+          .toList(growable: false);
+    } on Object {
+      return const [];
+    }
+  }
+
+  static String? encodeJson(List<MessageAttachment> atts) =>
+      atts.isEmpty ? null : jsonEncode(atts.map((a) => a.toJson()).toList());
+}
+
 /// Mensaje visible en la línea de tiempo.
 class ChatMessage {
   final String id; // id local estable (row_id si viene del gateway)
@@ -123,6 +185,11 @@ class ChatMessage {
   final SendState sendState;
   final MessageOrigin origin;
   final List<ToolActivity> tools;
+
+  /// Imágenes adjuntas del turno (ver MessageAttachment). Vacío en mensajes
+  /// sin adjuntos y en todo lo que no sea chat 1-a-1 con bots.
+  final List<MessageAttachment> attachments;
+
   final bool streaming;
 
   const ChatMessage({
@@ -138,6 +205,7 @@ class ChatMessage {
     this.sendState = SendState.sent,
     this.origin = MessageOrigin.history,
     this.tools = const [],
+    this.attachments = const [],
     this.streaming = false,
   });
 
@@ -145,6 +213,7 @@ class ChatMessage {
     String? text,
     SendState? sendState,
     List<ToolActivity>? tools,
+    List<MessageAttachment>? attachments,
     bool? streaming,
     String? authorName,
     DateTime? timestamp,
@@ -163,6 +232,7 @@ class ChatMessage {
     sendState: sendState ?? this.sendState,
     origin: origin,
     tools: tools ?? this.tools,
+    attachments: attachments ?? this.attachments,
     streaming: streaming ?? this.streaming,
   );
 }

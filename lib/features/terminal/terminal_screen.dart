@@ -61,9 +61,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
     // Ya activa: solo cambia de pestaña (salvo "nueva sesión" explícita).
     final existing = forceNew
         ? -1
-        : _sessions.indexWhere(
-            (s) => !s.isHerdrBridge && s.hostId == host.id,
-          );
+        : _sessions.indexWhere((s) => !s.isHerdrBridge && s.hostId == host.id);
     if (existing >= 0) {
       setState(() => _activeIndex = existing);
       return;
@@ -124,10 +122,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   /// TOFU: coincide → conecta; primera vez pregunta y guarda; difiere → avisa.
   Future<bool> _verifyTofu(SshHost host, HostFingerprint fp) async {
-    final known = await (AppServices.db
-            .select(AppServices.db.sshHosts)
-          ..where((h) => h.id.equals(host.id)))
-        .getSingleOrNull();
+    final known = await (AppServices.db.select(
+      AppServices.db.sshHosts,
+    )..where((h) => h.id.equals(host.id))).getSingleOrNull();
     final knownFp = known?.knownFingerprint;
     if (knownFp == fp.sha256) return true;
     if (!mounted) return false;
@@ -137,8 +134,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
       knownFingerprint: knownFp,
     );
     if (!ok) return false;
-    await (AppServices.db.sshHosts.update()
-          ..where((h) => h.id.equals(host.id)))
+    await (AppServices.db.sshHosts.update()..where((h) => h.id.equals(host.id)))
         .write(SshHostsCompanion(knownFingerprint: Value(fp.sha256)));
     _log.info('huella aceptada ${host.name}');
     return true;
@@ -166,7 +162,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
       // Sin hosts SSH NO nos quedamos en un snackbar ciego: si hay
       // conexiones Hermes, ofrecemos derivar el host SSH del gateway
       // (mismo host, SSH 22) para que la flota funcione a un toque.
-      final conns = await AppServices.db.select(AppServices.db.connections).get();
+      final conns = await AppServices.db
+          .select(AppServices.db.connections)
+          .get();
       if (!mounted) return;
       if (conns.isNotEmpty) {
         final ok = await showDialog<bool>(
@@ -255,8 +253,12 @@ class _TerminalScreenState extends State<TerminalScreen> {
     );
     if (existing >= 0) {
       final s = _sessions[existing] as SshTermSession;
-      await _openHerdrAgent(s, HerdrClient(ssh: s.sshClient), agent.paneId!,
-          agent.name);
+      await _openHerdrAgent(
+        s,
+        HerdrClient(ssh: s.sshClient),
+        agent.paneId!,
+        agent.name,
+      );
       return;
     }
     await _connectHost(host);
@@ -265,8 +267,12 @@ class _TerminalScreenState extends State<TerminalScreen> {
     );
     if (idx < 0) return; // la conexión falló; _connectHost ya avisó.
     final s = _sessions[idx] as SshTermSession;
-    await _openHerdrAgent(s, HerdrClient(ssh: s.sshClient), agent.paneId!,
-        agent.name);
+    await _openHerdrAgent(
+      s,
+      HerdrClient(ssh: s.sshClient),
+      agent.paneId!,
+      agent.name,
+    );
   }
 
   /// Abre el terminal NDJSON de un agente como nueva pestaña.
@@ -286,7 +292,11 @@ class _TerminalScreenState extends State<TerminalScreen> {
       _activeIndex = _sessions.length - 1;
     });
     try {
-      final bridge = await client.attachTerminal(paneId: paneId, cols: 80, rows: 24);
+      final bridge = await client.attachTerminal(
+        paneId: paneId,
+        cols: 80,
+        rows: 24,
+      );
       final i = _sessions.indexOf(pending);
       setState(() {
         _sessions[i] = HerdrTermSession(
@@ -396,9 +406,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
   }
 
   Future<void> _openEditor(SshHost? host) async {
-    final saved = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => HostEditor(existing: host)),
-    );
+    final saved = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => HostEditor(existing: host)));
     if (saved == true) _log.info('host ${host == null ? 'creado' : 'editado'}');
   }
 

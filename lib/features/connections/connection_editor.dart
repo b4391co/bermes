@@ -69,16 +69,18 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
 
   Future<void> _loadRemembered() async {
     if (!_isEdit) return;
-    final pw = await AppServices.secrets
-        .readRememberedPassword(widget.existing!.id);
+    final pw = await AppServices.secrets.readRememberedPassword(
+      widget.existing!.id,
+    );
     if (pw != null && mounted) {
       setState(() {
         _password.text = pw;
         _rememberPassword = true;
       });
     }
-    final token = await AppServices.secrets
-        .readGatewayToken(widget.existing!.id);
+    final token = await AppServices.secrets.readGatewayToken(
+      widget.existing!.id,
+    );
     if (token != null && mounted) {
       setState(() => _gatewayToken.text = token);
     }
@@ -139,7 +141,6 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
 
   String get _currentId => widget.existing?.id ?? (_uuid ??= const Uuid().v4());
 
-
   Future<void> _save() async {
     if (!_formValid) {
       final missing = <String>[
@@ -174,8 +175,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
       await db.into(db.connections).insertOnConflictUpdate(row);
 
       if (_rememberPassword && _password.text.isNotEmpty) {
-        await AppServices.secrets
-            .writeRememberedPassword(id, _password.text);
+        await AppServices.secrets.writeRememberedPassword(id, _password.text);
       } else {
         await AppServices.secrets.deleteRememberedPassword(id);
       }
@@ -265,9 +265,9 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
     } catch (e) {
       _log.error('save failed', e);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(asAppException(e).message)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(asAppException(e).message)));
       }
     }
   }
@@ -311,9 +311,9 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
     } catch (e) {
       _log.error('delete failed', e);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(asAppException(e).message)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(asAppException(e).message)));
       }
     }
   }
@@ -346,10 +346,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
                         SegmentedButton<String>(
                           segments: const [
                             ButtonSegment(value: 'http', label: Text('http')),
-                            ButtonSegment(
-                              value: 'https',
-                              label: Text('https'),
-                            ),
+                            ButtonSegment(value: 'https', label: Text('https')),
                           ],
                           selected: {_scheme},
                           onSelectionChanged: (s) =>
@@ -364,8 +361,12 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
                   ),
                   const SizedBox(width: Hp.s3),
                   Expanded(
-                    child: _field(_port, 'Puerto', hint: '9119',
-                        keyboardType: TextInputType.number),
+                    child: _field(
+                      _port,
+                      'Puerto',
+                      hint: '9119',
+                      keyboardType: TextInputType.number,
+                    ),
                   ),
                 ],
               ),
@@ -400,18 +401,22 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
                   Text(
                     _authKind == HermesAuthKind.sessionToken
                         ? 'Pega el session token del gateway '
-                            '(HERMES_DASHBOARD_SESSION_TOKEN en su .env). '
-                            'Válido solo en gateways sin portal OAuth.'
+                              '(HERMES_DASHBOARD_SESSION_TOKEN en su .env). '
+                              'Válido solo en gateways sin portal OAuth.'
                         : 'Inicio de sesión con usuario y contraseña '
-                            '(sesión renovada automáticamente).',
+                              '(sesión renovada automáticamente).',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
               ),
             ),
             if (_authKind == HermesAuthKind.sessionToken)
-              _field(_gatewayToken, 'Session token',
-                  hint: 'Pega el token del gateway', obscure: true),
+              _field(
+                _gatewayToken,
+                'Session token',
+                hint: 'Pega el token del gateway',
+                obscure: true,
+              ),
             if (_authKind == HermesAuthKind.password) ...[
               _field(_username, 'Usuario', hint: 'opcional'),
               _field(
@@ -422,8 +427,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
                 trailing: SwitchListTileLike(
                   title: 'Recordar en este dispositivo',
                   value: _rememberPassword,
-                  onChanged: (v) =>
-                      setState(() => _rememberPassword = v),
+                  onChanged: (v) => setState(() => _rememberPassword = v),
                 ),
               ),
             ],
@@ -486,7 +490,9 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
                       onPressed: _delete,
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Hp.error,
-                        side: BorderSide(color: Hp.error.withValues(alpha: 0.5)),
+                        side: BorderSide(
+                          color: Hp.error.withValues(alpha: 0.5),
+                        ),
                       ),
                       child: const Text('Eliminar'),
                     ),
@@ -658,7 +664,8 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
         ? null
         : AppServices.connections.runtimeFor(existingId);
     final profile = _profileFromForm(_currentId);
-    final client = runtime?.gateway ??
+    final client =
+        runtime?.gateway ??
         HermesGatewayClient(profile, HermesHttpClient(profile));
     final ephemeral = runtime == null;
     try {
@@ -724,8 +731,8 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
                 child: Text(
                   d['auth_kind'] == 'sessionToken'
                       ? 'El gateway RECHAZA el token. Si el gateway está tras '
-                          'un portal OAuth, cambia el método a «Usuario». Si '
-                          'es loopback, el token del .env cambió o expiró.'
+                            'un portal OAuth, cambia el método a «Usuario». Si '
+                            'es loopback, el token del .env cambió o expiró.'
                       : 'La sesión no está activa: prueba de nuevo el login.',
                   style: TextStyle(color: Hp.error, fontSize: 12.5),
                 ),
@@ -746,7 +753,6 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
     );
   }
 
-
   (Color, IconData, String, String?) _describeResult(AuthResult r) {
     if (r.ok) {
       return (
@@ -759,7 +765,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
         // desde aquí gastaría el anti-fuerza-bruta de 10 intentos/60 s
         // (routes.py:338-339) y bloquearía el inicio de sesión real.
         'El servidor responde como gateway en $_scheme://${_host.text.trim()}. '
-        'Guarda la conexión para comprobar las credenciales.',
+            'Guarda la conexión para comprobar las credenciales.',
       );
     }
     return switch (r.cause) {
@@ -811,10 +817,7 @@ class _Label extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: Theme.of(context).textTheme.labelSmall,
-    );
+    return Text(text, style: Theme.of(context).textTheme.labelSmall);
   }
 }
 
@@ -836,10 +839,7 @@ class SwitchListTileLike extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Text(
-            title,
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          child: Text(title, style: Theme.of(context).textTheme.bodySmall),
         ),
         Switch(value: value, onChanged: onChanged),
       ],

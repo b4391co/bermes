@@ -41,11 +41,11 @@ class BotAvatarMeta {
   }
 
   Map<String, Object?> toJson() => {
-        if (shape != null) 'shape': shape,
-        if (color != null) 'color': color,
-        if (icon != null) 'icon': icon,
-        if (imageUrl != null) 'image_url': imageUrl,
-      };
+    if (shape != null) 'shape': shape,
+    if (color != null) 'color': color,
+    if (icon != null) 'icon': icon,
+    if (imageUrl != null) 'image_url': imageUrl,
+  };
 }
 
 class BotRosterMeta {
@@ -54,6 +54,11 @@ class BotRosterMeta {
   final BotAvatarMeta? avatar;
   final bool? hidden;
   final List<String> groups;
+
+  /// Imagen de avatar leída del almacén de assets del gateway
+  /// (`profiles.get_asset`), cuando el bot la tiene. Null = sin imagen:
+  /// mandan icono/shape/colour del meta.
+  final String? imageDataUrl;
 
   /// Sección `hermes-bots` cruda del gateway: claves que Pocket no modela
   /// (pinned, sectionId, sectionName, screenAutoOpen, created…) y que DEBEN
@@ -67,6 +72,7 @@ class BotRosterMeta {
     this.hidden,
     this.groups = const [],
     this.raw = const {},
+    this.imageDataUrl,
   });
 
   /// `ui_meta['hermes-bots']` de una ProfileRow; null si no hay sección.
@@ -103,27 +109,59 @@ class BotRosterMeta {
     );
   }
 
+  /// Copia con la imagen de avatar leída del almacén de assets del gateway
+  /// (`profiles.get_asset`). Null = sin imagen: mandan icono/shape/colour
+  /// del meta.
+  BotRosterMeta withImage(String? imageDataUrl) => BotRosterMeta(
+    title: title,
+    description: description,
+    avatar: avatar,
+    hidden: hidden,
+    groups: groups,
+    raw: raw,
+    imageDataUrl: imageDataUrl,
+  );
+
   /// Sección `hermes-bots` completa: campos editados + claves ajenas
-  /// preservadas. Los campos editados mandan; los que Pocket no toca viajan
-  /// tal cual estaban.
+  /// preservadas. Es la forma correcta de reenviar la sección cuando se toca
+  /// otra cosa (los campos que Pocket no edita NO se escriben, viajan crudos).
+  ///
+  /// Un campo con valor vacío significa "el usuario lo borró" → se QUITA la
+  /// clave (no se manda `''`: Desktop la trata como ausente, `types.ts:65-88`).
+  /// Null significa "no lo tocamos" → se deja el raw tal cual.
+  ///
+  /// `imageDataUrl` (avatar del almacén de assets) se PROYECTA en
+  /// `avatar.image_url` para que este meta pueda volver al gateway sin borrar
+  /// la imagen del otro canal — el sync lee `BotAvatarMeta.imageUrl`.
   Map<String, Object?> toUiMetaSection() {
     final out = Map<String, Object?>.from(raw);
     out.remove('group'); // proyección legacy: la regenera Desktop si aplica
-    if (title != null) {
-      out['title'] = title;
-    } else {
-      out.remove('title');
+    void put(String key, String? value) {
+      if (value == null) return; // no tocado: el raw manda
+      if (value.isEmpty) {
+        out.remove(key);
+      } else {
+        out[key] = value;
+      }
     }
-    if (description != null) {
-      out['description'] = description;
-    } else {
-      out.remove('description');
-    }
-    if (avatar != null) {
-      out['avatar'] = avatar!.toJson();
+
+    put('title', title);
+    put('description', description);
+    if (avatar != null || imageDataUrl != null) {
+      final a = (avatar ?? const BotAvatarMeta()).toJson();
+      if (imageDataUrl != null) a['image_url'] = imageDataUrl;
+      if (a.isEmpty) {
+        out.remove('avatar');
+      } else {
+        out['avatar'] = a;
+      }
     }
     if (hidden != null) out['hidden'] = hidden;
-    if (groups.isNotEmpty) out['groups'] = groups;
+    if (groups.isNotEmpty) {
+      out['groups'] = groups;
+    } else {
+      out.remove('groups');
+    }
     return out;
   }
 }

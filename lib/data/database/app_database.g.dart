@@ -2088,6 +2088,17 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _attachmentsJsonMeta = const VerificationMeta(
+    'attachmentsJson',
+  );
+  @override
+  late final GeneratedColumn<String> attachmentsJson = GeneratedColumn<String>(
+    'attachments_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -2103,6 +2114,7 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
     toolsJson,
     gatewayRowId,
     seq,
+    attachmentsJson,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2211,6 +2223,15 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
         seq.isAcceptableOrUnknown(data['seq']!, _seqMeta),
       );
     }
+    if (data.containsKey('attachments_json')) {
+      context.handle(
+        _attachmentsJsonMeta,
+        attachmentsJson.isAcceptableOrUnknown(
+          data['attachments_json']!,
+          _attachmentsJsonMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -2276,6 +2297,10 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
         DriftSqlType.int,
         data['${effectivePrefix}seq'],
       ),
+      attachmentsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}attachments_json'],
+      ),
     );
   }
 
@@ -2299,6 +2324,7 @@ class Message extends DataClass implements Insertable<Message> {
   final String? toolsJson;
   final int? gatewayRowId;
   final int? seq;
+  final String? attachmentsJson;
   const Message({
     required this.id,
     required this.conversationId,
@@ -2313,6 +2339,7 @@ class Message extends DataClass implements Insertable<Message> {
     this.toolsJson,
     this.gatewayRowId,
     this.seq,
+    this.attachmentsJson,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2342,6 +2369,9 @@ class Message extends DataClass implements Insertable<Message> {
     if (!nullToAbsent || seq != null) {
       map['seq'] = Variable<int>(seq);
     }
+    if (!nullToAbsent || attachmentsJson != null) {
+      map['attachments_json'] = Variable<String>(attachmentsJson);
+    }
     return map;
   }
 
@@ -2370,6 +2400,9 @@ class Message extends DataClass implements Insertable<Message> {
           ? const Value.absent()
           : Value(gatewayRowId),
       seq: seq == null && nullToAbsent ? const Value.absent() : Value(seq),
+      attachmentsJson: attachmentsJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(attachmentsJson),
     );
   }
 
@@ -2394,6 +2427,7 @@ class Message extends DataClass implements Insertable<Message> {
       toolsJson: serializer.fromJson<String?>(json['toolsJson']),
       gatewayRowId: serializer.fromJson<int?>(json['gatewayRowId']),
       seq: serializer.fromJson<int?>(json['seq']),
+      attachmentsJson: serializer.fromJson<String?>(json['attachmentsJson']),
     );
   }
   @override
@@ -2413,6 +2447,7 @@ class Message extends DataClass implements Insertable<Message> {
       'toolsJson': serializer.toJson<String?>(toolsJson),
       'gatewayRowId': serializer.toJson<int?>(gatewayRowId),
       'seq': serializer.toJson<int?>(seq),
+      'attachmentsJson': serializer.toJson<String?>(attachmentsJson),
     };
   }
 
@@ -2430,6 +2465,7 @@ class Message extends DataClass implements Insertable<Message> {
     Value<String?> toolsJson = const Value.absent(),
     Value<int?> gatewayRowId = const Value.absent(),
     Value<int?> seq = const Value.absent(),
+    Value<String?> attachmentsJson = const Value.absent(),
   }) => Message(
     id: id ?? this.id,
     conversationId: conversationId ?? this.conversationId,
@@ -2446,6 +2482,9 @@ class Message extends DataClass implements Insertable<Message> {
     toolsJson: toolsJson.present ? toolsJson.value : this.toolsJson,
     gatewayRowId: gatewayRowId.present ? gatewayRowId.value : this.gatewayRowId,
     seq: seq.present ? seq.value : this.seq,
+    attachmentsJson: attachmentsJson.present
+        ? attachmentsJson.value
+        : this.attachmentsJson,
   );
   Message copyWithCompanion(MessagesCompanion data) {
     return Message(
@@ -2472,6 +2511,9 @@ class Message extends DataClass implements Insertable<Message> {
           ? data.gatewayRowId.value
           : this.gatewayRowId,
       seq: data.seq.present ? data.seq.value : this.seq,
+      attachmentsJson: data.attachmentsJson.present
+          ? data.attachmentsJson.value
+          : this.attachmentsJson,
     );
   }
 
@@ -2490,7 +2532,8 @@ class Message extends DataClass implements Insertable<Message> {
           ..write('origin: $origin, ')
           ..write('toolsJson: $toolsJson, ')
           ..write('gatewayRowId: $gatewayRowId, ')
-          ..write('seq: $seq')
+          ..write('seq: $seq, ')
+          ..write('attachmentsJson: $attachmentsJson')
           ..write(')'))
         .toString();
   }
@@ -2510,6 +2553,7 @@ class Message extends DataClass implements Insertable<Message> {
     toolsJson,
     gatewayRowId,
     seq,
+    attachmentsJson,
   );
   @override
   bool operator ==(Object other) =>
@@ -2527,7 +2571,8 @@ class Message extends DataClass implements Insertable<Message> {
           other.origin == this.origin &&
           other.toolsJson == this.toolsJson &&
           other.gatewayRowId == this.gatewayRowId &&
-          other.seq == this.seq);
+          other.seq == this.seq &&
+          other.attachmentsJson == this.attachmentsJson);
 }
 
 class MessagesCompanion extends UpdateCompanion<Message> {
@@ -2544,6 +2589,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
   final Value<String?> toolsJson;
   final Value<int?> gatewayRowId;
   final Value<int?> seq;
+  final Value<String?> attachmentsJson;
   final Value<int> rowid;
   const MessagesCompanion({
     this.id = const Value.absent(),
@@ -2559,6 +2605,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     this.toolsJson = const Value.absent(),
     this.gatewayRowId = const Value.absent(),
     this.seq = const Value.absent(),
+    this.attachmentsJson = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   MessagesCompanion.insert({
@@ -2575,6 +2622,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     this.toolsJson = const Value.absent(),
     this.gatewayRowId = const Value.absent(),
     this.seq = const Value.absent(),
+    this.attachmentsJson = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        conversationId = Value(conversationId),
@@ -2594,6 +2642,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     Expression<String>? toolsJson,
     Expression<int>? gatewayRowId,
     Expression<int>? seq,
+    Expression<String>? attachmentsJson,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -2611,6 +2660,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       if (toolsJson != null) 'tools_json': toolsJson,
       if (gatewayRowId != null) 'gateway_row_id': gatewayRowId,
       if (seq != null) 'seq': seq,
+      if (attachmentsJson != null) 'attachments_json': attachmentsJson,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -2629,6 +2679,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     Value<String?>? toolsJson,
     Value<int?>? gatewayRowId,
     Value<int?>? seq,
+    Value<String?>? attachmentsJson,
     Value<int>? rowid,
   }) {
     return MessagesCompanion(
@@ -2645,6 +2696,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       toolsJson: toolsJson ?? this.toolsJson,
       gatewayRowId: gatewayRowId ?? this.gatewayRowId,
       seq: seq ?? this.seq,
+      attachmentsJson: attachmentsJson ?? this.attachmentsJson,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -2691,6 +2743,9 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     if (seq.present) {
       map['seq'] = Variable<int>(seq.value);
     }
+    if (attachmentsJson.present) {
+      map['attachments_json'] = Variable<String>(attachmentsJson.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -2713,6 +2768,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
           ..write('toolsJson: $toolsJson, ')
           ..write('gatewayRowId: $gatewayRowId, ')
           ..write('seq: $seq, ')
+          ..write('attachmentsJson: $attachmentsJson, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -4480,6 +4536,7 @@ typedef $$MessagesTableCreateCompanionBuilder =
       Value<String?> toolsJson,
       Value<int?> gatewayRowId,
       Value<int?> seq,
+      Value<String?> attachmentsJson,
       Value<int> rowid,
     });
 typedef $$MessagesTableUpdateCompanionBuilder =
@@ -4497,6 +4554,7 @@ typedef $$MessagesTableUpdateCompanionBuilder =
       Value<String?> toolsJson,
       Value<int?> gatewayRowId,
       Value<int?> seq,
+      Value<String?> attachmentsJson,
       Value<int> rowid,
     });
 
@@ -4571,6 +4629,11 @@ class $$MessagesTableFilterComposer
 
   ColumnFilters<int> get seq => $composableBuilder(
     column: $table.seq,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get attachmentsJson => $composableBuilder(
+    column: $table.attachmentsJson,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -4648,6 +4711,11 @@ class $$MessagesTableOrderingComposer
     column: $table.seq,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get attachmentsJson => $composableBuilder(
+    column: $table.attachmentsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$MessagesTableAnnotationComposer
@@ -4707,6 +4775,11 @@ class $$MessagesTableAnnotationComposer
 
   GeneratedColumn<int> get seq =>
       $composableBuilder(column: $table.seq, builder: (column) => column);
+
+  GeneratedColumn<String> get attachmentsJson => $composableBuilder(
+    column: $table.attachmentsJson,
+    builder: (column) => column,
+  );
 }
 
 class $$MessagesTableTableManager
@@ -4750,6 +4823,7 @@ class $$MessagesTableTableManager
                 Value<String?> toolsJson = const Value.absent(),
                 Value<int?> gatewayRowId = const Value.absent(),
                 Value<int?> seq = const Value.absent(),
+                Value<String?> attachmentsJson = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MessagesCompanion(
                 id: id,
@@ -4765,6 +4839,7 @@ class $$MessagesTableTableManager
                 toolsJson: toolsJson,
                 gatewayRowId: gatewayRowId,
                 seq: seq,
+                attachmentsJson: attachmentsJson,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -4782,6 +4857,7 @@ class $$MessagesTableTableManager
                 Value<String?> toolsJson = const Value.absent(),
                 Value<int?> gatewayRowId = const Value.absent(),
                 Value<int?> seq = const Value.absent(),
+                Value<String?> attachmentsJson = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MessagesCompanion.insert(
                 id: id,
@@ -4797,6 +4873,7 @@ class $$MessagesTableTableManager
                 toolsJson: toolsJson,
                 gatewayRowId: gatewayRowId,
                 seq: seq,
+                attachmentsJson: attachmentsJson,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

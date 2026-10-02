@@ -28,7 +28,9 @@ class ScreenStatus {
   bool get humanControls => hasLease && leaseHolder == 'human';
 
   factory ScreenStatus.fromRpc(Object? result) {
-    final m = result is Map ? Map<String, Object?>.from(result) : const <String, Object?>{};
+    final m = result is Map
+        ? Map<String, Object?>.from(result)
+        : const <String, Object?>{};
     final lease = m['lease'] is Map
         ? Map<String, Object?>.from(m['lease'] as Map)
         : null;
@@ -156,9 +158,7 @@ class ScreenController {
 
   /// Tomar el control (lease acquire humano). El último takeover gana; el
   /// desalojado recibe close WS 4000 "control-taken" y vuelve a observar.
-  Future<ScreenStatus> acquireLease({
-    String reason = 'Hermes Pocket',
-  }) async {
+  Future<ScreenStatus> acquireLease({String reason = 'Hermes Pocket'}) async {
     final r = await runtime.gateway.rawCall(
       'display.lease.acquire',
       params: {'profile': profile, 'viewer_id': viewerId, 'reason': reason},
@@ -188,9 +188,7 @@ class ScreenController {
 
 /// Resuelve la conversación → (runtime, profile name) o null si no es un bot
 /// conectado. Los grupos NO tienen pantalla propia (Screen es por-perfil).
-({ConnectionRuntime runtime, String profile})? screenTarget(
-  Conversation conv,
-) {
+({ConnectionRuntime runtime, String profile})? screenTarget(Conversation conv) {
   if (conv.isGroup) return null;
   final runtime = AppServices.connections.runtimeFor(conv.connectionId);
   if (runtime == null) return null;

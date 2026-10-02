@@ -30,13 +30,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _sub = (AppServices.db.select(AppServices.db.connections)
-          ..orderBy([(c) => OrderingTerm.asc(c.createdAt)]))
-        .watch()
-        .listen((rows) {
-      if (!mounted) return;
-      setState(() => _connections = rows);
-    });
+    _sub =
+        (AppServices.db.select(AppServices.db.connections)
+              ..orderBy([(c) => OrderingTerm.asc(c.createdAt)]))
+            .watch()
+            .listen((rows) {
+              if (!mounted) return;
+              setState(() => _connections = rows);
+            });
     ThemeModeSetting.load().then((mode) {
       if (!mounted) return;
       setState(() => _themeMode = mode);
@@ -105,9 +106,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onPressed: () {
                   AppServices.connections.resyncAll();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Resincronizando gateways…'),
-                    ),
+                    const SnackBar(content: Text('Resincronizando gateways…')),
                   );
                 },
               ),
@@ -119,8 +118,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             padding: const EdgeInsets.fromLTRB(Hp.s4, Hp.s2, Hp.s4, Hp.s4),
             child: Row(
               children: [
-                Icon(Icons.dns_outlined,
-                    size: 20, color: cs.onSurfaceVariant),
+                Icon(Icons.dns_outlined, size: 20, color: cs.onSurfaceVariant),
                 const SizedBox(width: Hp.s2),
                 Expanded(
                   child: Text(

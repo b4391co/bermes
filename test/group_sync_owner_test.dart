@@ -28,7 +28,12 @@ void main() {
       revision: 1,
       members: [
         for (final m in members)
-          GroupMember(name: m, displayName: m, connectionLabel: null, installId: null),
+          GroupMember(
+            name: m,
+            displayName: m,
+            connectionLabel: null,
+            installId: null,
+          ),
       ],
     );
     return ConnectionGroupState(
@@ -51,9 +56,9 @@ void main() {
     final newer = connWith('newer-conn', createdAt: DateTime(2026, 2, 1));
     await syncGroupMirrors(db: db, connections: [newer, older]);
 
-    final rows = await (db.select(db.conversations)
-          ..where((c) => c.kind.equals('group')))
-        .get();
+    final rows = await (db.select(
+      db.conversations,
+    )..where((c) => c.kind.equals('group'))).get();
     expect(rows, hasLength(1), reason: 'UNA fila por sala, sin duplicados');
     expect(rows.single.connectionId, 'older-conn');
   });
@@ -63,21 +68,22 @@ void main() {
     final second = connWith('second', createdAt: DateTime(2026, 1, 1));
     await syncGroupMirrors(
       db: db,
-      connections: [
-        second,
-        first,
-      ].map((c) => ConnectionGroupState(
-            id: c.id,
-            label: c.label,
-            profiles: c.profiles,
-            titles: c.titles,
-            createdAt: c.createdAt,
-            displayOrder: c.id == 'first' ? -1 : 1,
-          )).toList(),
+      connections: [second, first]
+          .map(
+            (c) => ConnectionGroupState(
+              id: c.id,
+              label: c.label,
+              profiles: c.profiles,
+              titles: c.titles,
+              createdAt: c.createdAt,
+              displayOrder: c.id == 'first' ? -1 : 1,
+            ),
+          )
+          .toList(),
     );
-    final rows = await (db.select(db.conversations)
-          ..where((c) => c.kind.equals('group')))
-        .get();
+    final rows = await (db.select(
+      db.conversations,
+    )..where((c) => c.kind.equals('group'))).get();
     expect(rows, hasLength(1));
     expect(rows.single.connectionId, 'first');
   });
@@ -93,18 +99,20 @@ void main() {
       revision: 1,
       members: const [],
     );
-    await db.into(db.conversations).insert(
-      ConversationsCompanion.insert(
-        id: 'old-conn/group/room-1',
-        connectionId: 'old-conn',
-        kind: 'group',
-        gatewayId: 'room-1',
-        title: 'Equipo',
-        groupRoomId: const Value('room-1'),
-        groupSyncRevision: const Value(1),
-        isGroup: const Value(true),
-      ),
-    );
+    await db
+        .into(db.conversations)
+        .insert(
+          ConversationsCompanion.insert(
+            id: 'old-conn/group/room-1',
+            connectionId: 'old-conn',
+            kind: 'group',
+            gatewayId: 'room-1',
+            title: 'Equipo',
+            groupRoomId: const Value('room-1'),
+            groupSyncRevision: const Value(1),
+            isGroup: const Value(true),
+          ),
+        );
     final owner = ConnectionGroupState(
       id: 'new-conn',
       label: 'new',
@@ -118,9 +126,9 @@ void main() {
       titles: const {},
     );
     await syncGroupMirrors(db: db, connections: [owner]);
-    final rows = await (db.select(db.conversations)
-          ..where((c) => c.kind.equals('group')))
-        .get();
+    final rows = await (db.select(
+      db.conversations,
+    )..where((c) => c.kind.equals('group'))).get();
     expect(rows.map((r) => r.connectionId), ['new-conn']);
   });
 }

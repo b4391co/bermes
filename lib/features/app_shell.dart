@@ -31,7 +31,9 @@ class _AppShellState extends State<AppShell> {
     // persistida + login automático con contraseña recordada + roster bots.
     () async {
       try {
-        final rows = await AppServices.db.select(AppServices.db.connections).get();
+        final rows = await AppServices.db
+            .select(AppServices.db.connections)
+            .get();
         await AppServices.connections.bootstrap(
           rows,
           secrets: AppServices.secrets,
@@ -44,16 +46,26 @@ class _AppShellState extends State<AppShell> {
     }();
   }
 
-
-  bool _isWide(BuildContext context) =>
-      MediaQuery.sizeOf(context).width >= 640;
+  bool _isWide(BuildContext context) => MediaQuery.sizeOf(context).width >= 640;
 
   @override
   Widget build(BuildContext context) {
     final destinations = [
-      const (icon: Icons.chat_bubble_outline_rounded, selected: Icons.chat_bubble_rounded, label: 'Chats'),
-      const (icon: Icons.terminal_outlined, selected: Icons.terminal_rounded, label: 'Terminal'),
-      const (icon: Icons.settings_outlined, selected: Icons.settings_rounded, label: 'Ajustes'),
+      const (
+        icon: Icons.chat_bubble_outline_rounded,
+        selected: Icons.chat_bubble_rounded,
+        label: 'Chats',
+      ),
+      const (
+        icon: Icons.terminal_outlined,
+        selected: Icons.terminal_rounded,
+        label: 'Terminal',
+      ),
+      const (
+        icon: Icons.settings_outlined,
+        selected: Icons.settings_rounded,
+        label: 'Ajustes',
+      ),
     ];
     final wide = _isWide(context);
     final body = IndexedStack(
@@ -128,6 +140,7 @@ class _AppShellState extends State<AppShell> {
     );
   }
 }
+
 /// Avatar de bot con contrato hermes-mobile: formas geométricas (circle,
 /// square, rounded, hexagon), color hex, icono Material o imagen URL
 /// (http(s)/data:); fallback iniciales. BotAvatarMeta en
@@ -136,7 +149,8 @@ class BotAvatar extends StatelessWidget {
   final String seed;
   final String label;
   final String? imageUrl;
-  final String? avatarMetaJson; // JSON BotAvatarMeta (ui_meta.hermes-bots.avatar)
+  final String?
+  avatarMetaJson; // JSON BotAvatarMeta (ui_meta.hermes-bots.avatar)
   final double size;
   final bool isGroup;
 
@@ -161,6 +175,23 @@ class BotAvatar extends StatelessWidget {
     'sensors': Icons.sensors_rounded,
   };
 
+  /// Iconos Material ofertados para editar el icono de un bot (los nombres
+  /// son claves de `_iconMap`; el gateway los guarda en
+  /// `ui_meta.hermes-bots.avatar.icon`, igual que hermes-mobile).
+  static const List<String> iconChoices = [
+    'smart_toy',
+    'science',
+    'psychology',
+    'code',
+    'build',
+    'bolt',
+    'extension',
+    'sensors',
+  ];
+
+  /// IconData registrada para un nombre de icono del contrato hermes-mobile
+  /// (null si este build no lo conoce → la UI cae al fallback `smart_toy`).
+  static IconData? iconFor(String name) => _iconMap[name];
 
   @override
   Widget build(BuildContext context) {
@@ -176,7 +207,8 @@ class BotAvatar extends StatelessWidget {
         width: size,
         height: size,
         fit: BoxFit.contain,
-        errorBuilder: (_, _, _) => _iconOr(meta) ?? _initialsText(initials, color),
+        errorBuilder: (_, _, _) =>
+            _iconOr(meta) ?? _initialsText(initials, color),
       );
     } else if (remoteUrl != null && remoteUrl.startsWith('http')) {
       content = Image.network(
@@ -184,7 +216,8 @@ class BotAvatar extends StatelessWidget {
         width: size,
         height: size,
         fit: BoxFit.contain,
-        errorBuilder: (_, _, _) => _iconOr(meta) ?? _initialsText(initials, color),
+        errorBuilder: (_, _, _) =>
+            _iconOr(meta) ?? _initialsText(initials, color),
       );
     } else if (meta?.icon != null) {
       content = Icon(
@@ -202,7 +235,11 @@ class BotAvatar extends StatelessWidget {
         child: Center(child: _initialsText(initials, color)),
       );
     }
-    return SizedBox(width: size, height: size, child: Center(child: content));
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Center(child: content),
+    );
   }
 
   Color? _colorOf(BotAvatarMeta? meta) {
@@ -216,21 +253,20 @@ class BotAvatar extends StatelessWidget {
       meta?.icon == null ? null : _icon(meta!.icon!);
 
   Widget _icon(String name) => Icon(
-        _iconMap[name] ?? Icons.smart_toy_rounded,
-        color: _colorOf(_meta()) ?? Hp.avatarColor(seed),
-        size: size * 0.52,
-      );
-
+    _iconMap[name] ?? Icons.smart_toy_rounded,
+    color: _colorOf(_meta()) ?? Hp.avatarColor(seed),
+    size: size * 0.52,
+  );
 
   Widget _initialsText(String initials, Color color) => Text(
-        initials,
-        style: TextStyle(
-          color: color,
-          fontSize: size * 0.38,
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.5,
-        ),
-      );
+    initials,
+    style: TextStyle(
+      color: color,
+      fontSize: size * 0.38,
+      fontWeight: FontWeight.w700,
+      letterSpacing: -0.5,
+    ),
+  );
 
   Uint8List? _bytesOf() {
     final url = imageUrl;
@@ -249,9 +285,7 @@ class BotAvatar extends StatelessWidget {
     final j = avatarMetaJson;
     if (j == null || j.isEmpty) return null;
     try {
-      return BotAvatarMeta.fromJson(
-        const JsonDecoder().convert(j) as Map,
-      );
+      return BotAvatarMeta.fromJson(const JsonDecoder().convert(j) as Map);
     } catch (_) {
       return null;
     }

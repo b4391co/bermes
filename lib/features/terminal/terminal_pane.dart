@@ -278,7 +278,10 @@ Future<bool> showFingerprintDialog(
           const SizedBox(height: 8),
           SelectableText(
             fp.sha256,
-            style: const TextStyle(fontFamily: 'JetBrainsMonoNerd', fontSize: 12),
+            style: const TextStyle(
+              fontFamily: 'JetBrainsMonoNerd',
+              fontSize: 12,
+            ),
           ),
           if (knownFingerprint != null && !matches) ...[
             const SizedBox(height: 12),

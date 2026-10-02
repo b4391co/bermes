@@ -36,9 +36,9 @@ class ThemeModeSetting {
     map[_key] = mode.name;
     final dir = await AppServices.supportDir();
     final f = File('${dir.path}/$_file');
-    await f.writeAsString(map.entries
-        .map((e) => '${e.key}=${e.value}')
-        .join('\n'));
+    await f.writeAsString(
+      map.entries.map((e) => '${e.key}=${e.value}').join('\n'),
+    );
   }
 
   static Future<Map<String, String>> _readFile() async {
@@ -85,7 +85,10 @@ class _AppearanceSectionState extends State<AppearanceSection> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(Hp.s4, Hp.s3, Hp.s4, 0),
-          child: Text('Apariencia', style: Theme.of(context).textTheme.titleMedium),
+          child: Text(
+            'Apariencia',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
         ),
         const SizedBox(height: Hp.s2),
         Padding(
@@ -116,7 +119,9 @@ class _AppearanceSectionState extends State<AppearanceSection> {
                 BorderSide(color: cs.outlineVariant.withValues(alpha: 0.5)),
               ),
               shape: WidgetStatePropertyAll(
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(Hp.rMd)),
+                RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(Hp.rMd),
+                ),
               ),
             ),
           ),
@@ -136,19 +141,23 @@ class SettingsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: Hp.s4, vertical: Hp.s2),
-      decoration: BoxDecoration(
+    // Material (no Container): los ListTile hijos pintan fondo e ink en el
+    // Material más cercano — con Container decorado la assertion de Flutter
+    // ('ListTile background color or ink splashes may be invisible') salta
+    // en debug y puede tragar el primer gesto de la pantalla.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: Hp.s4, vertical: Hp.s2),
+      child: Material(
         color: cs.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(Hp.rLg),
-        border: Border.all(
-          color: cs.outlineVariant.withValues(alpha: 0.45),
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Hp.rLg),
+          side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.45)),
         ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: children,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
+        ),
       ),
     );
   }

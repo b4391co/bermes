@@ -40,9 +40,7 @@ class _DataSectionState extends State<DataSection> {
         ListTile(
           leading: const Icon(Icons.ios_share_rounded),
           title: const Text('Exportar ajustes'),
-          subtitle: const Text(
-            'Conexiones (sin secretos) a un archivo JSON',
-          ),
+          subtitle: const Text('Conexiones (sin secretos) a un archivo JSON'),
           onTap: _busy ? null : _export,
         ),
         ListTile(
@@ -66,14 +64,10 @@ class _DataSectionState extends State<DataSection> {
       final db = AppServices.db;
       final rows = await db.select(db.connections).get();
       final pkg = SettingsPackage(
-        data: {
-          'connections': rows.map((r) => _rowToJson(r)).toList(),
-        },
+        data: {'connections': rows.map((r) => _rowToJson(r)).toList()},
         includesSecrets: false,
       );
-      final json = const JsonEncoder.withIndent(
-        '  ',
-      ).convert(pkg.toJson());
+      final json = const JsonEncoder.withIndent('  ').convert(pkg.toJson());
       final stamp = DateTime.now()
           .toIso8601String()
           .replaceAll(RegExp(r'[:.]'), '-')
@@ -95,10 +89,7 @@ class _DataSectionState extends State<DataSection> {
 
       // Ofrecer compartir inmediatamente (WhatsApp, Drive, correo...).
       await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(path)],
-          text: 'Ajustes de Hermes Pocket',
-        ),
+        ShareParams(files: [XFile(path)], text: 'Ajustes de Hermes Pocket'),
       );
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -107,9 +98,9 @@ class _DataSectionState extends State<DataSection> {
     } catch (e, st) {
       _log.error('export failed', e, st);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo exportar: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('No se pudo exportar: $e')));
       }
     } finally {
       _setBusy(false);
@@ -144,9 +135,7 @@ class _DataSectionState extends State<DataSection> {
       final pkg = SettingsPackage.parse(raw);
       final list = pkg.data['connections'];
       if (list is! List) {
-        throw const SettingsFormatException(
-          'El paquete no incluye conexiones',
-        );
+        throw const SettingsFormatException('El paquete no incluye conexiones');
       }
       final db = AppServices.db;
       var added = 0;
@@ -155,14 +144,16 @@ class _DataSectionState extends State<DataSection> {
         if (item is! Map<String, Object?>) continue;
         final id = item['id'] as String?;
         if (id == null) continue;
-        final exists =
-            await (db.select(db.connections)..where((c) => c.id.equals(id)))
-                .getSingleOrNull();
+        final exists = await (db.select(
+          db.connections,
+        )..where((c) => c.id.equals(id))).getSingleOrNull();
         if (exists != null) {
           skipped++;
           continue;
         }
-        await db.into(db.connections).insert(
+        await db
+            .into(db.connections)
+            .insert(
               ConnectionsCompanion.insert(
                 id: id,
                 name: item['name'] as String? ?? 'Conexión',
@@ -172,8 +163,9 @@ class _DataSectionState extends State<DataSection> {
                 basePath: Value(item['basePath'] as String? ?? ''),
                 authKind: item['authKind'] as String? ?? 'password',
                 username: Value(item['username'] as String? ?? ''),
-                allowInsecureTls:
-                    Value(item['allowInsecureTls'] as bool? ?? false),
+                allowInsecureTls: Value(
+                  item['allowInsecureTls'] as bool? ?? false,
+                ),
                 enabled: Value(item['enabled'] as bool? ?? true),
               ),
             );
@@ -197,15 +189,14 @@ class _DataSectionState extends State<DataSection> {
     } catch (e, st) {
       _log.error('import failed', e, st);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo importar: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('No se pudo importar: $e')));
       }
     } finally {
       _setBusy(false);
     }
   }
-
 }
 
 /// Sección Acerca de: versión fija (sin package_info en pubspec).
@@ -213,7 +204,7 @@ class AboutSection extends StatelessWidget {
   const AboutSection({super.key});
 
   /// Sin package_info en pubspec: constante sincronizada con pubspec.yaml.
-  static const version = '0.1.23';
+  static const version = '0.1.24';
 
   @override
   Widget build(BuildContext context) {
@@ -228,7 +219,10 @@ class AboutSection extends StatelessWidget {
           ),
         ),
         ListTile(
-          leading: Icon(Icons.developer_mode_rounded, color: cs.onSurfaceVariant),
+          leading: Icon(
+            Icons.developer_mode_rounded,
+            color: cs.onSurfaceVariant,
+          ),
           title: const Text('Hermes Pocket'),
           subtitle: const Text(
             'Cliente Android para Hermes Agent de Nous Research',

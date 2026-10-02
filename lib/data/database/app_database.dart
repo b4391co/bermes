@@ -9,7 +9,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -41,6 +41,11 @@ class AppDatabase extends _$AppDatabase {
       if (from < 8) {
         await m.addColumn(connections, connections.installId);
       }
+      if (from < 9) {
+        // Adjuntos de imagen: JSON de rutas/nombres (los bytes se
+        // re-resuelven contra el gateway; ver MessageAttachment + fetchMedia).
+        await m.addColumn(messages, messages.attachmentsJson);
+      }
     },
   );
 
@@ -59,26 +64,25 @@ class AppDatabase extends _$AppDatabase {
   Future<({bool pinned, bool pinnedGateway, int sortOrder})> localConvPrefs(
     String id,
   ) async {
-    final prior = await (select(conversations)
-          ..where((c) => c.id.equals(id)))
-        .getSingleOrNull();
+    final prior = await (select(
+      conversations,
+    )..where((c) => c.id.equals(id))).getSingleOrNull();
     return (
       pinned: prior?.pinned ?? false,
       pinnedGateway: prior?.pinnedGateway ?? false,
       sortOrder: prior?.sortOrder ?? 0,
     );
   }
+
   /// Estado durable del espejo de grupos de una conexión: `id` (forma
   /// `<connectionId>/group/<roomId>`) → roomId + revisión + nombre sincronizado.
   /// Incluye los marcadores ocultos (`group-hidden`), porque un tombstone del
   /// espejo también debe retirarlos de la BD. Permite detectar renames.
   Future<Map<String, ({String? roomId, int revision, String? syncName})>>
-      groupSyncState(String connectionId) async {
-    final rows = await (select(conversations)
-          ..where(
-            (c) => c.kind.isIn(const ['group', 'group-hidden']),
-          ))
-        .get();
+  groupSyncState(String connectionId) async {
+    final rows = await (select(
+      conversations,
+    )..where((c) => c.kind.isIn(const ['group', 'group-hidden']))).get();
     return {
       for (final r in rows)
         r.id: (
@@ -94,13 +98,12 @@ class AppDatabase extends _$AppDatabase {
     String id, {
     required bool pinned,
     required bool pinnedGateway,
-  }) =>
-      (update(conversations)..where((c) => c.id.equals(id))).write(
-        ConversationsCompanion(
-          pinned: Value(pinned),
-          pinnedGateway: Value(pinnedGateway),
-        ),
-      );
+  }) => (update(conversations)..where((c) => c.id.equals(id))).write(
+    ConversationsCompanion(
+      pinned: Value(pinned),
+      pinnedGateway: Value(pinnedGateway),
+    ),
+  );
 
   /// Nuevo orden de las conexiones (secciones de gateway en la lista).
   Future<void> setConnectionOrders(List<String> orderedIds) async {

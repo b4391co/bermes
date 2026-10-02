@@ -1,6 +1,9 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 
+import '../../core/app_services.dart';
 import '../../design/tokens.dart';
 import '../../domain/message/chat_models.dart';
 import '../app_shell.dart' show BotAvatar;
@@ -18,11 +21,16 @@ class MessageBubble extends StatelessWidget {
   final String? avatarUrl;
   final String? avatarMetaJson;
 
+  /// Conexión dueña del mensaje: necesaria para re-resolver las imágenes del
+  /// historial contra su gateway (`GET /api/media`), no contra cualquiera.
+  final String connectionId;
+
   const MessageBubble({
     super.key,
     required this.message,
     this.isGroup = false,
     this.showAuthor = false,
+    this.connectionId = '',
     this.avatarUrl,
     this.avatarMetaJson,
   });
@@ -92,6 +100,14 @@ class MessageBubble extends StatelessWidget {
       children: [
         if (message.tools.isNotEmpty)
           ToolsChips(tools: message.tools, foreground: fg),
+        if (message.attachments.isNotEmpty) ...[
+          ImageStrip(
+            attachments: message.attachments,
+            connectionId: connectionId,
+            onDark: _isUser,
+          ),
+          const SizedBox(height: Hp.s2),
+        ],
         if (message.text.isNotEmpty)
           GptMarkdown(
             message.text,
@@ -158,9 +174,7 @@ class MessageBubble extends StatelessWidget {
         padding: const EdgeInsets.only(top: Hp.s1),
         child: Row(
           mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('escribiendo…', style: _metaStyle(context, fg)),
-          ],
+          children: [Text('escribiendo…', style: _metaStyle(context, fg))],
         ),
       );
     }
@@ -178,24 +192,20 @@ class MessageBubble extends StatelessWidget {
             color: failed ? Hp.error : fg.withValues(alpha: 0.6),
           ),
           const SizedBox(width: Hp.s1),
-          Text(
-            switch (state) {
-              SendState.sending => 'enviando',
-              SendState.failed => 'error — toca reintentar',
-              SendState.cancelled => 'cancelado',
-              _ => '',
-            },
-            style: _metaStyle(context, failed ? Hp.error : fg),
-          ),
+          Text(switch (state) {
+            SendState.sending => 'enviando',
+            SendState.failed => 'error — toca reintentar',
+            SendState.cancelled => 'cancelado',
+            _ => '',
+          }, style: _metaStyle(context, failed ? Hp.error : fg)),
         ],
       ),
     );
   }
 
-  TextStyle _metaStyle(BuildContext context, Color base) =>
-      Theme.of(context).textTheme.labelSmall!.copyWith(
-        color: base.withValues(alpha: 0.7),
-      );
+  TextStyle _metaStyle(BuildContext context, Color base) => Theme.of(
+    context,
+  ).textTheme.labelSmall!.copyWith(color: base.withValues(alpha: 0.7));
 }
 
 /// Actividad de herramientas como chips colapsables: "🔧 nombre — summary".
@@ -285,6 +295,143 @@ class _ToolsChipsState extends State<ToolsChips> {
               ),
         ],
       ),
+    );
+  }
+}
+
+/// Miniaturas de las imágenes de un turno.
+///
+/// Render verificado en main (BackendContracts, files.py:301-339):
+/// - el historial proyecta la imagen como texto `@image:<ruta>` SIN bytes
+///   (`session_history.py::_user_image_display_text`), así que re-resolver
+///   es obligatorio, no una optimización;
+/// - `GET /api/media?path=…` responde JSON `{data_url: "data:<mime>;base64,…"}`
+///   (no binario), sólo imágenes, y restringido a las raíces
+///   `<HERMES_HOME>/{images,screenshots,cache}` del proceso dashboard: en
+///   multiperfil la imagen de OTRO perfil puede dar 403;
+/// - por eso `localBytes` (turno recién enviado) pinta inmediato y, si no
+///   hay bytes ni ruta legible, queda la ficha con nombre: nunca un roto.
+class ImageStrip extends StatelessWidget {
+  final List<MessageAttachment> attachments;
+  final String connectionId;
+  final bool onDark;
+  const ImageStrip({
+    super.key,
+    required this.attachments,
+    required this.connectionId,
+    this.onDark = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final fg = onDark ? cs.onPrimary : cs.onSurfaceVariant;
+    return Wrap(
+      spacing: Hp.s2,
+      runSpacing: Hp.s2,
+      children: [
+        for (final a in attachments)
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 230, maxHeight: 230),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: a.localBytes != null
+                  ? Image.memory(
+                      Uint8List.fromList(a.localBytes!),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => _card(cs, fg, a),
+                    )
+                  : _MediaThumb(
+                      attachment: a,
+                      connectionId: connectionId,
+                      fallback: _card(cs, fg, a),
+                    ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _card(ColorScheme cs, Color fg, MessageAttachment a) => Container(
+    width: 190,
+    height: 92,
+    alignment: Alignment.center,
+    color: (onDark ? cs.onPrimary : cs.surfaceContainerHighest).withValues(
+      alpha: onDark ? 0.15 : 1,
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(Hp.s2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.image_outlined, size: 18, color: fg),
+          const SizedBox(width: Hp.s2),
+          Flexible(
+            child: Text(
+              a.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: fg),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _MediaThumb extends StatefulWidget {
+  final MessageAttachment attachment;
+  final String connectionId;
+  final Widget fallback;
+  const _MediaThumb({
+    required this.attachment,
+    required this.connectionId,
+    required this.fallback,
+  });
+
+  @override
+  State<_MediaThumb> createState() => _MediaThumbState();
+}
+
+class _MediaThumbState extends State<_MediaThumb> {
+  late final Future<Uint8List?> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<Uint8List?> _load() async {
+    final a = widget.attachment;
+    if (a.path.isEmpty || widget.connectionId.isEmpty) return null;
+    final runtime = AppServices.connections.runtimeFor(widget.connectionId);
+    if (runtime == null) return null;
+    final bytes = await runtime.http.fetchMedia(a.path);
+    return (bytes == null || bytes.isEmpty) ? null : Uint8List.fromList(bytes);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List?>(
+      future: _future,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const SizedBox(
+            width: 190,
+            height: 92,
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        }
+        final bytes = snap.data;
+        if (bytes == null) return widget.fallback;
+        return Image.memory(
+          bytes,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => widget.fallback,
+        );
+      },
     );
   }
 }

@@ -8,11 +8,7 @@ class MentionCandidate {
   final String? avatarUrl;
   final String? avatarMeta; // JSON hermes-bots.avatar (color/icon)
 
-  const MentionCandidate({
-    required this.name,
-    this.avatarUrl,
-    this.avatarMeta,
-  });
+  const MentionCandidate({required this.name, this.avatarUrl, this.avatarMeta});
 }
 
 /// Menú flotante de menciones: se muestra sobre el composer, anclado a la
@@ -50,8 +46,9 @@ class MentionMenu extends StatelessWidget {
               leading: CircleAvatar(
                 radius: 14,
                 backgroundColor: cs.primaryContainer,
-                foregroundImage:
-                    c.avatarUrl == null ? null : NetworkImage(c.avatarUrl!),
+                foregroundImage: c.avatarUrl == null
+                    ? null
+                    : NetworkImage(c.avatarUrl!),
                 child: Text(
                   c.name.characters.take(1).toString().toUpperCase(),
                   style: TextStyle(
@@ -94,8 +91,7 @@ class MentionToken {
   /// Reemplaza `@query` (desde [start] hasta el caret) por `@name ` y
   /// devuelve el nuevo texto con la posición del caret.
   static (String, int) replace(String text, int start, int caret, String name) {
-    final out =
-        '${text.substring(0, start)}@$name ${text.substring(caret)}';
+    final out = '${text.substring(0, start)}@$name ${text.substring(caret)}';
     return (out, start + name.length + 2);
   }
 }

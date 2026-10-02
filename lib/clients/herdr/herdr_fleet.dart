@@ -59,9 +59,10 @@ class HerdrFleet {
     HerdrCredentials creds,
     Future<void> Function(SshHostInfo host, String sha256) onFingerprint,
   ) async {
-    final socket = await SSHSocket.connect(host.host, host.port).timeout(
-      const Duration(seconds: 8),
-    );
+    final socket = await SSHSocket.connect(
+      host.host,
+      host.port,
+    ).timeout(const Duration(seconds: 8));
     SSHClient? client;
     try {
       client = SSHClient(
@@ -71,12 +72,7 @@ class HerdrFleet {
             ? null
             : () => creds.password!,
         identities: creds.privateKeyPem != null
-            ? [
-                ...SSHKeyPair.fromPem(
-                  creds.privateKeyPem!,
-                  creds.passphrase,
-                ),
-              ]
+            ? [...SSHKeyPair.fromPem(creds.privateKeyPem!, creds.passphrase)]
             : null,
         // TOFU: si el host ya tiene huella conocida, exige coincidencia.
         // Si NO tiene (host recién creado que aún no conectó por shell),
@@ -93,9 +89,9 @@ class HerdrFleet {
         },
       );
       final herdr = HerdrClient(ssh: client);
-      final outcome = await _agentsOf(herdr).timeout(
-        const Duration(seconds: 40),
-      );
+      final outcome = await _agentsOf(
+        herdr,
+      ).timeout(const Duration(seconds: 40));
       if (outcome.notFound) {
         return FleetHostResult(
           host: host,

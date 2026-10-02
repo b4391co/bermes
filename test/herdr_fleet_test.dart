@@ -27,8 +27,11 @@ void main() {
     final pem = pemFile.readAsStringSync();
     final fleet = HerdrFleet();
     final results = await fleet
-        .probeAll([host], (_) async => HerdrCredentials(privateKeyPem: pem),
-            onFingerprint: (_, __) async {})
+        .probeAll(
+          [host],
+          (_) async => HerdrCredentials(privateKeyPem: pem),
+          onFingerprint: (_, __) async {},
+        )
         .toList();
     expect(results, hasLength(1));
     final r = results.first;

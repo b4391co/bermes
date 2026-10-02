@@ -10,7 +10,11 @@ class HerdrPanel extends StatefulWidget {
   final HerdrClient client;
   final void Function(String paneId, String title) onOpenAgent;
 
-  const HerdrPanel({super.key, required this.client, required this.onOpenAgent});
+  const HerdrPanel({
+    super.key,
+    required this.client,
+    required this.onOpenAgent,
+  });
 
   static Future<void> show(
     BuildContext context, {
@@ -92,9 +96,15 @@ class _HerdrPanelState extends State<HerdrPanel> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Herdr', style: Theme.of(context).textTheme.titleMedium),
+                    Text(
+                      'Herdr',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                     if (_version != null)
-                      Text(_version!, style: Theme.of(context).textTheme.bodySmall),
+                      Text(
+                        _version!,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                   ],
                 ),
               ),
@@ -122,8 +132,7 @@ class _HerdrPanelState extends State<HerdrPanel> {
               : ListView.separated(
                   padding: const EdgeInsets.only(bottom: Hp.s6),
                   itemCount: _agents.length,
-                  separatorBuilder: (_, _) =>
-                      const Divider(indent: Hp.s4),
+                  separatorBuilder: (_, _) => const Divider(indent: Hp.s4),
                   itemBuilder: (context, i) => _agentTile(context, _agents[i]),
                 ),
         ),

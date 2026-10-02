@@ -52,9 +52,9 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
     // Iconos por perfil del backend: la identidad del miembro es el nombre de
     // perfil (`RoomMember.profile`), NO el display name — dos bots llamados
     // igual en gateways distintos son bots distintos (encargo §5).
-    final rows = await (AppServices.db.select(AppServices.db.conversations)
-          ..where((c) => c.kind.equals('bot')))
-        .get();
+    final rows = await (AppServices.db.select(
+      AppServices.db.conversations,
+    )..where((c) => c.kind.equals('bot'))).get();
     final avatars = <String, db.Conversation>{
       for (final r in rows) r.gatewayId: r,
     };
@@ -100,8 +100,8 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
                     child: Text(
                       conv.subtitle!,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: cs.onSurfaceVariant,
-                          ),
+                        color: cs.onSurfaceVariant,
+                      ),
                     ),
                   ),
               ],
@@ -123,10 +123,12 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
         final members = snap.data?.members;
         if (members == null) {
           return const SliverToBoxAdapter(
-            child: Center(child: Padding(
-              padding: EdgeInsets.all(Hp.s4),
-              child: CircularProgressIndicator(),
-            )),
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.all(Hp.s4),
+                child: CircularProgressIndicator(),
+              ),
+            ),
           );
         }
         return SliverList.builder(
@@ -201,9 +203,7 @@ class _ModelSectionState extends State<_ModelSection> {
   @override
   void initState() {
     super.initState();
-    _options = widget.runtime.gateway
-        .modelOptions(widget.profile)
-        .then((o) {
+    _options = widget.runtime.gateway.modelOptions(widget.profile).then((o) {
       if (o != null && mounted) {
         setState(() {
           _provider = o.provider.isEmpty ? null : o.provider;
@@ -215,8 +215,12 @@ class _ModelSectionState extends State<_ModelSection> {
   }
 
   Future<void> _reload() async {
-    setState(() => _options = widget.runtime.gateway
-        .modelOptions(widget.profile, refresh: true));
+    setState(
+      () => _options = widget.runtime.gateway.modelOptions(
+        widget.profile,
+        refresh: true,
+      ),
+    );
     final o = await _options;
     if (o != null && mounted) {
       setState(() {
@@ -229,7 +233,10 @@ class _ModelSectionState extends State<_ModelSection> {
   Future<void> _save() async {
     final provider = _provider;
     final model = _model;
-    if (provider == null || provider.isEmpty || model == null || model.isEmpty) {
+    if (provider == null ||
+        provider.isEmpty ||
+        model == null ||
+        model.isEmpty) {
       return;
     }
     setState(() {
@@ -238,8 +245,11 @@ class _ModelSectionState extends State<_ModelSection> {
       _saved = null;
     });
     try {
-      await widget.runtime.gateway
-          .setProfileModel(widget.profile, provider: provider, model: model);
+      await widget.runtime.gateway.setProfileModel(
+        widget.profile,
+        provider: provider,
+        model: model,
+      );
       if (mounted) setState(() => _saved = '$provider · $model');
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
@@ -263,9 +273,9 @@ class _ModelSectionState extends State<_ModelSection> {
               Text(
                 'Modelo',
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: cs.onSurfaceVariant,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  color: cs.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const Spacer(),
               IconButton(
@@ -289,9 +299,9 @@ class _ModelSectionState extends State<_ModelSection> {
               if (options == null || options.providers.isEmpty) {
                 return Text(
                   'El gateway no expone la lista de modelos para este bot.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: cs.onSurfaceVariant,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                 );
               }
               return _picker(options);
@@ -302,10 +312,9 @@ class _ModelSectionState extends State<_ModelSection> {
               padding: const EdgeInsets.only(top: Hp.s2),
               child: Text(
                 _error!,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: Hp.error),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Hp.error),
               ),
             ),
           if (_saved != null)
@@ -313,9 +322,9 @@ class _ModelSectionState extends State<_ModelSection> {
               padding: const EdgeInsets.only(top: Hp.s2),
               child: Text(
                 'Modelo aplicado: $_saved',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: cs.primary,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: cs.primary),
               ),
             ),
         ],
@@ -333,9 +342,11 @@ class _ModelSectionState extends State<_ModelSection> {
     final currentModels = currentProvider == null
         ? const <String>[]
         : configured
-                .firstWhere((p) => p.slug == currentProvider,
-                    orElse: () => configured.first)
-                .models;
+              .firstWhere(
+                (p) => p.slug == currentProvider,
+                orElse: () => configured.first,
+              )
+              .models;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

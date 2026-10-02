@@ -1,5 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
+import 'dart:ui' show FontFeature;
+
+import 'package:file_picker/file_picker.dart';
 
 import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
@@ -7,7 +11,9 @@ import 'package:flutter/material.dart';
 import '../../clients/hermes/chat_session_controller.dart';
 import '../../clients/hermes/connection_manager.dart';
 import '../../clients/hermes/gateway_client.dart';
+import 'media_cache.dart';
 import 'mention_menu.dart';
+import 'voice_recorder.dart';
 import '../screen/screen_controller.dart';
 import '../screen/screen_view.dart';
 import '../../clients/hermes/rooms_client.dart';
@@ -30,7 +36,6 @@ import 'message_bubble.dart';
 /// - Borrador persistido en Drafts con guardado con debounce.
 /// - Scroll anclado al fondo solo cuando el usuario está cerca del fondo.
 class ChatScreen extends StatefulWidget {
-  /// Clave de la conversación en la tabla Conversations (Conversation.id).
   final String conversationId;
 
   const ChatScreen({super.key, required this.conversationId});
@@ -56,7 +61,13 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _loadingOlder = false;
   bool _hasMoreHistory = true;
   bool _nearBottom = true;
+
   bool _sending = false;
+  final VoiceRecorder _voice = VoiceRecorder();
+
+  /// Imágenes seleccionadas pendientes de adjuntar al próximo turno (bots).
+  List<MessageAttachment> _pending = const [];
+
   bool _hasError = false;
 
   ChatSessionController? _controller;
@@ -80,11 +91,15 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    // La caché resuelve rutas síncronas en _fromRow: hay que tener el
+    // directorio antes de la primera página de historial.
+    unawaited(MediaCache.warm());
     _loadConversation();
   }
 
   @override
   void dispose() {
+    _removeMentionOverlay();
     _draftTimer?.cancel();
     _liveSub?.cancel();
     _roomSub?.cancel();
@@ -93,6 +108,14 @@ class _ChatScreenState extends State<ChatScreen> {
     // listener vivo aplicando eventos sobre una página muerta.
     _controller?.dispose();
     unawaited(_roomController.close());
+    // El panel Screen embebido vive con el chat: su lease y sus streams se
+    // liberan aquí (al cerrar el chat), no al pop de una ruta.
+    final screen = _screen;
+    _screen = null;
+    if (screen != null) {
+      unawaited(screen.releaseLease().whenComplete(screen.dispose));
+    }
+    unawaited(_voice.dispose());
     _input.dispose();
     _focus.dispose();
     _scroll.dispose();
@@ -244,8 +267,7 @@ class _ChatScreenState extends State<ChatScreen> {
         await gw.readyOrTimeout(const Duration(seconds: 30));
         final room = await client.roomState(roomId);
         if (room == null) return;
-        final bots = room.members
-            .toList(growable: false);
+        final bots = room.members.toList(growable: false);
         // Avatar desde el roster sincronizado (misma clave que las burbujas).
         out = [
           for (final m in bots)
@@ -472,6 +494,9 @@ class _ChatScreenState extends State<ChatScreen> {
       toolsJson: Value(
         m.tools.isEmpty ? null : jsonEncode(m.tools.map(_toolToJson).toList()),
       ),
+      // Sólo rutas/nombres: los bytes se re-resuelven contra el gateway
+      // (GET /api/media → data_url); no se duplica el binario en la BD.
+      attachmentsJson: Value(MessageAttachment.encodeJson(m.attachments)),
     );
   }
 
@@ -706,7 +731,8 @@ class _ChatScreenState extends State<ChatScreen> {
   // ── Envío ─────────────────────────────────────────────────────────────
   Future<void> _send() async {
     final text = _input.text.trim();
-    if (text.isEmpty || _sending) return;
+    final attachments = _pending;
+    if ((text.isEmpty && attachments.isEmpty) || _sending) return;
     final conv = _conversation;
     if (conv != null && conv.kind == 'group') {
       // Grupo hosted: el transporte es `groups.send` ( RoomsClient ), no una
@@ -725,6 +751,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _input.clear();
     _flushDraft();
+    setState(() => _pending = const []);
     _focus.requestFocus();
     final controller = _controller;
     if (controller == null) {
@@ -741,7 +768,7 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     try {
-      await controller.send(text);
+      await controller.send(text, attachments: attachments);
       if (mounted) setState(() => _sending = false);
     } on TimeoutException {
       // El turno SIGUE VIVO: el timeout es del ACK (prompt.submit contesta al
@@ -756,6 +783,13 @@ class _ChatScreenState extends State<ChatScreen> {
         setState(() {
           _sending = false;
           _hasError = true;
+          // Las imágenes vuelven a la bandeja: un reintento las readjunta.
+          // Las que ya llegaron al gateway (path no vacío) se re-hidratan
+          // desde la caché local; las no enviadas conservan sus bytes.
+          _pending = [
+            for (final a in attachments)
+              if (a.localBytes != null) a else (MediaCache.load(a.path) ?? a),
+          ];
         });
         _input.text = text;
         _input.selection = TextSelection.collapsed(offset: text.length);
@@ -905,9 +939,25 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Cabecera → sheet de info (identidad + ajustes: modelo del bot,
   /// miembros del grupo).
-  void _openScreen() {
+  /// Screen embebida en el chat: mitad escritorio / mitad conversación.
+  /// El botón del AppBar alterna el panel; la barra del panel maximiza el
+  /// escritorio (oculta el chat) o lo restaura. El controlador vive aquí
+  /// para que el lease sobreviva a maximizar/restaurar, y se libera al
+  /// salir del chat.
+  ScreenController? _screen;
+  bool _screenMaximized = false;
+
+  void _toggleScreen() {
     final conv = _conversation;
     if (conv == null) return;
+    if (_screen != null) {
+      setState(() {
+        _screen?.dispose();
+        _screen = null;
+        _screenMaximized = false;
+      });
+      return;
+    }
     final target = screenTarget(conv);
     if (target == null) {
       if (mounted) {
@@ -921,19 +971,14 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       return;
     }
-    final controller = ScreenController(
-      runtime: target.runtime,
-      profile: target.profile,
-      viewerId: 'hp-${DateTime.now().millisecondsSinceEpoch}',
-    );
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ScreenView(
-          controller: controller,
-          botTitle: _titleOverride ?? conv.title,
-        ),
-      ),
-    );
+    setState(() {
+      _screen = ScreenController(
+        runtime: target.runtime,
+        profile: target.profile,
+        viewerId: 'hp-${DateTime.now().millisecondsSinceEpoch}',
+      );
+      _screenMaximized = false;
+    });
   }
 
   void _openInfo() {
@@ -1017,93 +1062,133 @@ class _ChatScreenState extends State<ChatScreen> {
         actions: [
           if (!isGroup)
             IconButton(
-              tooltip: 'Pantalla del bot (Screen)',
-              onPressed: _openScreen,
-              icon: const Icon(Icons.desktop_windows_outlined),
+              tooltip: _screen == null
+                  ? 'Ver pantalla del bot'
+                  : 'Ocultar pantalla del bot',
+              onPressed: _toggleScreen,
+              icon: Icon(
+                _screen == null
+                    ? Icons.desktop_windows_outlined
+                    : Icons.desktop_windows_rounded,
+              ),
             ),
         ],
       ),
       body: Column(
         children: [
-          Expanded(
-            child: Stack(
-              children: [
-                StreamBuilder<List<ChatMessage>>(
-                  // Salas hosted: no hay ChatSessionController; el timeline
-                  // emite por su propio stream broadcast.
-                  stream: _conversation?.kind == 'group'
-                      ? _roomController.stream
-                      : _controller?.stream,
-                  initialData: _live,
-                  builder: (context, snapshot) {
-                    final live = snapshot.data ?? _live;
-                    final all = [..._history.map(_fromRow), ...live];
-                    if (all.isEmpty) return _emptyTimeline(cs);
-                    return ListView.builder(
-                      controller: _scroll,
-                      padding: const EdgeInsets.only(top: Hp.s4, bottom: Hp.s6),
-                      itemCount:
-                          all.length +
-                          (_hasMoreHistory || _loadingOlder ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        final header = _hasMoreHistory || _loadingOlder ? 1 : 0;
-                        if (index == 0 && header == 1) {
-                          return _olderIndicator();
-                        }
-                        final i = index - header;
-                        final message = all[i];
-                        final previous = i > 0 ? all[i - 1] : null;
-                        // Burbujas de sesión sin autor (línea viva del bot):
-                        // el avatar toma `path.gatewayId` ('default' → 'DE').
-                        // El nombre visible del bot es `conv.title`; sin eso,
-                        // la burbuja live se apellida distinto que su
-                        // historial (que sí trae authorName).
-                        final titled =
-                            message.authorName == null &&
-                                !isGroup &&
-                                message.role == MessageRole.assistant
-                            ? message.copyWith(authorName: _conversation?.title)
-                            : message;
-                        // Icono del autor: en 1:1 la meta del bot de la
-                        // conversación; en grupos, la del bot sincronizado
-                        // con ese display name (fallback: iniciales).
-                        final (authorMeta, authorUrl) = isGroup
-                            ? (_botAvatars[titled.authorName] ?? (null, null))
-                            : (
-                                _conversation?.botAvatarMeta,
-                                _conversation?.avatarUrl,
-                              );
-                        return MessageBubble(
-                          key: ValueKey(titled.id),
-                          message: titled,
-                          isGroup: isGroup,
-                          showAuthor:
-                              isGroup &&
-                              titled.role == MessageRole.assistant &&
-                              previous?.authorName != titled.authorName,
-                          avatarUrl: authorUrl,
-                          avatarMetaJson: authorMeta,
-                        );
-                      },
-                    );
-                  },
+          if (_screen != null && _screenMaximized)
+            Expanded(
+              child: ScreenView(
+                controller: _screen!,
+                botTitle: _titleOverride ?? conv.title,
+                mode: ScreenViewMode.pane,
+                maximized: true,
+                onToggleMaximize: () =>
+                    setState(() => _screenMaximized = false),
+              ),
+            )
+          else ...[
+            if (_screen != null) ...[
+              // Mitad y mitad: escritorio arriba, conversación abajo.
+              Expanded(
+                child: ScreenView(
+                  controller: _screen!,
+                  botTitle: _titleOverride ?? conv.title,
+                  mode: ScreenViewMode.pane,
+                  onToggleMaximize: () =>
+                      setState(() => _screenMaximized = true),
                 ),
-                if (!_nearBottom)
-                  Positioned(
-                    right: Hp.s4,
-                    bottom: Hp.s4,
-                    child: FloatingActionButton.small(
-                      heroTag: 'chatScrollEnd',
-                      onPressed: () {
-                        setState(() => _nearBottom = true);
-                        _scroll.jumpTo(_scroll.position.maxScrollExtent);
-                      },
-                      child: const Icon(Icons.arrow_downward_rounded),
-                    ),
+              ),
+              const Divider(height: 1),
+            ],
+            Expanded(
+              child: Stack(
+                children: [
+                  StreamBuilder<List<ChatMessage>>(
+                    // Salas hosted: no hay ChatSessionController; el timeline
+                    // emite por su propio stream broadcast.
+                    stream: _conversation?.kind == 'group'
+                        ? _roomController.stream
+                        : _controller?.stream,
+                    initialData: _live,
+                    builder: (context, snapshot) {
+                      final live = snapshot.data ?? _live;
+                      final all = [..._history.map(_fromRow), ...live];
+                      if (all.isEmpty) return _emptyTimeline(cs);
+                      return ListView.builder(
+                        controller: _scroll,
+                        padding: const EdgeInsets.only(
+                          top: Hp.s4,
+                          bottom: Hp.s6,
+                        ),
+                        itemCount:
+                            all.length +
+                            (_hasMoreHistory || _loadingOlder ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          final header = _hasMoreHistory || _loadingOlder
+                              ? 1
+                              : 0;
+                          if (index == 0 && header == 1) {
+                            return _olderIndicator();
+                          }
+                          final i = index - header;
+                          final message = all[i];
+                          final previous = i > 0 ? all[i - 1] : null;
+                          // Burbujas de sesión sin autor (línea viva del bot):
+                          // el avatar toma `path.gatewayId` ('default' → 'DE').
+                          // El nombre visible del bot es `conv.title`; sin eso,
+                          // la burbuja live se apellida distinto que su
+                          // historial (que sí trae authorName).
+                          final titled =
+                              message.authorName == null &&
+                                  !isGroup &&
+                                  message.role == MessageRole.assistant
+                              ? message.copyWith(
+                                  authorName: _conversation?.title,
+                                )
+                              : message;
+                          // Icono del autor: en 1:1 la meta del bot de la
+                          // conversación; en grupos, la del bot sincronizado
+                          // con ese display name (fallback: iniciales).
+                          final (authorMeta, authorUrl) = isGroup
+                              ? (_botAvatars[titled.authorName] ?? (null, null))
+                              : (
+                                  _conversation?.botAvatarMeta,
+                                  _conversation?.avatarUrl,
+                                );
+                          return MessageBubble(
+                            key: ValueKey(titled.id),
+                            message: titled,
+                            isGroup: isGroup,
+                            connectionId: conv.connectionId,
+                            showAuthor:
+                                isGroup &&
+                                titled.role == MessageRole.assistant &&
+                                previous?.authorName != titled.authorName,
+                            avatarUrl: authorUrl,
+                            avatarMetaJson: authorMeta,
+                          );
+                        },
+                      );
+                    },
                   ),
-              ],
+                  if (!_nearBottom)
+                    Positioned(
+                      right: Hp.s4,
+                      bottom: Hp.s4,
+                      child: FloatingActionButton.small(
+                        heroTag: 'chatScrollEnd',
+                        onPressed: () {
+                          setState(() => _nearBottom = true);
+                          _scroll.jumpTo(_scroll.position.maxScrollExtent);
+                        },
+                        child: const Icon(Icons.arrow_downward_rounded),
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
+          ],
           StreamBuilder<List<ApprovalRequest>>(
             stream: _controller?.approvalStream,
             initialData: _controller?.approvals,
@@ -1113,18 +1198,60 @@ class _ChatScreenState extends State<ChatScreen> {
               return _approvalBand(cs, approvals);
             },
           ),
-          CompositedTransformFollower(
-            link: _composerLink,
-            showWhenUnlinked: false,
-            targetAnchor: Alignment.topLeft,
-            followerAnchor: Alignment.bottomLeft,
-            offset: const Offset(8, -8),
-            child: _mentionMenuWidget(),
-          ),
           _composer(cs),
+          _mentionHost(),
         ],
       ),
     );
+  }
+
+  /// Anfitrión del menú de menciones: se pinta DESPUÉS del composer y
+  /// gestiona el `OverlayEntry` que muestra el follower (la aserción de
+  /// FollowerLayer exige leader antes que follower en orden de pintado;
+  /// el overlay de la Scaffold se pinta después del body).
+  Widget _mentionHost() {
+    return Builder(
+      builder: (context) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          if (_mentionOpen) {
+            _ensureMentionOverlay(context);
+          } else {
+            _removeMentionOverlay();
+          }
+        });
+        return const SizedBox.shrink();
+      },
+    );
+  }
+
+  OverlayEntry? _mentionOverlay;
+
+  void _ensureMentionOverlay(BuildContext context) {
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+    if (_mentionOverlay != null) return;
+    _mentionOverlay = OverlayEntry(
+      builder: (_) => PositionedDirectional(
+        start: 0,
+        bottom: 0,
+        width: MediaQuery.sizeOf(context).width,
+        child: CompositedTransformFollower(
+          link: _composerLink,
+          showWhenUnlinked: false,
+          targetAnchor: Alignment.topLeft,
+          followerAnchor: Alignment.bottomLeft,
+          offset: const Offset(8, -8),
+          child: _mentionMenuWidget(),
+        ),
+      ),
+    );
+    overlay.insert(_mentionOverlay!);
+  }
+
+  void _removeMentionOverlay() {
+    _mentionOverlay?.remove();
+    _mentionOverlay = null;
   }
 
   Widget _emptyTimeline(ColorScheme cs) {
@@ -1282,6 +1409,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _composer(ColorScheme cs) {
     final canCancel = _isStreaming && _controller != null;
+    final isBot = _conversation?.kind == 'bot';
+    final hasInput = _input.text.trim().isNotEmpty || _pending.isNotEmpty;
     return SafeArea(
       top: false,
       child: CompositedTransformTarget(
@@ -1294,55 +1423,286 @@ class _ChatScreenState extends State<ChatScreen> {
               top: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.5)),
             ),
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: TextField(
-                  controller: _input,
-                  focusNode: _focus,
-                  minLines: 1,
-                  maxLines: 5,
-                  textInputAction: TextInputAction.newline,
-                  onChanged: _onDraftChanged,
-                  decoration: const InputDecoration(hintText: 'Mensaje'),
-                ),
+              if (_pending.isNotEmpty) _pendingStrip(cs),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (isBot) ...[
+                    IconButton(
+                      tooltip: 'Adjuntar imagen',
+                      onPressed: _sending ? null : _pickImage,
+                      icon: const Icon(Icons.image_outlined),
+                    ),
+                    IconButton(
+                      tooltip:
+                          'Nota de voz (se transcribe con el STT del gateway; '
+                          'el audio NO se guarda en el chat)',
+                      onPressed: _sending ? null : _recordVoiceNote,
+                      icon: const Icon(Icons.mic_rounded),
+                    ),
+                  ],
+                  Expanded(
+                    child: TextField(
+                      controller: _input,
+                      focusNode: _focus,
+                      minLines: 1,
+                      maxLines: 5,
+                      textInputAction: TextInputAction.newline,
+                      onChanged: _onDraftChanged,
+                      decoration: const InputDecoration(hintText: 'Mensaje'),
+                    ),
+                  ),
+                  const SizedBox(width: Hp.s2),
+                  if (canCancel || _sending)
+                    IconButton.filledTonal(
+                      tooltip: 'Detener',
+                      // `_sending` cubre la espera del ACK: el turno YA corre en el
+                      // gateway aunque `message.start` no haya abierto segmento.
+                      // session.interrupt es idempotente; si el turno ya cerró, el
+                      // gateway responde not_interrupted y no pasa nada.
+                      onPressed: _interrupt,
+                      icon: const Icon(Icons.stop_rounded),
+                    )
+                  else
+                    IconButton.filled(
+                      tooltip: _hasError ? 'Reintentar' : 'Enviar',
+                      // Sin texto pero con imágenes pendientes también se
+                      // puede enviar: la imagen EN COLA constituye el turno.
+                      onPressed: _sending || (!hasInput && !_hasError)
+                          ? null
+                          : _send,
+                      icon: Icon(
+                        _hasError
+                            ? Icons.refresh_rounded
+                            : Icons.arrow_upward_rounded,
+                      ),
+                    ),
+                ],
               ),
-              const SizedBox(width: Hp.s2),
-              if (canCancel || _sending)
-                IconButton.filledTonal(
-                  tooltip: 'Detener',
-                  // `_sending` cubre la espera del ACK: el turno YA corre en el
-                  // gateway aunque `message.start` no haya abierto segmento.
-                  // session.interrupt es idempotente; si el turno ya cerró, el
-                  // gateway responde not_interrupted y no pasa nada.
-                  onPressed: _interrupt,
-                  icon: const Icon(Icons.stop_rounded),
-                )
-              else if (_sending)
-                const Padding(
-                  padding: EdgeInsets.all(Hp.s3),
-                  child: SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2.2),
-                  ),
-                )
-              else
-                IconButton.filled(
-                  tooltip: _hasError ? 'Reintentar' : 'Enviar',
-                  onPressed: _send,
-                  icon: Icon(
-                    _hasError
-                        ? Icons.refresh_rounded
-                        : Icons.arrow_upward_rounded,
-                  ),
-                ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// Miniaturas pendientes de adjuntar, con botón de quite.
+  Widget _pendingStrip(ColorScheme cs) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Hp.s2),
+      child: SizedBox(
+        height: 64,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: _pending.length,
+          separatorBuilder: (_, _) => const SizedBox(width: Hp.s2),
+          itemBuilder: (context, i) {
+            final a = _pending[i];
+            return Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.memory(
+                    Uint8List.fromList(a.localBytes!),
+                    width: 64,
+                    height: 64,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: IconButton(
+                    tooltip: 'Quitar ${a.name}',
+                    visualDensity: VisualDensity.compact,
+                    style: IconButton.styleFrom(
+                      backgroundColor: cs.scrim.withValues(alpha: 0.55),
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () => setState(
+                      () => _pending = List.of(_pending)..removeAt(i),
+                    ),
+                    icon: const Icon(Icons.close_rounded, size: 16),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // ── Nota de voz (bots) ────────────────────────────────────────────────
+  //
+  // Flujo verificado (docs/research/adjuntos-y-notas-de-voz.md §B): no hay
+  // tipo «nota de voz» en el contrato. Se graba local (m4a/AAC), se manda a
+  // `POST /api/audio/transcribe` (web_models.py:84-86: `{data_url, mime_type}`;
+  // respuesta `{ok, transcript, provider}`) y AL CHAT SÓLO VIAJA EL TEXTO.
+  // La UI lo dice: nada de «audio enviado», nada de reproductor.
+
+  Future<void> _recordVoiceNote() async {
+    final started = DateTime.now();
+    try {
+      await _voice.start();
+    } on VoiceRecordingException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+      return;
+    } on Object catch (e) {
+      _log.warning('grabación no arrancó', e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo abrir el micrófono.')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    final action = await showDialog<VoiceNoteAction>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _VoiceSheet(recorder: _voice),
+    );
+    if (action != VoiceNoteAction.keep) {
+      await _voice.cancel();
+      return;
+    }
+    VoiceRecording rec;
+    try {
+      rec = await _voice.stop();
+    } on VoiceRecordingException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+      return;
+    }
+    final runtime = _runtime;
+    if (runtime == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sin gateway: no hay con quién transcribir.'),
+          ),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    final res = await runtime.http.transcribeAudio(
+      rec.bytes,
+      mimeType: rec.mimeType,
+    );
+    if (!mounted) return;
+    if (!res.ok) {
+      // Diagnóstico por causa (STT sin configurar ≠ red ≠ sesión muerta).
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            res.detail ??
+                'La transcripción falló (${res.cause?.name ?? 'desconocido'})',
+          ),
+        ),
+      );
+      return;
+    }
+    final draft = _input.text.trim();
+    final text = draft.isEmpty ? res.text : '$draft\n${res.text}';
+    _input.text = text;
+    _input.selection = TextSelection.collapsed(offset: text.length);
+    _flushDraft();
+    _log.info(
+      'transcrito ${rec.bytes.length}B en '
+      '${DateTime.now().difference(started).inSeconds}s '
+      '(proveedor ${res.provider ?? '?'})',
+    );
+    if (mounted) _focus.requestFocus();
+  }
+
+  /// Selector de imagen (bots). `file_picker` en Android usa el
+  /// document-provider (no hace falta permiso de almacenamiento); en
+  /// Windows abre el diálogo nativo. Límite propio de 8 MB: el techo real
+  /// del gateway es 25 MB por attach (prompt_attachments.py:18-20), así que
+  /// el Pocket impone el suyo, más conservador, y lo anuncia.
+  Future<void> _pickImage() async {
+    // file_picker 13: `pickFiles` devuelve List<PlatformFile> (vacío = el
+    // usuario canceló) y NO tiene allowMultiple en esta versión: un pick por
+    // imagen (la bandeja admite varias acumuladas). `readAsBytes()` resuelve
+    // el content:// de SAF en Android y el file:// de Windows.
+    final List<PlatformFile> picked;
+    try {
+      picked = await FilePicker.pickFiles(type: FileType.image);
+    } catch (e) {
+      _log.warning('file picker falló', e);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('El selector de archivos no está disponible'),
+        ),
+      );
+      return;
+    }
+    if (picked.isEmpty || !mounted) return;
+    const maxBytes = 8 * 1024 * 1024;
+    final added = <MessageAttachment>[];
+    var rejected = 0;
+    for (final f in picked) {
+      final declared = f.lengthSync();
+      if (declared != null && declared > maxBytes) {
+        rejected++;
+        continue;
+      }
+      final Uint8List bytes;
+      try {
+        bytes = await f.readAsBytes();
+      } on Object catch (e) {
+        // SAF revocado / fichero movido (patrón de avatar_image.dart).
+        _log.warning('lectura del picker falló', e);
+        rejected++;
+        continue;
+      }
+      if (bytes.isEmpty || bytes.length > maxBytes) {
+        rejected++;
+        continue;
+      }
+      added.add(
+        MessageAttachment(
+          // path se llena al adjuntar de verdad (respuesta del gateway).
+          path: '',
+          name: f.name,
+          bytes: bytes.length,
+          localBytes: bytes,
+        ),
+      );
+    }
+    if (added.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ninguna imagen cabía en el límite (8 MB).'),
+        ),
+      );
+      return;
+    }
+    setState(() => _pending = [..._pending, ...added]);
+    if (rejected > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            rejected == 1
+                ? '1 imagen superaba el límite de 8 MB.'
+                : '$rejected imágenes superaban el límite de 8 MB.',
+          ),
+        ),
+      );
+    }
   }
 
   // ── Autocompletado de menciones (grupos) ────────────────────────────────
@@ -1354,9 +1714,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _mentionOpen = false;
 
   /// El caret está dentro de un token `@…`: muestra el menú filtrado.
-  /// El caret está dentro de un token `@…`: muestra el menú filtrado.
   /// El menú se pinta INLINE sobre el composer (Stack del propio _composer):
-  /// así viaja con el teclado (el composer ya se eleva con viewInsets) y no
   /// depende de enlaces de overlay que con rootOverlay no se pintaban.
   void _updateMention() {
     final caret = _input.selection.isValid
@@ -1478,6 +1836,11 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       origin: MessageOrigin.history,
       tools: tools,
+      // Caché multimedia local (cache_media): si este dispositivo ya bajó
+      // la imagen, la miniatura sale sin tocar la red (ver ImageStrip).
+      attachments: MessageAttachment.decodeJson(row.attachmentsJson)
+          .map((a) => a.localBytes == null ? (MediaCache.load(a.path) ?? a) : a)
+          .toList(),
     );
   }
 }
@@ -1497,3 +1860,82 @@ Color _linkColor(GatewayLinkState s) => switch (s) {
   GatewayLinkState.authExpired || GatewayLinkState.error => Hp.error,
   GatewayLinkState.disconnected => Hp.offline,
 };
+
+/// Resultado de la hoja de grabación.
+enum VoiceNoteAction { keep, discard }
+
+class _VoiceSheet extends StatefulWidget {
+  final VoiceRecorder recorder;
+  const _VoiceSheet({required this.recorder});
+
+  @override
+  State<_VoiceSheet> createState() => _VoiceSheetState();
+}
+
+class _VoiceSheetState extends State<_VoiceSheet> {
+  Duration _elapsed = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    // La hoja se abre DESPUÉS de start(): el timer del recorder ya corre.
+    _elapsed = widget.recorder.lastElapsed;
+    _sub = widget.recorder.elapsed.listen((d) {
+      if (mounted) setState(() => _elapsed = d);
+    });
+  }
+
+  late final StreamSubscription<Duration> _sub;
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
+
+  String get _label {
+    final m = _elapsed.inMinutes.toString().padLeft(2, '0');
+    final s = (_elapsed.inSeconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: const Text('Grabando nota de voz'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.mic_rounded, size: 44, color: Hp.error),
+          const SizedBox(height: Hp.s2),
+          Text(
+            _label,
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(height: Hp.s2),
+          Text(
+            'Al soltar, el audio se transcribe con el STT del gateway y '
+            'puedes editar el texto antes de enviarlo. El audio no se guarda.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, VoiceNoteAction.discard),
+          child: const Text('Descartar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, VoiceNoteAction.keep),
+          child: const Text('Listo'),
+        ),
+      ],
+    );
+  }
+}

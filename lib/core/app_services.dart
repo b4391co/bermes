@@ -124,8 +124,7 @@ Future<T> withTimeout<T>(
   Future<T> future,
   Duration duration,
   Future<T> Function() onTimeout,
-) =>
-    future.timeout(duration, onTimeout: onTimeout);
+) => future.timeout(duration, onTimeout: onTimeout);
 
 /// Stream vacío tipado, útil como fallback antes de inicializar.
 Stream<T> emptyStream<T>() => const Stream.empty();

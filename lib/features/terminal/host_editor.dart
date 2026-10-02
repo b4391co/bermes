@@ -49,9 +49,7 @@ class _HostEditorState extends State<HostEditor> {
     final p = widget.preset;
     _name = TextEditingController(text: e?.name ?? p?.name ?? '');
     _host = TextEditingController(text: e?.host ?? p?.host ?? '');
-    _port = TextEditingController(
-      text: (e?.port ?? p?.port ?? 22).toString(),
-    );
+    _port = TextEditingController(text: (e?.port ?? p?.port ?? 22).toString());
     _username = TextEditingController(text: e?.username ?? p?.username ?? '');
     _authKind = e?.authKind ?? 'password';
     _password = TextEditingController();
@@ -236,7 +234,10 @@ class _HostEditorState extends State<HostEditor> {
                 ),
                 maxLines: 5,
                 minLines: 3,
-                style: const TextStyle(fontFamily: 'JetBrainsMonoNerd', fontSize: 12),
+                style: const TextStyle(
+                  fontFamily: 'JetBrainsMonoNerd',
+                  fontSize: 12,
+                ),
                 validator: _isEdit
                     ? null
                     : (v) => (v == null || v.trim().isEmpty)

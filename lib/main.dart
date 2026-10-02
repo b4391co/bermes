@@ -8,6 +8,18 @@ import 'features/settings/appearance_section.dart';
 
 void main() {
   Logger('Main').info('Hermes Pocket arrancando');
+  // En debug, vuelca el error cruda en vez de la inspección de widgets
+  // (evita el bucle del reporte estructurado y deja el log legible).
+  assert(() {
+    FlutterError.onError = (details) {
+      Logger('FlutterError').error(
+        'EXC: ${details.exception}\n${details.stack}',
+        details.exception,
+        details.stack,
+      );
+    };
+    return true;
+  }());
   runApp(const HermesPocketApp());
 }
 

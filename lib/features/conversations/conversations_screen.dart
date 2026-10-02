@@ -111,64 +111,71 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         },
         child: const Icon(Icons.add_comment_outlined),
       ),
-      body: _twoPane(context, Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(Hp.s4, Hp.s2, Hp.s4, Hp.s2),
-            child: TextField(
-              controller: _search,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                hintText: 'Buscar chats',
-                prefixIcon: const Icon(Icons.search_rounded),
-                isDense: true,
-                suffixIcon: _search.text.isEmpty
-                    ? null
-                    : IconButton(
-                        icon: const Icon(Icons.close_rounded, size: 18),
-                        onPressed: () {
-                          _search.clear();
-                          setState(() {});
-                        },
-                      ),
+      body: _twoPane(
+        context,
+        Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Hp.s4, Hp.s2, Hp.s4, Hp.s2),
+              child: TextField(
+                controller: _search,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  hintText: 'Buscar chats',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  isDense: true,
+                  suffixIcon: _search.text.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          onPressed: () {
+                            _search.clear();
+                            setState(() {});
+                          },
+                        ),
+                ),
               ),
             ),
-          ),
-          Expanded(
-            child: StreamBuilder<List<Conversation>>(
-              stream: query.watch(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting &&
-                    !snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final rows = snapshot.data ?? const <Conversation>[];
-                final filtered = _filter(rows);
-                if (rows.isEmpty) return _emptyState(context);
-                if (filtered.isEmpty) return _noResults(context);
-                return FutureBuilder<List<Connection>>(
-                  future: _connections(),
-                  builder: (context, cs) {
-                    final sections = _sections(
-                      filtered,
-                      cs.data ?? const <Connection>[],
-                    );
-                    return ListView.builder(
-                      itemCount: sections.length,
-                      itemBuilder: (context, index) => switch (sections[index]) {
-                        _Header(:final label, :final reorderable) =>
-                          _sectionHeader(context, label, reorderable),
-                        _PinnedRow(:final convs) => _pinnedBand(context, convs),
-                        _Row(:final conv) => _tile(context, conv),
-                      },
-                    );
-                  },
-                );
-              },
+            Expanded(
+              child: StreamBuilder<List<Conversation>>(
+                stream: query.watch(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting &&
+                      !snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final rows = snapshot.data ?? const <Conversation>[];
+                  final filtered = _filter(rows);
+                  if (rows.isEmpty) return _emptyState(context);
+                  if (filtered.isEmpty) return _noResults(context);
+                  return FutureBuilder<List<Connection>>(
+                    future: _connections(),
+                    builder: (context, cs) {
+                      final sections = _sections(
+                        filtered,
+                        cs.data ?? const <Connection>[],
+                      );
+                      return ListView.builder(
+                        itemCount: sections.length,
+                        itemBuilder: (context, index) =>
+                            switch (sections[index]) {
+                              _Header(:final label, :final reorderable) =>
+                                _sectionHeader(context, label, reorderable),
+                              _PinnedRow(:final convs) => _pinnedBand(
+                                context,
+                                convs,
+                              ),
+                              _Row(:final conv) => _tile(context, conv),
+                            },
+                      );
+                    },
+                  );
+                },
+              ),
             ),
-          ),
-        ],
-      )),
+          ],
+        ),
+      ),
     );
   }
 
@@ -211,9 +218,11 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     final pinnedGlobal = sorted
         .where((c) => !c.isGroup && c.pinned)
         .toList(growable: false);
-    final rest = sorted
-        .where((c) => !c.isGroup && !c.pinned)
-        .toList(growable: false);
+    // Un bot fijado en el GLOBAL sigue visible en su gateway: la banda
+    // 'Fijados' es un atajo, no un traslado. La lista usa keys por índice
+    // y abrir una fila es idempotente (`ChatScreen(conversationId: c.id)`),
+    // así que la duplicación no rompe selección ni estado.
+    final rest = sorted.where((c) => !c.isGroup).toList(growable: false);
     final byConn = <String, List<Conversation>>{};
     for (final c in rest) {
       byConn.putIfAbsent(c.connectionId, () => []).add(c);
@@ -251,6 +260,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     }
     return out;
   }
+
   /// Banda "Fijados" estilo Grok Bot: tiles horizontales con el icono
   /// grande centrado y el nombre pequeño debajo. Desplazamiento lateral
   /// si no caben.
@@ -269,8 +279,10 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
             ),
           ),
         ),
+        // x2 respecto a la tira anterior (tile 72×92, avatar 56): el
+        // fijado global se mira de un vistazo.
         SizedBox(
-          height: 92,
+          height: 184,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: Hp.s4),
@@ -285,7 +297,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
 
   Widget _pinnedTile(BuildContext context, Conversation c) {
     return SizedBox(
-      width: 72,
+      width: 144,
       child: InkWell(
         borderRadius: BorderRadius.circular(Hp.rMd),
         onTap: () {
@@ -307,18 +319,20 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
               BotAvatar(
                 seed: c.avatarSeed ?? c.id,
                 label: c.title,
-                size: 56,
+                size: 112,
                 isGroup: c.isGroup,
                 imageUrl: c.avatarUrl,
                 avatarMetaJson: c.botAvatarMeta,
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 8),
               Text(
                 c.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.labelSmall,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
             ],
           ),
@@ -333,7 +347,11 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       dense: true,
       visualDensity: const VisualDensity(vertical: -2),
       contentPadding: const EdgeInsets.symmetric(horizontal: Hp.s4),
-      leading: Icon(Icons.folder_outlined, size: 18, color: cs.onSurfaceVariant),
+      leading: Icon(
+        Icons.folder_outlined,
+        size: 18,
+        color: cs.onSurfaceVariant,
+      ),
       title: Text(
         label,
         style: Theme.of(context).textTheme.labelLarge?.copyWith(
@@ -454,14 +472,12 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       // sincronizada para que el sync no la re-materialice ni la re-titre.
       await (database.update(database.conversations)
             ..where((x) => x.id.equals(c.id)))
-          .write(
-        const ConversationsCompanion(kind: Value('group-hidden')),
-      );
+          .write(const ConversationsCompanion(kind: Value('group-hidden')));
       return;
     }
-    await (database.delete(database.conversations)
-          ..where((x) => x.id.equals(c.id)))
-        .go();
+    await (database.delete(
+      database.conversations,
+    )..where((x) => x.id.equals(c.id))).go();
   }
 
   Widget _tile(BuildContext context, Conversation c) {
@@ -528,10 +544,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           if (c.unreadCount > 0)
             Container(
               margin: const EdgeInsets.only(left: Hp.s2),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 6.5,
-                vertical: 2,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 6.5, vertical: 2),
               decoration: BoxDecoration(
                 color: cs.primary,
                 borderRadius: BorderRadius.circular(10),
@@ -563,14 +576,15 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       onLongPress: () => _rowActions(context, c),
     );
   }
+
   /// Acciones de fila: editar bot (perfil) o eliminar conversación local.
   /// Editar solo para kind='bot': requiere el name del perfil + conexión.
   Future<void> _rowActions(BuildContext context, Conversation c) async {
     // El menú lee SIEMPRE la fila viva de la BD (no el objeto que el tile
     // tenía en memoria: el upsert de sync puede entregar copias viejas).
-    final live = await (AppServices.db.select(AppServices.db.conversations)
-          ..where((x) => x.id.equals(c.id)))
-        .getSingle();
+    final live = await (AppServices.db.select(
+      AppServices.db.conversations,
+    )..where((x) => x.id.equals(c.id))).getSingle();
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (context) => SafeArea(
@@ -579,9 +593,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           children: [
             ListTile(
               leading: Icon(
-                live.pinned
-                    ? Icons.push_pin_rounded
-                    : Icons.push_pin_outlined,
+                live.pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
               ),
               title: Text(
                 live.pinned ? 'Quitar de Fijados' : 'Fijar arriba de todo',
@@ -652,14 +664,11 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     final j = c.botAvatarMeta;
     if (j == null || j.isEmpty) return null;
     try {
-      return BotAvatarMeta.fromJson(
-        const JsonDecoder().convert(j) as Map,
-      );
+      return BotAvatarMeta.fromJson(const JsonDecoder().convert(j) as Map);
     } catch (_) {
       return null;
     }
   }
-
 
   Widget _emptyState(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -712,11 +721,10 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     );
   }
 
-
   Future<void> _openConnectionEditor() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const ConnectionEditor()),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const ConnectionEditor()));
     if (!mounted) return;
     final rows = await AppServices.db.select(AppServices.db.connections).get();
     setState(() => _connectionCount = rows.length);
@@ -728,16 +736,14 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   /// bot canónico (sesión con título exacto Bot Chat, según hermes-map §4).
   Future<void> _newConversation() async {
     final db = AppServices.db;
-    final connections = await (db.select(db.connections)
-          ..where((c) => c.enabled.equals(true)))
-        .get();
+    final connections = await (db.select(
+      db.connections,
+    )..where((c) => c.enabled.equals(true))).get();
     if (!mounted) return;
 
     if (connections.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Añade primero una conexión en Ajustes.'),
-        ),
+        const SnackBar(content: Text('Añade primero una conexión en Ajustes.')),
       );
       await _openConnectionEditor();
       return;
@@ -745,9 +751,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
 
     // Bots ya conocidos de esos gateways.
     final connIds = connections.map((c) => c.id).toSet();
-    final known = await (db.select(db.conversations)
-          ..where((c) => c.kind.equals('bot')))
-        .get();
+    final known = await (db.select(
+      db.conversations,
+    )..where((c) => c.kind.equals('bot'))).get();
     final byConnection = {
       for (final id in connIds) id: known.where((c) => c.connectionId == id),
     };
@@ -803,9 +809,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   /// (create-dialog.tsx:1190-1221 vía group_create.dart).
   Future<void> _newGroup() async {
     final db = AppServices.db;
-    final connections = await (db.select(db.connections)
-          ..where((c) => c.enabled.equals(true)))
-        .get();
+    final connections = await (db.select(
+      db.connections,
+    )..where((c) => c.enabled.equals(true))).get();
     if (!mounted) return;
     if (connections.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -813,13 +819,15 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       );
       return;
     }
-    final bots = await (db.select(db.conversations)
-          ..where((c) => c.kind.equals('bot')))
-        .get();
+    final bots = await (db.select(
+      db.conversations,
+    )..where((c) => c.kind.equals('bot'))).get();
     if (bots.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('No hay bots descubiertos todavía: conecta un gateway.'),
+          content: Text(
+            'No hay bots descubiertos todavía: conecta un gateway.',
+          ),
         ),
       );
       return;
@@ -829,30 +837,30 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     // duplicar bots con id o nombre coincidentes.
     final order = [...connections]
       ..sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
-    final candidates = dedupeCandidates(
-      [
-        for (final c in bots)
-          GroupCandidate(
-            conv: c,
-            connectionId: c.connectionId,
-            connectionLabel:
-                connections.where((x) => x.id == c.connectionId).firstOrNull?.name ??
-                    c.gatewayLabel ??
-                    'Gateway',
-            installId:
-                connections.where((x) => x.id == c.connectionId).firstOrNull?.installId,
-          ),
-      ],
-      order.map((c) => c.id).toList(),
-    );
+    final candidates = dedupeCandidates([
+      for (final c in bots)
+        GroupCandidate(
+          conv: c,
+          connectionId: c.connectionId,
+          connectionLabel:
+              connections
+                  .where((x) => x.id == c.connectionId)
+                  .firstOrNull
+                  ?.name ??
+              c.gatewayLabel ??
+              'Gateway',
+          installId: connections
+              .where((x) => x.id == c.connectionId)
+              .firstOrNull
+              ?.installId,
+        ),
+    ], order.map((c) => c.id).toList());
     final picked = await showModalBottomSheet<_GroupPick>(
       context: context,
       isScrollControlled: true,
       builder: (_) => _NewGroupSheet(
         candidates: candidates,
-        connectionLabels: {
-          for (final c in connections) c.id: c.name,
-        },
+        connectionLabels: {for (final c in connections) c.id: c.name},
       ),
     );
     if (picked == null || !mounted) return;
@@ -874,9 +882,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       );
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Grupo "${picked.name}" creado.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Grupo "${picked.name}" creado.')));
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ChatScreen(conversationId: outcome.conversationId!),
@@ -1064,9 +1072,7 @@ class _NewGroupSheetState extends State<_NewGroupSheet> {
   Widget build(BuildContext context) {
     final canCreate = _name.text.trim().isNotEmpty && _checked.length >= 2;
     return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.viewInsetsOf(context).bottom,
-      ),
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1122,9 +1128,7 @@ class _NewGroupSheetState extends State<_NewGroupSheet> {
                         avatarMetaJson: c.conv.botAvatarMeta,
                       ),
                       onChanged: (on) => setState(() {
-                        on == true
-                            ? _checked.add(c)
-                            : _checked.remove(c);
+                        on == true ? _checked.add(c) : _checked.remove(c);
                       }),
                     ),
                 ],
@@ -1135,16 +1139,14 @@ class _NewGroupSheetState extends State<_NewGroupSheet> {
               child: FilledButton.icon(
                 onPressed: canCreate
                     ? () => Navigator.of(context).pop(
-                          _GroupPick(
-                            name: _name.text.trim(),
-                            members: _checked.toList(),
-                          ),
-                        )
+                        _GroupPick(
+                          name: _name.text.trim(),
+                          members: _checked.toList(),
+                        ),
+                      )
                     : null,
                 icon: const Icon(Icons.group_add_outlined, size: 18),
-                label: Text(
-                  'Crear grupo (${_checked.length} bots)',
-                ),
+                label: Text('Crear grupo (${_checked.length} bots)'),
               ),
             ),
           ],
