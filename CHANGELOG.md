@@ -1,5 +1,11 @@
 # Release 0.1.25 (2026-10-02)
 
+## APKs por arquitectura (firma de distribución, todos `versionName 0.1.25`)
+- `bermes-pocket-0.1.25+26-arm64.apk` (~33 MB) — móviles modernos (recomendado).
+- `bermes-pocket-0.1.25+26-armv7a.apk` (~32 MB) — móviles antiguos 32 bits.
+- `bermes-pocket-0.1.25+26-x86_64.apk` (~35 MB) — emulador Android x86_64.
+- `bermes-pocket-0.1.25+26.apk` (~86 MB) — universal (todas las ABIs).
+
 ## Corregido
 - **Grupos mixtos no listados / chat vacío**: la dueña de una sala se elegía
   como «primera conexión con miembros»; en una sala con bots de varios
