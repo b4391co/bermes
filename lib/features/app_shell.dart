@@ -11,6 +11,7 @@ import '../design/tokens.dart';
 import 'conversations/conversations_screen.dart';
 import 'settings/settings_screen.dart';
 import 'terminal/terminal_screen.dart';
+import 'conversations/bot_face.dart';
 
 /// Shell de navegación: Conversaciones · Terminal · Ajustes.
 /// Navegación inicial acordada; bots y grupos comparten lista con filtros.
@@ -218,6 +219,19 @@ class BotAvatar extends StatelessWidget {
         fit: BoxFit.contain,
         errorBuilder: (_, _, _) =>
             _iconOr(meta) ?? _initialsText(initials, color),
+      );
+    } else if (meta?.shape != null &&
+        (isBlobShape(meta!.shape) ||
+            kDesktopShapes.contains(meta.shape) ||
+            meta.shape == 'hexagon')) {
+      // Avatar de Hermes Desktop: cara procedural (blobatar) o forma clásica
+      // (avatar.tsx:27,996). El color sigue el mismo contrato que el editor
+      // (hex propio o hue determinista por nombre).
+      content = BotFace(
+        name: seed,
+        shape: meta.shape,
+        color: meta.color,
+        size: size,
       );
     } else if (meta?.icon != null) {
       content = Icon(

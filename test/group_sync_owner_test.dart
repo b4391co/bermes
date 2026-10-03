@@ -141,6 +141,93 @@ void main() {
     );
   });
 
+  test('espejo COMPLETO en ambos gateways (Desktop real): sala mixta aparece',
+      () async {
+    // Caso real del usuario: la misma Desktop publica la proyección COMPLETA
+    // en el `default` de CADA gateway (`group-chat.ts:88-91`). El bot 'aa'
+    // vive en la primera conexión, 'bb' en la segunda; ambas conexiones
+    // proyectan la sala. Debe listarse UNA fila con miembros de ambos
+    // gateways, dueña la primera por orden.
+    final mixedA = GroupRoom(
+      key: 'id:room-mix',
+      roomId: 'room-mix',
+      name: 'Mezcla',
+      revision: 1,
+      members: const [
+        GroupMember(name: 'aa', displayName: 'Aa'),
+        GroupMember(name: 'bb', displayName: 'Bb'),
+      ],
+    );
+    ConnectionGroupState gw(String id, DateTime created) => ConnectionGroupState(
+      id: id,
+      label: id,
+      createdAt: created,
+      displayOrder: 0,
+      profiles: [
+        GatewayProfileSnapshot(
+          name: 'default',
+          groups: GroupSyncSnapshot(rooms: {'id:room-mix': mixedA}),
+        ),
+        GatewayProfileSnapshot(name: id == 'gwA' ? 'aa' : 'bb', groups: GroupSyncSnapshot.empty),
+      ],
+      titles: const {},
+    );
+    await syncGroupMirrors(
+      db: db,
+      connections: [gw('gwA', DateTime(2026, 1, 1)), gw('gwB', DateTime(2026, 2, 1))],
+    );
+    final rows = await (db.select(
+      db.conversations,
+    )..where((c) => c.kind.equals('group'))).get();
+    expect(rows, hasLength(1), reason: 'la sala mixta real debe aparecer');
+    expect(rows.single.connectionId, 'gwA');
+  });
+
+  test('default oculto + espejo: la sala sigue materializándose', () async {
+    // H2 del bug real: el `continue` por `hidden` saltaba el parse del espejo
+    // del perfil `default`. Ocultar el BOT no despublica los GRUPOS.
+    // Simulado a nivel syncGroupMirrors: el roster llega SIN títulos del
+    // default (oculto) pero CON su espejo — la sala debe existir.
+    final mixed = GroupRoom(
+      key: 'id:room-h',
+      roomId: 'room-h',
+      name: 'Ocultos',
+      revision: 1,
+      members: const [GroupMember(name: 'bb', displayName: 'Bb')],
+    );
+    final oculta = ConnectionGroupState(
+      id: 'oculta',
+      label: 'oculta',
+      createdAt: DateTime(2026, 1, 1),
+      displayOrder: 0,
+      profiles: [
+        // El manager (post-fix) aporta el espejo aunque el bot esté oculto:
+        // titles NO contiene 'default' (hidden salta el título).
+        GatewayProfileSnapshot(
+          name: 'default',
+          groups: GroupSyncSnapshot(rooms: {'id:room-h': mixed}),
+        ),
+      ],
+      titles: const {},
+    );
+    final otra = ConnectionGroupState(
+      id: 'otra',
+      label: 'otra',
+      createdAt: DateTime(2026, 2, 1),
+      displayOrder: 1,
+      profiles: [
+        GatewayProfileSnapshot(name: 'bb', groups: GroupSyncSnapshot.empty),
+      ],
+      titles: const {},
+    );
+    await syncGroupMirrors(db: db, connections: [oculta, otra]);
+    final rows = await (db.select(
+      db.conversations,
+    )..where((c) => c.kind.equals('group'))).get();
+    expect(rows, hasLength(1), reason: 'el espejo sobrevive al bot oculto');
+    expect(rows.single.connectionId, 'oculta');
+  });
+
   test('fila huérfana en conexión caída se limpia', () async {
     // Sala viva proyectada por old-conn; la dueña new-conn la materializa y
     // la fila vieja (de un ciclo anterior) debe desaparecer aunque old-conn

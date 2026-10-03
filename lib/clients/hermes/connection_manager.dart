@@ -490,15 +490,12 @@ class ConnectionManager {
         // hermes-mobile Profile.kt::effectiveTitle):
         // ui_meta.hermes-bots.title > display_name > name.
         final botMeta = BotRosterMeta.fromProfile(p);
-        if (botMeta?.hidden == true) continue; // bot oculto por Desktop
-        final displayName = (botMeta?.title?.isNotEmpty ?? false)
-            ? botMeta!.title!
-            : ((p['display_name'] as String?)?.isNotEmpty ?? false)
-            ? p['display_name'] as String
-            : name;
-        roster.titles[name] = displayName;
-        // Espejo de salas: SOLO el perfil `default` de cada gateway lo lleva
-        // (Desktop lo publica ahí, `group-chat.ts:1180-1182`).
+        // El ESPEJO DE SALAS lo publica Desktop en el perfil `default`
+        // (`group-chat.ts:1013-1026`) y su lectura NO depende de que el bot
+        // sea visible: ocultar el bot `default` oculta el BOT del roster,
+        // no el registro de grupos de la Desktop. Saltarse el parse aquí
+        // vaciaba el aporte del gateway al merge y descartaba salas mixtas
+        // (0.1.26: «los grupos conjuntos no aparecen»).
         if (name == 'default') {
           final snap = GroupSyncSnapshot.tryParse(
             (p['ui_meta'] is Map)
@@ -506,9 +503,6 @@ class ConnectionManager {
                 : null,
           );
           if (snap != null) {
-            // Membresía bot→grupo de TODOS los perfiles de este gateway
-            // (`ui_meta.hermes-bots.groups`, `types.ts:75`): se acumula en una
-            // pasada aparte porque `profiles` incluye el propio `p`.
             final membership = <String>{
               for (final q in profiles)
                 ...?BotRosterMeta.fromProfile(q)?.groups,
@@ -522,6 +516,13 @@ class ConnectionManager {
             );
           }
         }
+        if (botMeta?.hidden == true) continue; // bot oculto por Desktop
+        final displayName = (botMeta?.title?.isNotEmpty ?? false)
+            ? botMeta!.title!
+            : ((p['display_name'] as String?)?.isNotEmpty ?? false)
+            ? p['display_name'] as String
+            : name;
+        roster.titles[name] = displayName;
         // Avatar: tres fuentes, en este orden de prioridad.
         //  1. `ui_meta.hermes-bots.avatar.icon` (Material) — el icono que el
         //     usuario ELIGIÓ en Pocket; manda sobre lo que publique el host
@@ -609,6 +610,11 @@ class ConnectionManager {
             );
         _log.info('bot sync ${row.name}/$name canonical=${canonical ?? '??'}');
       }
+      // Publicar el roster (con el espejo ya parseado) ANTES de cualquier
+      // escritura posterior: si un perfil falla al escribir (throw abajo), el
+      // gateway igualmente aporta su espejo al merge de salas. El antiguo
+      // todo-o-nada excluía la conexión del ciclo y descartaba salas mixtas
+      // cuando el otro gateway tampoco las llevaba (0.1.26).
       _snapshotByConn[row.id] = roster;
     } catch (e) {
       // Un gateway sin profiles.list (versión antigua) no bloquea nada.
