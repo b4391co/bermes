@@ -27,6 +27,7 @@ REFRESH_COOKIE = "hermes_session_rt"
 TICKETS: dict[str, float] = {}
 DISPLAY = {"state": "stopped", "lease": None}
 DISPLAY_TICKETS: dict[str, float] = {}
+ASSETS: dict[str, str | None] = {"avatar": None}  # profiles.set_asset store
 
 
 async def display_ws(request: web.Request) -> web.WebSocketResponse:
@@ -298,6 +299,27 @@ def rpc_result(method: str, params: dict) -> object:
                 "display_name": "Default Bot",
                 "description": "Bot principal de pruebas",
                 "is_default": True,
+                # H2 (0.1.26): default oculto conserva el espejo publicado.
+                **({"ui_meta": {
+                    "hermes-bots": {**dict(BOT_META), "hidden": True},
+                    **({"hermes-bots-groups": dict(GROUPS_META)} if GROUPS_META else {
+                        "hermes-bots-groups": {
+                            "version": 3, "updatedAt": now_ms(),
+                            "rooms": {
+                                "id:room-1": {
+                                    "name": "Equipo", "roomId": "room-1", "revision": 1,
+                                    "members": [{"name": "default"}, {"name": "researcher"}],
+                                    "log": [{"at": now_ms(), "from": {"kind": "user", "name": "You"}, "text": "hola"}],
+                                },
+                                "id:room-2": {
+                                    "name": "Mezcla", "roomId": "room-2", "revision": 1,
+                                    "members": [{"name": "default"}, {"name": "researcher"}],
+                                },
+                            },
+                            "deleted": {},
+                        },
+                    }),
+                }} if MODE.get("hidden_default") else {
                 # Envelope REAL v3 del espejo (group-chat.ts:68-80,296-320), no {groups:[...]}.
                 "ui_meta": {
                     "hermes-bots": dict(BOT_META),
@@ -324,6 +346,7 @@ def rpc_result(method: str, params: dict) -> object:
                         },
                     }),
                 },
+                }),
                 "ui_meta_revisions": dict(META_REVS),
                 "canonical_session": ({"id": "sess-canonical-default", "resolved_id": "sess-canonical-default-r", "title": "Bot Chat"} if MODE["canonical"] else None),
             },
@@ -358,14 +381,28 @@ def rpc_result(method: str, params: dict) -> object:
                 GROUPS_META.clear()
                 GROUPS_META.update(val or {})
             META_REVS[key] = META_REVS.get(key, 0) + 1
-        return {"ok": True, "applied": {"ui_meta": True}}
     if method == "profiles.get_asset":
+        # Sirve el asset almacenado (set_asset) o el PNG de fábrica para
+        # `default` cuando no hay ninguno.
         if params.get("name") != "default":
             raise ValueError("no avatar")
+        stored = ASSETS.get("avatar")
+        if stored:
+            return {"data_url": stored}
         # PNG 8x8 rojo (visible en screenshots, a diferencia del 1x1).
         png = ("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAEklEQVR4"
                "nGN47JP5Hx9mGBkKAG7jpcHQzqtjAAAAAElFTkSuQmCC")
         return {"data_url": f"data:image/png;base64,{png}"}
+    if method == "profiles.set_asset":
+        # Contrato real (methods_profiles.py:408-442): {name, asset:'avatar',
+        # data|clear} → {ok, asset, size?|removed?}.
+        ASSETS["avatar"] = None if params.get("clear") else params.get("data")
+        out = {"ok": True, "asset": "avatar"}
+        if params.get("clear"):
+            out["removed"] = True
+        else:
+            out["size"] = len(params.get("data") or "")
+        return out
     if method == "session.list":
         prof = params.get("profile", "default")
         return {"sessions": [
@@ -624,6 +661,9 @@ async def set_mode(request: web.Request) -> web.Response:
         MODE["canonical"] = request.query["canonical"] == "1"
     if "prompt_error" in request.query:
         MODE["prompt_error"] = request.query["prompt_error"] == "1"
+    if "hidden_default" in request.query:
+        # H2 (0.1.26): el bot `default` oculto NO debe despublicar el espejo.
+        MODE["hidden_default"] = request.query["hidden_default"] == "1"
     if "researcher" in request.query:
         MODE["researcher_canonical"] = request.query["researcher"] == "1"
     if "approval" in request.query:
@@ -685,6 +725,7 @@ def main() -> None:
     app = web.Application()
     app.middlewares.append(log_middleware)
     app.router.add_get("/api/health", health)
+    app.router.add_get("/api/status", api_status)
     app.router.add_post("/api/test/emit", test_emit)
     app.router.add_post("/api/test/srq", test_srq)
     app.router.add_get("/api/profiles", rest_profiles)

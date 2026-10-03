@@ -1,7 +1,7 @@
-# Hermes Pocket — estado del proyecto (2026-10-02)
+# Hermes Pocket — estado del proyecto (2026-10-03)
 
 App Android nativa (Flutter) cliente de gateways **Hermes Agent** (Nous
-Research). Versión actual: **0.1.25**. Windows: plataforma habilitada en el
+Research). Versión actual: **0.1.26**. Windows: plataforma habilitada en el
 workspace (adaptación de navegación pendiente de producto).
 
 ## Qué funciona (verificado contra gateway real + fake)
@@ -39,6 +39,17 @@ workspace (adaptación de navegación pendiente de producto).
   iniciar/parar, tomar/devolver el control (lease).
 - **Ajustes**: export/import JSON (config + secretos opcional), diagnóstico
   completo, reinicio seguro de la base.
+
+## Verificación 0.1.26 en emulador (2026-10-03)
+
+- **Editor de ficha**: guardar forma/color/descripción cierra el sheet con
+  CAS correcto (bug del gate tri-state corregido) y reenvía `groups` → el
+  perfil del gateway conserva «Grupos: Equipo» (antes se borraba en cada
+  guardado). Verificado contra el fake con inspección del RPC
+  `profiles.configure` y del roster posterior.
+- La forma `pill` sobre lienzo cuadrado se renderiza como cápsula ≈ círculo:
+  NO es un fallo de render, es geometría (radio h/2). Verificado en
+  `bot_face.dart:228-230`.
 
 ## Verificación de release en emulador (2026-10-02, corregida)
 

@@ -1,5 +1,53 @@
-# Release 0.1.25 (2026-10-02)
+# Release 0.1.26 (2026-10-03)
 
+## Corregido
+- **Grupos con bots de varios gateways seguían sin aparecer (caso real)**:
+  dos vías por las que un gateway dejaba de aportar su espejo al merge, que
+  el fake con un solo gateway no reproducía:
+  1. El `continue` por bot oculto (`hidden`) saltaba el parse del espejo
+     `hermes-bots-groups` del perfil `default`: ocultar el BOT `default`
+     despublicaba el REGISTRO de grupos de la Desktop entero (el espejo se
+     lee antes del filtro ahora — ocultar un bot no toca los grupos).
+  2. El roster se publicaba al final de `syncBots` (todo-o-nada): cualquier
+     error al escribir un bot excluía al gateway del merge y, si el otro
+     tampoco llevaba la sala, desaparecía. Se publica en cuanto el espejo
+     está parseado.
+  Tests nuevos: espejo COMPLETO en ambos gateways (caso Desktop real) y
+  sala superviviente con `default` oculto. Fake gateway: modo
+  `?hidden_default=1` que oculta el bot conservando el espejo; E2E verificado.
+- **El editor de ficha no cerraba al guardar (iconos «mal guardados»)**:
+  el gate de `_save` exigía `imageOk` SIEMPRE, pero `imageOk` sólo se
+  evalúa tocando la imagen → un guardado de forma/color/nombre con CAS
+  correcto caía siempre al aviso de fallo aunque el gateway lo hubiera
+  aplicado. Meta-only cierra con `ok`; con imagen, exige ambos canales.
+- **Cada guardado borraba la pertenencia del bot a grupos**: el editor no
+  reenviaba `groups` y `toUiMetaSection` interpreta vacío como «quitar»
+  (contrato de reemplazo de la sección, `methods_profiles.py:600-606`) →
+  Desktop perdía al miembro. Ahora el editor reenvía las `groups` leídas.
+  Test nuevo del contrato de reemplazo en `bot_avatar_meta_test.dart`.
+  E2E en emulador: guardado cierra el sheet, CAS ok y el subtítulo
+  conserva «Grupos: Equipo».
+
+## Avatares e iconos (equivalente a Hermes Desktop)
+- **Caras procedurales (blobatar) y formas de Desktop**: el editor y las
+  listas renderizan el catálogo REAL de Desktop (`AVATAR_PICKER_SHAPES`:
+  circle, blob, squircle, pill, triangle, hexagon, cloud, drop —
+  `avatar.tsx:27`) más `blobatar` (cara derivada del nombre, siluetas
+  `BLOB_KINDS`), con hash idéntico al de Desktop (`hash*31+code`, uint32) y
+  hue determinista por nombre (`profile-color.ts`) — el mismo bot se ve con
+  la misma cara y color que en Desktop.
+- **Paleta del editor**: las 12 muestras de Desktop (`PROFILE_SWATCHES`,
+  `hsl(i*30, 68%, 58%)`) + «sin color» (hue del nombre, «Match the name»).
+  Los colores hex legacy siguen funcionando.
+- Los iconos Material se mantienen como opción; la cara/forma tiene
+  prioridad visual cuando el meta la define, igual que Desktop.
+
+## APK de distribución
+- `hermes-pocket-android-universal.apk` (~81 MB) — universal (todas las
+  ABIs). Firma de distribución (`CN=Hermes Pocket, O=Bermes`),
+  `versionName 0.1.26` / `versionCode 27`.
+
+# Release 0.1.25 (2026-10-02)
 ## APK de distribución
 - `hermes-pocket-android-universal.apk` (~81 MB) — universal (todas las
   ABIs), como en 0.1.24. Firma de distribución (`CN=Hermes Pocket,

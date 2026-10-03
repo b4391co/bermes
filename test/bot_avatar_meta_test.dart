@@ -47,6 +47,21 @@ void main() {
       expect(meta['pinned'], false, reason: 'no se pierde el filing ajeno');
     });
 
+    test('groups vacío con raw que trae groups: ELIMINA la clave (contrato '
+        'de reemplazo) — el llamador DEBE reenviar las groups leídas', () {
+      // Bug 0.1.26: el editor no pasaba `groups` y cada guardado borraba la
+      // pertenencia del bot en el gateway (Desktop perdía al miembro).
+      final out = BotRosterMeta(
+        title: 'Compi',
+        raw: const {
+          'title': 'Compi',
+          'groups': ['Equipo'],
+        },
+      ).toUiMetaSection();
+      expect(out.containsKey('groups'), false,
+          reason: 'semántica de reemplazo: vacío = quitar');
+    });
+
     test('expulsa la proyección legacy `group` (la regenera Desktop)', () {
       final out = BotRosterMeta(
         title: 'x',

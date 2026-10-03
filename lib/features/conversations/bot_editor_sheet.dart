@@ -8,6 +8,7 @@ import '../../core/app_services.dart';
 import '../../design/tokens.dart';
 import '../app_shell.dart';
 import 'avatar_image.dart';
+import 'bot_face.dart';
 
 /// Edición de un bot: nombre visible, descripción, forma, color, **icono** e
 /// **imagen** del avatar. Equivalente a `EditProfileDialog` de Hermes Desktop
@@ -80,27 +81,14 @@ class _BotEditorSheetState extends State<BotEditorSheet> {
   bool _saving = false;
   String? _notice;
 
-  static const _shapes = <(String, String)>[
-    ('rounded', 'Redondeado'),
-    ('circle', 'Círculo'),
-    ('square', 'Cuadrado'),
-  ];
-  static const _colors = <String>[
-    '#1a7f5a', // verde hermes
-    '#5b6ee1', // índigo
-    '#c94f7c', // rosa
-    '#c2842f', // ámbar
-    '#3d7dd8', // azul
-    '#7a4fd0', // violeta
-  ];
 
   @override
   void initState() {
     super.initState();
     _title = TextEditingController(text: widget.currentTitle);
     _description = TextEditingController(text: widget.currentDescription ?? '');
-    _shape = widget.currentAvatar?.shape ?? 'rounded';
-    _color = widget.currentAvatar?.color ?? _colors.first;
+    _shape = widget.currentAvatar?.shape ?? 'blobatar';
+    _color = widget.currentAvatar?.color ?? '';
     _icon = widget.currentAvatar?.icon;
     // El subtítulo local compone descripción + ' · Grupos: …' (syncBots).
     // Editar SOBRE el compuesto duplica el sufijo al guardar. La descripción
@@ -211,6 +199,11 @@ class _BotEditorSheetState extends State<BotEditorSheet> {
             imageUrl: _imageTouched ? null : hadImage,
           ),
           expectedRevision: existing.revision,
+          // Pertenencia del bot: `groups` de la sección leída. Sin esto,
+          // toUiMetaSection interpretaba «no tocado» como «vaciar» y CADA
+          // guardado borraba `groups` del perfil del gateway (0.1.26: el bot
+          // dejaba de aparecer como miembro en Desktop).
+          groups: existing.meta?.groups ?? const [],
           rawSection: existing.meta?.raw ?? const {},
         );
         if (_imageTouched) {
@@ -236,8 +229,12 @@ class _BotEditorSheetState extends State<BotEditorSheet> {
     }
     if (!mounted) return;
     setState(() => _saving = false);
-    if (saved && ok && imageOk && !_imageTouched) {
-      // Ambos canales bien (o sin imagen en juego): cierre normal.
+    if (saved && ok && (_imageTouched ? imageOk : true)) {
+      // Meta-only: `ok` basta (imageOk no aplica). Con imagen tocada: ambos
+      // canales bien → cierre normal. El gate antiguo exigía imageOk==true
+      // SIEMPRE, y como imageOk sólo se evalúa tocando la imagen, un guardado
+      // de icono/forma/color sin imagen caía siempre al aviso de fallo
+      // (0.1.26: «no se pueden cambiar los iconos bien»).
       Navigator.of(context).pop(true);
       return;
     }
@@ -261,7 +258,7 @@ class _BotEditorSheetState extends State<BotEditorSheet> {
       () => _notice = runtime == null
           ? 'Sin conexión con el gateway de este bot.'
           : 'No se pudo guardar: gateway antiguo sin profiles.configure/'
-                'set_asset, o el otro cliente cambió el bot a la vez.',
+              'set_asset, o el otro cliente cambió el bot a la vez.',
     );
   }
 
@@ -362,33 +359,77 @@ class _BotEditorSheetState extends State<BotEditorSheet> {
               maxLines: 2,
             ),
             const SizedBox(height: Hp.s3),
-            SegmentedButton<String>(
-              segments: [
-                for (final (v, l) in _shapes)
-                  ButtonSegment(value: v, label: Text(l)),
-              ],
-              selected: {_shape},
-              onSelectionChanged: (s) => setState(() => _shape = s.first),
+            // Forma: catálogo REAL de Hermes Desktop (AVATAR_PICKER_SHAPES,
+            // avatar.tsx:27) + blobatar auto. Previsualización con la misma
+            // cara procedural que renderiza la lista (bot_face.dart).
+            SizedBox(
+              height: 44,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  for (final shape in ['blobatar', ...kDesktopShapes])
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ChoiceChip(
+                        label: BotFace(
+                          name: widget.profileName,
+                          shape: shape,
+                          color: _color,
+                          size: 26,
+                        ),
+                        selected: _shape == shape,
+                        onSelected: (_) => setState(() {
+                          _shape = shape;
+                          _image = null;
+                          _imageTouched = true;
+                        }),
+                      ),
+                    ),
+                ],
+              ),
             ),
             const SizedBox(height: Hp.s3),
+            // Colores: las 12 muestras de Desktop (PROFILE_SWATCHES,
+            // profile-color.ts:41-43 — hsl(i*30, 68%, 58%)) + sin color
+            // (hue determinista por nombre, como «Match the name»).
             Wrap(
               spacing: Hp.s2,
+              runSpacing: Hp.s2,
               children: [
-                for (final hex in _colors)
+                for (var i = 0; i < 12; i++)
                   GestureDetector(
-                    onTap: () => setState(() => _color = hex),
+                    onTap: () => setState(() => _color = 'hsl(${i * 30} 68% 58%)'),
                     child: Container(
                       width: 34,
                       height: 34,
                       decoration: BoxDecoration(
-                        color: _hexColor(hex),
+                        color: resolveAvatarColor('hsl(${i * 30} 68% 58%)', widget.profileName),
                         shape: BoxShape.circle,
-                        border: _color == hex
+                        border: _color == 'hsl(${i * 30} 68% 58%)'
                             ? Border.all(color: cs.onSurface, width: 2.5)
                             : null,
                       ),
                     ),
                   ),
+                GestureDetector(
+                  onTap: () => setState(() => _color = ''),
+                  child: Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: _color.isEmpty ? cs.onSurface : cs.outline,
+                        width: _color.isEmpty ? 2.5 : 1.5,
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.auto_awesome_rounded,
+                      size: 18,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: Hp.s4),
@@ -425,9 +466,12 @@ class _BotEditorSheetState extends State<BotEditorSheet> {
                     child: Icon(
                       BotAvatar.iconFor(name) ?? Icons.smart_toy_rounded,
                       size: 22,
-                      color: _hexColor(_color) ?? cs.primary,
-                    ),
+                      color: _hexColor(_color) ??
+                          (_color.isEmpty
+                              ? resolveAvatarColor(null, widget.profileName)
+                              : resolveAvatarColor(_color, widget.profileName)),
                   ),
+                ),
                 _swatch(
                   context,
                   selected: _icon == null && _image == null,
@@ -441,7 +485,10 @@ class _BotEditorSheetState extends State<BotEditorSheet> {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
-                      color: _hexColor(_color) ?? cs.primary,
+                      color: _hexColor(_color) ??
+                          (_color.isEmpty
+                              ? resolveAvatarColor(null, widget.profileName)
+                              : resolveAvatarColor(_color, widget.profileName)),
                     ),
                   ),
                 ),
