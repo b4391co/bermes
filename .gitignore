@@ -10,3 +10,4 @@ build/
 .dart_tool/
 dist/
 *.log
+*.apk
