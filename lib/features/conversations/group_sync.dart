@@ -60,6 +60,13 @@ class ConnectionGroupState {
   /// conexiones comparten `displayOrder`.
   final DateTime createdAt;
 
+  /// `installId` del gateway (`GET /api/status`/authMe; `connections.installId`).
+  /// El espejo real de Desktop identifica cada miembro con el `installId`
+  /// del backend que lo aporta (`types.ts:130-147`): es la clave EXACTA para
+  /// resolver a qué conexión pertenece un miembro aunque dos gateways tengan
+  /// bots homónimos (dos `default`, el escenario del usuario).
+  final String? installId;
+
   const ConnectionGroupState({
     required this.id,
     required this.label,
@@ -67,6 +74,7 @@ class ConnectionGroupState {
     required this.titles,
     required this.createdAt,
     this.displayOrder = 0,
+    this.installId,
   });
 }
 
@@ -119,12 +127,13 @@ Future<void> syncGroupMirrors({
       return a.createdAt.compareTo(b.createdAt);
     });
 
-  // Conjunto de perfiles de TODAS las conexiones: el espejo de una puede
-  // nombrar miembros de otra.
+  // Perfiles por conexión: el espejo de una puede nombrar miembros de otra.
+  // (0.1.27: la resolución de miembros va conexión por conexión; el antiguo
+  // conjunto global `allProfiles` hacía que un homónimo en otro gateway
+  // secuestrara la resolución.)
   final profilesByConn = {
     for (final c in conns) c.id: {for (final p in c.profiles) p.name},
   };
-  final allProfiles = <String>{for (final s in profilesByConn.values) ...s};
   // Primer título visto por perfil: estable entre llamadas (orden de
   // conexiones), así que un perfil gema-no idéntico en dos gateways no hace
   // oscilar el subtítulo de un grupo entre ciclos.
@@ -143,19 +152,41 @@ Future<void> syncGroupMirrors({
   // 1) Colocar cada sala por conexión: `<connectionId>|<identidad>` → miembros.
   final placements =
       <String, ({GroupRoom room, String connId, List<String> members})>{};
+  // Resolución de miembros (0.1.27): un miembro del espejo pertenece a UNA
+  // conexión. Orden:
+  //  1. `member.installId` == `c.installId` (contrato real de Desktop,
+  //     `types.ts:130-147`) — exacto aunque dos gateways tengan bots
+  //     homónimos (dos `default`, el escenario del usuario).
+  //  2. Nombre: primera conexión (orden del usuario) cuyo roster lo tenga —
+  //     fallback para espejos sin installId (backends antiguos, fakes).
+  // Cada perfil cuenta UNA vez por sala: antes el nombre resolvía en TODAS
+  // las conexiones (contando miembros de más) o sólo en la dueña (ocultando
+  // a los miembros del otro gateway).
+  final installIdByConn = {
+    for (final c in conns)
+      if (c.installId != null) c.installId!: c.id,
+  };
   for (final room in live) {
     final here = <String, List<String>>{};
-    for (final c in conns) {
-      final members = <String>[];
-      for (final m in room.members) {
-        final p = memberProfileHere(m, allProfiles);
-        if (p != null &&
-            profilesByConn[c.id]!.contains(p) &&
-            !members.contains(p)) {
-          members.add(p);
+    for (final m in room.members) {
+      String? connId;
+      if (m.installId != null) connId = installIdByConn[m.installId!];
+      String? p;
+      if (connId != null) {
+        p = memberProfileHere(m, profilesByConn[connId] ?? const {});
+      } else {
+        for (final c in conns) {
+          final q = memberProfileHere(m, profilesByConn[c.id] ?? const {});
+          if (q != null) {
+            p = q;
+            connId = c.id;
+            break;
+          }
         }
       }
-      if (members.isNotEmpty) here[c.id] = members;
+      if (p == null || connId == null) continue;
+      final members = here.putIfAbsent(connId, () => []);
+      if (!members.contains(p)) members.add(p);
     }
     // La lista de salas de Desktop es la misma en todos sus backends
     // (`group-chat.ts:88-91`): el mismo roomId llega proyectado por cada
@@ -184,13 +215,20 @@ Future<void> syncGroupMirrors({
       orElse: () => conns.first,
     );
     if (here.containsKey(owner.id) || hostIdx >= 0) {
+      // Miembros PARA LA FILA: los de TODAS las conexiones que los
+      // resolvieron, en orden del usuario (0.1.27). Antes sólo iban los de
+      // la dueña: un grupo con bots de dos gateways se veía como
+      // «1 miembro · <dueña>» aunque el otro gateway aportara miembros —
+      // el usuario lo leía como «el grupo mixto no aparece».
+      final allMembers = <String>[
+        for (final c in conns) ...?here[c.id],
+      ];
       placements['${owner.id}|${room.identity}'] = (
         room: room,
         connId: owner.id,
-        // Si la dueña hostea pero aquí no resolvió miembros (roster aún no
-        // sincronizado o miembros todos de otros gateways), la sala se coloca
-        // igualmente con lista vacía: su log es el real.
-        members: here[owner.id] ?? const [],
+        // Si nadie resolvió miembros (roster aún no sincronizado), la sala
+        // se coloca igualmente con lista vacía: su log es el real.
+        members: allMembers,
       );
     }
   }

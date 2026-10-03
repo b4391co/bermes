@@ -20,6 +20,11 @@ RUNTIME_SESSIONS: set[str] = set()  # ids vivos minteados por session.resume
 USERS_PROVIDERS = {"basic"}
 MODE = {"canonical": True, "prompt_error": False, "researcher_canonical": False, "approval": False,
         "session_token": False}
+# Papel para E2E multi-gateway (0.1.27): 'a' = hostea la sala mixta room-3 con
+# miembros [default, botb]; 'b' = segndo gateway: MISMO roomId en su espejo
+# (Desktop publica la misma lista por cada backend, group-chat.ts:88-91) con
+# miembros LOCALES [botb] + membresía legacy en botb.
+ROLE = os.environ.get("FAKE_ROLE", "a")
 GATEWAY_TOKEN = "loopback-session-token-1"
 SRQ = {"id": "srq-test000000", "pending": None, "answered": None}
 SESSION_COOKIE = "hermes_session_at"
@@ -293,6 +298,41 @@ def rpc_result(method: str, params: dict) -> object:
     if method == "messages.history":
         return {"messages": [], "pagination": {"has_more": False}}
     if method == "profiles.list":
+        if ROLE == "b":
+            # Segundo gateway del E2E multi-gateway (0.1.27): MISMA sala
+            # room-3 proyectada en su espejo (Desktop publica la misma lista
+            # por cada backend, group-chat.ts:88-91) con miembros LOCALES
+            # [botb]; botb lleva además la membresía legacy
+            # ui_meta.hermes-bots.groups.
+            return {"profiles": [
+                {
+                    "name": "default",
+                    "display_name": "Bot B Default",
+                    "is_default": True,
+                    "ui_meta": {
+                        "hermes-bots": {"title": "Bot B Default"},
+                        "hermes-bots-groups": {
+                            "version": 3, "updatedAt": now_ms(),
+                            "rooms": {
+                                "id:room-3": {
+                                    "name": "Conjunta", "roomId": "room-3",
+                                    "revision": 1,
+                                    "members": [{"name": "botb", "installId": "fake-install-b"}],
+                                },
+                            },
+                            "deleted": {},
+                        },
+                    },
+                    "ui_meta_revisions": {"hermes-bots": 1, "hermes-bots-groups": 1},
+                    "canonical_session": ({"id": "sess-canonical-default", "resolved_id": "sess-canonical-default-r", "title": "Bot Chat"} if MODE["canonical"] else None),
+                },
+                {
+                    "name": "botb",
+                    "display_name": "Bot B",
+                    "ui_meta": {"hermes-bots": {"title": "Bot B", "groups": ["Conjunta"]}},
+                    "canonical_session": ({"id": "sess-canonical-botb", "resolved_id": "sess-canonical-botb-r", "title": "Bot Chat"} if MODE["canonical"] else None),
+                },
+            ]}
         return {"profiles": [
             {
                 "name": "default",
@@ -340,6 +380,15 @@ def rpc_result(method: str, params: dict) -> object:
                                 "id:room-2": {
                                     "name": "Mezcla", "roomId": "room-2", "revision": 1,
                                     "members": [{"name": "default"}, {"name": "researcher"}],
+                                },
+                                # 0.1.27 E2E multi-gateway: sala CONJUNTA entre
+                                # este gateway (default) y el gateway B (botb).
+                                # Desktop publica la MISMA lista por ambos
+                                # backends; cada uno resuelve sus miembros
+                                # locales (memberProfileHere).
+                                "id:room-3": {
+                                    "name": "Conjunta", "roomId": "room-3", "revision": 1,
+                                    "members": [{"name": "default", "installId": "fake-install-a"}, {"name": "botb", "installId": "fake-install-b"}],
                                 },
                             },
                             "deleted": {},

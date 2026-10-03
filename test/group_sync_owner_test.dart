@@ -181,6 +181,11 @@ void main() {
     )..where((c) => c.kind.equals('group'))).get();
     expect(rows, hasLength(1), reason: 'la sala mixta real debe aparecer');
     expect(rows.single.connectionId, 'gwA');
+    // 0.1.27: los miembros de la FILA son los de TODAS las conexiones que
+    // los resolvieron. Antes sólo iban los de la dueña: el subtítulo
+    // «1 miembro · gwA» hacía parecer que el grupo mixto no se había
+    // sincronizado (reporte del usuario).
+    expect(rows.single.subtitle, '2 miembros · gwA');
   });
 
   test('default oculto + espejo: la sala sigue materializándose', () async {

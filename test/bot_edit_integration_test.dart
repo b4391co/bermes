@@ -20,6 +20,15 @@ ConnectionProfile _profile() => const ConnectionProfile(
 );
 
 Future<bool> _fakeReady() async {
+  // El fake puede quedar en modo session_token (otro flujo E2E lo activa
+  // para la app del emulador). Este test entra por cookie+ticket: forzar el
+  // modo ticket ANTES de conectar.
+  try {
+    final c = await HttpClient().getUrl(
+      Uri.parse('http://127.0.0.1:9120/api/mode?session_token=0'),
+    );
+    await c.close();
+  } catch (_) {}
   try {
     final s = await Socket.connect(
       '127.0.0.1',

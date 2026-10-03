@@ -1,3 +1,34 @@
+# Release 0.1.27 (2026-10-03)
+
+## Corregido
+- **Los grupos con bots de VARIOS gateways se veían como mono-gateway**:
+  dos capas del mismo defecto, verificadas E2E con dos gateways (fake en
+  9120/9121, sala `room-3` «Conjunta» publicada por ambos espejos):
+  1. La fila sólo llevaba los miembros resueltos por la conexión DUEÑA:
+     el subtítulo decía «1 miembro · <dueña>» aunque el otro gateway
+     aportara el suyo — el usuario lo leía como «el grupo mixto no
+     aparece». La fila ahora agrega los miembros de TODAS las conexiones
+     que los resuelven, en orden del usuario.
+  2. Un miembro homónimo (`default` en los dos gateways) se resolvía en
+     TODAS las conexiones (contando miembros de más) o secuestrado por el
+     conjunto global de perfiles. Ahora cada miembro del espejo se asigna
+     a UNA conexión: primero por `installId` del backend (contrato real de
+     Desktop, `types.ts:130-147`, llega en el miembro del espejo), y si el
+     espejo no lo trae, por nombre contra el roster de cada conexión en
+     orden del usuario.
+  3. El snapshot de roster sólo incluía el perfil portador del espejo
+     (`default`): los demás bots del gateway no participaban en la
+     resolución de miembros de grupos mixtos. Ahora el snapshot lleva el
+     roster completo.
+  Test nuevo: payloads reales de dos gateways → «2 miembros» (probe con
+  drift en memoria); el de espejo COMPLETO ahora fija el subtítulo.
+
+## Nota de verificación
+- Las instalaciones `-r` silenciadas con `>/dev/null` ocultaban un fallo
+  de firma (debug vs distribución): el E2E del emulador había estado
+  corriendo un binario viejo. Ahora se verifica `lastUpdateTime`/hash tras
+  cada install.
+
 # Release 0.1.26 (2026-10-03)
 
 ## Corregido

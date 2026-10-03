@@ -1,7 +1,7 @@
 # Hermes Pocket — estado del proyecto (2026-10-03)
 
 App Android nativa (Flutter) cliente de gateways **Hermes Agent** (Nous
-Research). Versión actual: **0.1.26**. Windows: plataforma habilitada en el
+Research). Versión actual: **0.1.27**. Windows: plataforma habilitada en el
 workspace (adaptación de navegación pendiente de producto).
 
 ## Qué funciona (verificado contra gateway real + fake)
@@ -39,6 +39,16 @@ workspace (adaptación de navegación pendiente de producto).
   iniciar/parar, tomar/devolver el control (lease).
 - **Ajustes**: export/import JSON (config + secretos opcional), diagnóstico
   completo, reinicio seguro de la base.
+
+## Verificación 0.1.27 en emulador (2026-10-03)
+
+- **Grupo mixto multi-gateway E2E**: dos fakes (9120 rol A / 9121 rol B),
+  sala `room-3` «Conjunta» publicada por ambos espejos. La fila muestra
+  «2 miembros · FakeA» (default de A + botb de B), dueña A, y el chat abre
+  `groups.state`/`groups.log` por el WS de la dueña.
+- **Lección**: `adb install -r` con salida silenciada escondía un fallo de
+  firma (debug vs distribución); varios E2E anteriores corrieron binario
+  viejo. Verificar `lastUpdateTime` tras cada install.
 
 ## Verificación 0.1.26 en emulador (2026-10-03)
 

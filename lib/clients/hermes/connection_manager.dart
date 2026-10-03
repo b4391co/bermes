@@ -171,6 +171,10 @@ class ConnectionManager {
           titles: entry.value.titles,
           displayOrder: row.displayOrder,
           createdAt: row.createdAt,
+          // Identidad del gateway: el espejo real de Desktop etiqueta cada
+          // miembro con el installId de su backend (types.ts:130-147) — la
+          // clave para resolver bots homónimos en dos gateways (0.1.27).
+          installId: row.installId,
         ),
       );
     }
@@ -496,26 +500,24 @@ class ConnectionManager {
         // no el registro de grupos de la Desktop. Saltarse el parse aquí
         // vaciaba el aporte del gateway al merge y descartaba salas mixtas
         // (0.1.26: «los grupos conjuntos no aparecen»).
-        if (name == 'default') {
-          final snap = GroupSyncSnapshot.tryParse(
-            (p['ui_meta'] is Map)
-                ? (p['ui_meta'] as Map)['hermes-bots-groups']
-                : null,
-          );
-          if (snap != null) {
-            final membership = <String>{
-              for (final q in profiles)
-                ...?BotRosterMeta.fromProfile(q)?.groups,
-            };
-            roster.profiles.add(
-              GatewayProfileSnapshot(
-                name: name,
-                groups: snap,
-                membershipNames: membership,
-              ),
-            );
-          }
-        }
+        // ROSTER COMPLETO en el snapshot: TODO perfil del gateway (no sólo
+        // el espejo del default). `profilesByConn` en group_sync resuelve
+        // miembros contra esta lista: si un bot vive aquí pero su snapshot
+        // no está, un grupo mixto no contaría sus miembros (0.1.27: el
+        // subtítulo quedaba «1 miembro» aunque otro gateway aportara bot).
+        roster.profiles.add(
+          GatewayProfileSnapshot(
+            name: name,
+            groups: GroupSyncSnapshot.tryParse(
+              (p['ui_meta'] is Map)
+                  ? (p['ui_meta'] as Map)['hermes-bots-groups']
+                  : null,
+            ) ?? GroupSyncSnapshot.empty,
+            membershipNames: {
+              ...?BotRosterMeta.fromProfile(p)?.groups,
+            },
+          ),
+        );
         if (botMeta?.hidden == true) continue; // bot oculto por Desktop
         final displayName = (botMeta?.title?.isNotEmpty ?? false)
             ? botMeta!.title!
