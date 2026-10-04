@@ -1,3 +1,33 @@
+## Release 0.1.33 (2026-10-05)
+
+### feat(groups): editar miembros de grupo — añadir y quitar (0.1.33)
+
+- La ficha del grupo permite **añadir miembros** (botón «Añadir miembro»,
+  selector con los bots de todas las conexiones) y **quitarlos** (icono por
+  fila con confirmación).
+- **Canal compatible**: la edición escribe el espejo de Desktop
+  (`hermes-bots-groups`) por `profiles.configure` con CAS — el MISMO
+  mecanismo que usa Desktop (group-chat.ts:1174-1192). Nada de métodos
+  inventados: verificado en vivo contra el gateway real (añadir
+  `solicitudes` a «Casa» y revertirlo, aplicado y leído de vuelta).
+- **Conflicto honesto**: si Desktop tocó el espejo mientras editabas, el
+  CAS lo detecta y avisa sin pisar su cambio.
+- El descriptor del miembro nuevo clona `connectionId/connectionLabel` de
+  un miembro existente del MISMO gateway (Desktop agrupa por
+  `connectionId::profile`): inventar una conexión rompería su merge.
+- La ficha de miembros cae al espejo persistido cuando `groups.state`
+  responde 4112 (la sala no la hospeda ESTE gateway) — antes se quedaba
+  cargando eternamente en salas autoridad de otro gateway (p. ej. «Casa»).
+- Tras editar: resync de la conexión y releída FRESCA de la fila.
+
+## Release 0.1.32 (2026-10-05)
+
+### chore: denominación de versiones — 0.1.31 / 0.1.32
+
+- El versionado vuelve al esquema 0.1.x: versionName = 0.1.32,
+  versionCode = contador incremental (32). Las releases 31/32 de ayer
+  se renombran retrospectivamente como 0.1.31 y 0.1.32.
+
 ## Release 32 (2026-10-04)
 
 ### fix(conexiones): renovación automática de sesión — 32

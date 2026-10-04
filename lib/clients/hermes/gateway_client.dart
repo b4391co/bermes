@@ -1020,6 +1020,33 @@ class HermesGatewayClient {
     }
   }
 
+  /// Lee el espejo de grupos CRUDO del perfil `default` + su revisión CAS.
+  /// El editor de miembros necesita el mapa TAL CUAL (con claves de Desktop
+  /// que Pocket no modela) para reenviarlo entero tras editar una sala.
+  /// null = el gateway no publica espejo en este perfil.
+  Future<({Map<String, Object?> raw, int revision})?> readGroupMirror() async {
+    try {
+      for (final p in await listProfiles()) {
+        if (p['name'] != 'default') continue;
+        final ui = p['ui_meta'];
+        final raw = ui is Map ? ui['hermes-bots-groups'] : null;
+        if (raw is! Map) return null;
+        final revs = p['ui_meta_revisions'];
+        final rev = revs is Map
+            ? (revs['hermes-bots-groups'] as int? ??
+                  num.tryParse('${revs['hermes-bots-groups']}')?.toInt() ??
+                  0)
+            : 0;
+        return (raw: raw.cast<String, Object?>(), revision: rev);
+      }
+    } on JsonRpcError {
+      return null;
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
   void _scheduleReconnect() {
     if (_manuallyClosed) return;
     _setState(GatewayLinkState.reconnecting);

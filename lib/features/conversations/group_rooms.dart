@@ -26,6 +26,8 @@
 ///   (`group-pin.ts:4-8`, `types.ts:222-225`).
 library;
 
+import '../../clients/hermes/gateway_client.dart';
+
 /// Sala dentro del snapshot (subconjunto de `GroupChatSyncRoom`).
 class GroupRoom {
   /// Clave durable del snapshot: `id:<roomId>` o `name:<name>` (legacy).
@@ -357,4 +359,90 @@ String? canonicalGroupName(GroupRoom room, Map<String, String> titleByProfile) {
   if (titled.length == 1) return titled.first;
   final shown = titled.take(3).join(', ');
   return titled.length > 3 ? '$shown…' : shown;
+}
+
+/// Resultado de editar los miembros de una sala del espejo.
+sealed class MirrorEditResult {
+  const MirrorEditResult();
+}
+
+/// Escrito y aplicado: la sala quedó con [members] en el gateway.
+class MirrorEditOk extends MirrorEditResult {
+  final List<Map<String, Object?>> members;
+  const MirrorEditOk(this.members);
+}
+
+/// Conflicto CAS: otro cliente (Desktop) tocó el espejo desde la lectura.
+/// NO se pisa: el usuario debe reabrir la ficha y reintentar.
+class MirrorEditConflict extends MirrorEditResult {
+  const MirrorEditConflict();
+}
+
+/// El gateway no publica espejo en `default` (gateway sin soporte).
+class MirrorEditUnsupported extends MirrorEditResult {
+  const MirrorEditUnsupported();
+}
+
+/// Fallo de transporte/RPC.
+class MirrorEditError extends MirrorEditResult {
+  final String message;
+  const MirrorEditError(this.message);
+}
+
+/// Edita los miembros de UNA sala del espejo con lectura-modificación-
+/// escritura CAS (`profiles.configure` sobre `hermes-bots-groups` — el mismo
+/// canal que Desktop, group-chat.ts:1174-1192). El mapa viaja COMPLETO con
+/// sus claves crudas (pinned, sectionId, ...) para no borrar nada ajeno;
+/// sólo cambia `members` de la sala objetivo y `updatedAt`.
+///
+/// [isTargetRoom] identifica la sala entre las claves del espejo
+/// (`id:<roomId>` o `name:<name>`); los descriptores nuevos se construyen
+/// como los que publica el propio espejo (name/handle/connectionId/
+/// connectionLabel — ver members reales de Oficina).
+Future<MirrorEditResult> editMirrorMembers({
+  required HermesGatewayClient gateway,
+  required bool Function(Map<String, Object?> room) isTargetRoom,
+  required List<Map<String, Object?>> Function(
+    List<Map<String, Object?>> current,
+  )
+  transform,
+}) async {
+  final read = await gateway.readGroupMirror();
+  if (read == null) return const MirrorEditUnsupported();
+  final raw = Map<String, Object?>.of(read.raw);
+  final roomsRaw = raw['rooms'];
+  if (roomsRaw is! Map) return const MirrorEditUnsupported();
+  String? targetKey;
+  roomsRaw.forEach((k, v) {
+    if (targetKey != null || k is! String || v is! Map) return;
+    if (isTargetRoom(v.cast<String, Object?>())) targetKey = k;
+  });
+  if (targetKey == null) return const MirrorEditUnsupported();
+  final room = Map<String, Object?>.of(
+    (roomsRaw[targetKey] as Map).cast<String, Object?>(),
+  );
+  final current = <Map<String, Object?>>[
+    if (room['members'] is List)
+      for (final m in (room['members'] as List).whereType<Map>())
+        Map<String, Object?>.of(m.cast<String, Object?>()),
+  ];
+  final next = transform(current);
+  room['members'] = next;
+  roomsRaw[targetKey] = room;
+  raw['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+  final ok = await gateway.publishGroupMirror(
+    snapshot: raw,
+    expectedRevision: read.revision,
+  );
+  if (ok) return MirrorEditOk(next);
+  // Distinguir conflicto CAS de fallo RPC: releyendo, si la revisión cambió
+  // fue conflicto; si es la misma, el gateway rechazó por otra causa.
+  final again = await gateway.readGroupMirror();
+  if (again != null && again.revision != read.revision) {
+    return const MirrorEditConflict();
+  }
+  if (again != null && again.revision == read.revision) {
+    return const MirrorEditConflict();
+  }
+  return const MirrorEditError('el gateway rechazó la escritura');
 }

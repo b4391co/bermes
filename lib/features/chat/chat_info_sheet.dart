@@ -9,6 +9,7 @@ import '../../core/app_services.dart';
 import '../../data/database/app_database.dart' as db;
 import '../../design/tokens.dart';
 import '../app_shell.dart' show BotAvatar;
+import '../conversations/group_rooms.dart';
 
 /// Sheet de "info de contacto" (estilo WhatsApp): tocar la cabecera del chat
 /// abre esta vista con la identidad del bot o del grupo y sus ajustes.
@@ -46,7 +47,13 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
   }
 
   Future<_InfoData> _load() async {
-    final conv = widget.conversation;
+    // Fila FRESCA: tras editar miembros, resyncOne actualiza
+    // groupMembersJson en la BD y el sheet debe releerla (widget.conversation
+    // es una instantánea previa a la edición).
+    final fresh = await (AppServices.db.select(
+      AppServices.db.conversations,
+    )..where((c) => c.id.equals(widget.conversation.id))).getSingleOrNull();
+    final conv = fresh ?? widget.conversation;
     if (!conv.isGroup) return const _InfoData();
     final runtime = widget.runtime;
     final roomId = conv.groupRoomId;
@@ -59,30 +66,35 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
     final avatars = <String, db.Conversation>{
       for (final r in rows) r.gatewayId: r,
     };
-    // Sala sin roomId (clave `name:` del espejo): el gateway NO la hospeda
-    // (groups.state → 4112) — los miembros vienen del espejo, persistidos
-    // por syncGroupMirrors en groupMembersJson.
-    if (roomId == null) {
-      final raw = conv.groupMembersJson;
-      final members = <RoomMember>[
-        for (final m in (jsonDecode(raw ?? '[]') as List).whereType<Map>())
-          // GroupMember.toJson usa `name` (perfil del backend); RoomMember
-          // lo llama `profile` — la identidad del avatar/etiqueta.
-          RoomMember.fromJson({
-            ...m.cast<String, Object?>(),
-            'profile': m['name'],
-            'display_name':
-                m['display_name'] ?? m['title'] ?? m['connectionLabel'],
-          }),
-      ];
-      return _InfoData(members: members, botRows: avatars);
+    // Miembros persistidos del espejo (groupMembersJson, de syncGroupMirrors):
+    // sirven para salas sin roomId Y para salas cuyo roomId no hospeda ESTE
+    // gateway (groups.state → 4112: la autoridad vive en otro gateway o en
+    // Desktop). Primero se intenta groups.state en vivo; si falla o no hay
+    // runtime, el espejo persistido es la fuente (y la editable).
+    List<RoomMember> fromJson() => [
+      for (final m in (jsonDecode(conv.groupMembersJson ?? '[]') as List)
+          .whereType<Map>())
+        // GroupMember.toJson usa `name` (perfil del backend); RoomMember
+        // lo llama `profile` — la identidad del avatar/etiqueta.
+        RoomMember.fromJson({
+          ...m.cast<String, Object?>(),
+          'profile': m['name'],
+          'display_name':
+              m['display_name'] ?? m['title'] ?? m['connectionLabel'],
+        }),
+    ];
+    if (roomId == null) return _InfoData(members: fromJson(), botRows: avatars);
+    if (runtime != null) {
+      try {
+        final room = await RoomsClient(runtime.gateway).roomState(roomId);
+        if (room != null && room.members.isNotEmpty) {
+          return _InfoData(members: room.members, botRows: avatars);
+        }
+      } catch (_) {
+        // 4112 (no hospedada aquí) u otro fallo: espejo persistido.
+      }
     }
-    if (runtime == null) return const _InfoData();
-    final room = await RoomsClient(runtime.gateway).roomState(roomId);
-    return _InfoData(
-      members: room?.members ?? const <RoomMember>[],
-      botRows: avatars,
-    );
+    return _InfoData(members: fromJson(), botRows: avatars);
   }
 
   @override
@@ -151,46 +163,205 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
             ),
           );
         }
-        return SliverList.builder(
-          itemCount: members.length,
-          itemBuilder: (context, i) {
-            final m = members[i];
-            final profile = m.profile ?? m.handle ?? '?';
-            final row = snap.data?.botRows[profile];
-            // Homónimos entre gateways (default en Claudio y en Boneca): el
-            // handle los distingue (default-boneca / default-claudio) y el
-            // connectionLabel nombra el gateway de origen.
-            final duplicated =
-                members
-                    .where((o) => (o.profile ?? o.handle) == profile)
-                    .length >
-                1;
-            final shown = row?.title ?? m.displayName ?? profile;
-            final title = duplicated && m.handle != null && m.handle != shown
-                ? '$shown · ${m.handle}'
-                : shown;
-            final origin = row?.gatewayLabel ?? m.target ?? profile;
-            return ListTile(
-              leading: row == null
-                  ? BotAvatar(seed: profile, label: shown, size: 40)
-                  : BotAvatar(
-                      seed: row.avatarSeed ?? row.id,
-                      label: row.title,
-                      size: 40,
-                      imageUrl: row.avatarUrl,
-                      avatarMetaJson: row.botAvatarMeta,
-                    ),
-              title: Text(title),
-              subtitle: Text(
-                origin,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            );
-          },
+        return SliverMainAxisGroup(
+          slivers: [
+            SliverList.builder(
+              itemCount: members.length,
+              itemBuilder: (context, i) {
+                final m = members[i];
+                final profile = m.profile ?? m.handle ?? '?';
+                final row = snap.data?.botRows[profile];
+                // Homónimos entre gateways (default en Claudio y en Boneca): el
+                // handle los distingue (default-boneca / default-claudio) y el
+                // connectionLabel nombra el gateway de origen.
+                final duplicated =
+                    members
+                        .where((o) => (o.profile ?? o.handle) == profile)
+                        .length >
+                    1;
+                final shown = row?.title ?? m.displayName ?? profile;
+                final title =
+                    duplicated && m.handle != null && m.handle != shown
+                    ? '$shown · ${m.handle}'
+                    : shown;
+                final origin = row?.gatewayLabel ?? m.target ?? profile;
+                return ListTile(
+                  leading: row == null
+                      ? BotAvatar(seed: profile, label: shown, size: 40)
+                      : BotAvatar(
+                          seed: row.avatarSeed ?? row.id,
+                          label: row.title,
+                          size: 40,
+                          imageUrl: row.avatarUrl,
+                          avatarMetaJson: row.botAvatarMeta,
+                        ),
+                  title: Text(title),
+                  subtitle: Text(
+                    origin,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.person_remove_outlined),
+                    tooltip: 'Quitar del grupo',
+                    onPressed: () => _removeMember(m, shown),
+                  ),
+                );
+              },
+            ),
+            SliverToBoxAdapter(child: _addMemberTile(cs)),
+          ],
         );
       },
     );
+  }
+
+  Widget _addMemberTile(ColorScheme cs) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: Hp.s3, vertical: Hp.s2),
+      child: OutlinedButton.icon(
+        onPressed: _addMember,
+        icon: const Icon(Icons.person_add_alt_1),
+        label: const Text('Añadir miembro'),
+      ),
+    );
+  }
+
+  Future<void> _addMember() async {
+    final data = await _future;
+    if (!mounted) return;
+    final candidates =
+        data.botRows.values
+            .where((r) => !data.members.any((m) => m.profile == r.gatewayId))
+            .toList()
+          ..sort((a, b) => a.title.compareTo(b.title));
+    final picked = await showModalBottomSheet<db.Conversation>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final r in candidates)
+              ListTile(
+                leading: BotAvatar(
+                  seed: r.avatarSeed ?? r.id,
+                  label: r.title,
+                  size: 36,
+                  imageUrl: r.avatarUrl,
+                  avatarMetaJson: r.botAvatarMeta,
+                ),
+                title: Text(r.title),
+                subtitle: Text(
+                  r.gatewayLabel ?? r.gatewayId,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () => Navigator.pop(context, r),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    await _applyMemberEdit((current) {
+      // Descriptor igual al que publica el espejo (Oficina real):
+      // name/handle = perfil; connectionId/Label clonados de un miembro
+      // existente del MISMO gateway (Desktop agrupa por
+      // connectionId::profile — inventar una conexión rompería el merge).
+      final twin = data.members.cast<RoomMember?>().firstWhere((m) {
+        final row = data.botRows[m?.profile ?? m?.handle ?? '?'];
+        return row?.gatewayLabel == picked.gatewayLabel;
+      }, orElse: () => null);
+      return [
+        ...current,
+        {
+          'name': picked.gatewayId,
+          'handle': picked.gatewayId,
+          if (twin != null) ...{
+            'connectionId': twin.memberId ?? twin.profile ?? twin.handle ?? '',
+            'connectionLabel': picked.gatewayLabel,
+            'sourceScoped': true,
+          },
+        },
+      ];
+    });
+  }
+
+  Future<void> _removeMember(RoomMember m, String shown) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Quitar a $shown'),
+        content: Text(
+          'Se quitará del grupo «${widget.conversation.title}». '
+          'El cambio se publica en el gateway y aparecerá en Desktop.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Quitar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _applyMemberEdit(
+      (current) => [
+        for (final c in current)
+          if (!((c['profile'] ?? c['name'] ?? c['handle']) ==
+              (m.profile ?? m.handle)))
+            c,
+      ],
+    );
+  }
+
+  Future<void> _applyMemberEdit(
+    List<Map<String, Object?>> Function(List<Map<String, Object?>> current)
+    transform,
+  ) async {
+    final runtime = widget.runtime;
+    final conv = widget.conversation;
+    if (runtime == null) return;
+    final result = await editMirrorMembers(
+      gateway: runtime.gateway,
+      isTargetRoom: (room) =>
+          (conv.groupRoomId != null && room['roomId'] == conv.groupRoomId) ||
+          (conv.groupRoomId == null && room['name'] == conv.title),
+      transform: transform,
+    );
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    switch (result) {
+      case MirrorEditOk():
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Miembros actualizados')),
+        );
+        // Refrescar espejo local + roster (el watch de ready no corre aquí).
+        await AppServices.connections.resyncOne(conv.connectionId);
+        if (!mounted) return;
+        setState(() => _future = _load());
+      case MirrorEditConflict():
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Desktop modificó el grupo mientras editabas. '
+              'Reabre la ficha y reintenta.',
+            ),
+          ),
+        );
+      case MirrorEditUnsupported():
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Este gateway no publica el espejo de grupos'),
+          ),
+        );
+      case MirrorEditError(:final message):
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   Widget _botModel(ColorScheme cs) {

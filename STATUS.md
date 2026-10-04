@@ -1,7 +1,7 @@
 # Hermes Pocket — estado del proyecto (2026-10-04)
 
 App Android nativa (Flutter) cliente de gateways **Hermes Agent** (Nous
-Research). Versión actual: **31** (esquema de número único). Windows: plataforma habilitada en el
+Research). Versión actual: **0.1.32** (versionCode = contador: 32). Windows: plataforma habilitada en el
 workspace (adaptación de navegación pendiente de producto).
 
 ## Qué funciona (verificado contra gateway real + fake)
