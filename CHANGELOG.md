@@ -1,3 +1,31 @@
+## Release 0.1.28 (2026-10-04)
+
+### fix(groups): canal legacy de membresía sin espejo — 0.1.28
+
+- **Síntoma**: grupo compartido entre dos gateways (bots con el mismo nombre
+  de perfil, p. ej. `default` en «claudio» y «boneca») que declara
+  `ui_meta.hermes-bots.groups: ['comun']` no aparecía como conversación si
+  NINGÚN gateway publica el espejo `hermes-bots-groups` (Desktop antiguo o
+  grupo sin `roomId`).
+- **Causa**: el canal legacy (membresía del bot) nunca materializaba filas;
+  sólo pintaba «Grupos: X» en el subtítulo del bot. Con espejo, la sala la
+  materializa `_writeRoom` (0.1.27); sin espejo, no había NINGUNA fila.
+- **Fix**: `syncGroupMirrors` materializa UNA fila legacy por nombre no
+  cubierto por el espejo: dueña = primera conexión (orden del usuario) con
+  bot miembro; subtítulo con los bots de TODAS las conexiones (identidad por
+  par (conexión, perfil), homónimos desambiguados «Bot (conn)»); título de
+  cada bot resuelto con los títulos de SU conexión; sin `groupRoomId` (fila
+  por nombre) — el purge de huérfanas no la toca y respeta ocultamiento
+  local (`kind group-hidden`).
+- Envío al grupo legacy va por el WS de la dueña con `room_id = nombre`
+  (verificado E2E: `groups.state`/`groups.log`/`groups.send` contra el fake
+  en modo `nomirror`); error de envío → fila «Reintentar», nunca reenvío
+  automático.
+- Test nuevo: membresía multi-gateway sin espejo materializa una fila
+  (título «Bot Claudio, Bot Boneca», subtítulo «2 miembros», roomId null).
+  Suite: 64 verdes.
+- fake_gateway: modo `nomirror=1` reproduce el escenario exacto del reporte.
+
 # Release 0.1.27 (2026-10-03)
 
 ## Corregido

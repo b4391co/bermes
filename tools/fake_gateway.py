@@ -298,39 +298,37 @@ def rpc_result(method: str, params: dict) -> object:
     if method == "messages.history":
         return {"messages": [], "pagination": {"has_more": False}}
     if method == "profiles.list":
+        if MODE.get("nomirror"):
+            # Escenario del reporte 2026-10-04 (claudio/boneca): NINGÚN
+            # gateway publica el espejo; los bots declaran membresía legacy
+            # 'comun' (ui_meta.hermes-bots.groups).
+            profs = [{
+                "name": "default",
+                "display_name": ("Bot Boneca" if ROLE == "b" else "Bot Claudio"),
+                "is_default": True,
+                "ui_meta": {"hermes-bots": {"title": ("Bot Boneca" if ROLE == "b" else "Bot Claudio"), "groups": ["comun"]}},
+                "ui_meta_revisions": {"hermes-bots": 1},
+                "canonical_session": ({"id": "sess-canonical-default", "resolved_id": "sess-canonical-default-r", "title": "Bot Chat"} if MODE["canonical"] else None),
+            }]
+            if ROLE != "b":
+                profs.append({
+                    "name": "researcher",
+                    "display_name": "Researcher",
+                    "ui_meta": {"hermes-bots": {"description": "Bot de investigación"}},
+                })
+            return {"profiles": profs}
         if ROLE == "b":
-            # Segundo gateway del E2E multi-gateway (0.1.27): MISMA sala
-            # room-3 proyectada en su espejo (Desktop publica la misma lista
-            # por cada backend, group-chat.ts:88-91) con miembros LOCALES
-            # [botb]; botb lleva además la membresía legacy
-            # ui_meta.hermes-bots.groups.
+            # Escenario del reporte 2026-10-04 (claudio/boneca): NINGÚN
+            # gateway publica el espejo; el bot declara membresía legacy
+            # 'comun' (ui_meta.hermes-bots.groups).
             return {"profiles": [
                 {
                     "name": "default",
-                    "display_name": "Bot B Default",
+                    "display_name": "Bot Boneca",
                     "is_default": True,
-                    "ui_meta": {
-                        "hermes-bots": {"title": "Bot B Default"},
-                        "hermes-bots-groups": {
-                            "version": 3, "updatedAt": now_ms(),
-                            "rooms": {
-                                "id:room-3": {
-                                    "name": "Conjunta", "roomId": "room-3",
-                                    "revision": 1,
-                                    "members": [{"name": "botb", "installId": "fake-install-b"}],
-                                },
-                            },
-                            "deleted": {},
-                        },
-                    },
-                    "ui_meta_revisions": {"hermes-bots": 1, "hermes-bots-groups": 1},
+                    "ui_meta": {"hermes-bots": {"title": "Bot Boneca", "groups": ["comun"]}},
+                    "ui_meta_revisions": {"hermes-bots": 1},
                     "canonical_session": ({"id": "sess-canonical-default", "resolved_id": "sess-canonical-default-r", "title": "Bot Chat"} if MODE["canonical"] else None),
-                },
-                {
-                    "name": "botb",
-                    "display_name": "Bot B",
-                    "ui_meta": {"hermes-bots": {"title": "Bot B", "groups": ["Conjunta"]}},
-                    "canonical_session": ({"id": "sess-canonical-botb", "resolved_id": "sess-canonical-botb-r", "title": "Bot Chat"} if MODE["canonical"] else None),
                 },
             ]}
         return {"profiles": [
@@ -526,7 +524,10 @@ def rpc_result(method: str, params: dict) -> object:
             return {"error": {"code": "invalid", "message": "user payload fields"}}
         room = ROOMS.get(rid)
         if room is None:
-            return {"error": {"code": "not_found", "message": "no room"}}
+            # Canal legacy: salas de membresía sin espejo no están en ROOMS.
+            room = {"room_id": rid, "name": rid,
+                    "members": [{"profile": "default", "handle": "default"}]}
+            ROOMS[rid] = room
         logs = ROOM_LOGS.setdefault(rid, [])
         # idempotencia por event_id del cliente -> user:<sha>
         key = "user:" + hashlib.sha256(str(ev_id).encode()).hexdigest()
@@ -719,6 +720,8 @@ async def set_mode(request: web.Request) -> web.Response:
         MODE["approval"] = request.query["approval"] == "1"
     if "session_token" in request.query:
         MODE["session_token"] = request.query["session_token"] == "1"
+    if "nomirror" in request.query:
+        MODE["nomirror"] = request.query["nomirror"] == "1"
     return web.json_response(dict(MODE))
 
 async def test_srq(request: web.Request) -> web.Response:

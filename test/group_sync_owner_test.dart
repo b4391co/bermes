@@ -233,6 +233,52 @@ void main() {
     expect(rows.single.connectionId, 'oculta');
   });
 
+  test('membresía sin espejo: grupo común multi-gateway materializa', () async {
+    // Escenario del reporte 2026-10-04: los bots de DOS gateways declaran
+    // `ui_meta.hermes-bots.groups: ['comun']` pero NINGUNO publica el espejo
+    // (Desktop viejo / grupo sin roomId). Sin fila, el usuario no ve el
+    // grupo. Debe materializar UNA fila legacy: dueña la primera conexión
+    // con miembro, subtítulo con los bots de AMBAS conexiones.
+    final claudio = ConnectionGroupState(
+      id: 'claudio',
+      label: 'claudio',
+      createdAt: DateTime(2026, 1, 1),
+      displayOrder: 0,
+      profiles: [
+        GatewayProfileSnapshot(
+          name: 'default',
+          groups: GroupSyncSnapshot.empty,
+          membershipNames: const {'comun'},
+        ),
+      ],
+      titles: const {'default': 'Bot Claudio'},
+    );
+    final boneca = ConnectionGroupState(
+      id: 'boneca',
+      label: 'boneca',
+      createdAt: DateTime(2026, 2, 1),
+      displayOrder: 1,
+      profiles: [
+        GatewayProfileSnapshot(
+          name: 'default',
+          groups: GroupSyncSnapshot.empty,
+          membershipNames: const {'comun'},
+        ),
+      ],
+      titles: const {'default': 'Bot Boneca'},
+    );
+    await syncGroupMirrors(db: db, connections: [claudio, boneca]);
+    final rows = await (db.select(
+      db.conversations,
+    )..where((c) => c.kind.equals('group'))).get();
+    expect(rows, hasLength(1), reason: 'UNA fila por nombre de membresía');
+    expect(rows.single.gatewayId, 'comun');
+    expect(rows.single.connectionId, 'claudio', reason: 'dueña: primera con miembro');
+    expect(rows.single.title, 'Bot Claudio, Bot Boneca');
+    expect(rows.single.subtitle, '2 miembros · claudio');
+    expect(rows.single.groupRoomId, isNull, reason: 'fila legacy sin roomId');
+  });
+
   test('fila huérfana en conexión caída se limpia', () async {
     // Sala viva proyectada por old-conn; la dueña new-conn la materializa y
     // la fila vieja (de un ciclo anterior) debe desaparecer aunque old-conn

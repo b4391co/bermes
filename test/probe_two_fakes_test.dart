@@ -35,8 +35,19 @@ void main() {
       ConnectionGroupState(id: 'A', label: 'FakeA', profiles: snaps(a), titles: const {}, createdAt: DateTime(2026,1,1), displayOrder: 0, installId: 'fake-install-a'),
       ConnectionGroupState(id: 'B', label: 'FakeB', profiles: snaps(b), titles: const {}, createdAt: DateTime(2026,2,1), displayOrder: 1, installId: 'fake-install-b'),
     ]);
-    final rows = await (db.select(db.conversations)..where((c) => c.groupRoomId.equals('room-3'))).get();
-    for (final r in rows) print('ROW ${r.id} subtitle=${r.subtitle}');
-    expect(rows.single.subtitle, '2 miembros · FakeA');
+    final rows = await (db.select(db.conversations)..where((c) => c.kind.equals('group'))).get();
+    for (final r in rows) {
+      // ignore: avoid_print
+      print('ROW ${r.id} room=${r.groupRoomId} title=${r.title} subtitle=${r.subtitle}');
+    }
+    // Con espejo: 'Conjunta' 2 miembros; sin espejo (nomirror): legacy 'comun' 2 miembros.
+    if (rows.any((r) => r.groupRoomId == 'room-3')) {
+      expect(rows.firstWhere((r) => r.groupRoomId == 'room-3').subtitle, '2 miembros · FakeA');
+    } else {
+      final comun = rows.where((r) => r.gatewayId == 'comun').toList();
+      expect(comun, hasLength(1), reason: 'canal legacy: UNA fila comun');
+      expect(comun.single.subtitle, '2 miembros · A');
+      expect(comun.single.title, 'Bot Claudio, Bot Boneca');
+    }
   });
 }

@@ -244,6 +244,84 @@ Future<void> syncGroupMirrors({
       titleByProfile: titleByProfile,
     );
   }
+  // 2a) Canal legacy (0.1.27): grupos que SÓLO existen como membresía del
+  //     bot (`ui_meta.hermes-bots.groups`) — backends/Desktop que no
+  //     publican el espejo `hermes-bots-groups`. Sin esto, el grupo «común»
+  //     que declaran bots de dos gateways no materializa NINGUNA fila y el
+  //     usuario no lo ve (reporte 2026-10-04). Reglas:
+  //     - sólo si el espejo NO cubre el nombre (la sala del espejo manda);
+  //     - UNA fila por nombre: dueña = primera conexión (orden usuario) con
+  //       un bot miembro; subtítulo = los bots que lo declaran, de todas
+  //       las conexiones;
+  //     - sin `groupRoomId` (fila legacy por nombre): el purge de 2b) no la
+  //       toca y 3) respeta su ocultamiento local (kind group-hidden).
+  final coveredNames = {for (final r in live) if (r.name.isNotEmpty) r.name};
+  final legacyPlaced = <String>{};
+  for (final c in conns) {
+    for (final p in c.profiles) {
+      for (final g in p.membershipNames) {
+        if (coveredNames.contains(g)) continue;
+        if (legacyPlaced.contains(g)) continue;
+        final id = groupConversationId(c.id, g);
+        final prior = await db.groupConversationRow(id);
+        if (prior != null && prior.kind == 'group-hidden') continue;
+        // Miembros: TODOS los bots (de todas las conexiones) que declaran
+        // el nombre. La identidad del miembro es (conexión, perfil): dos
+        // gateways con perfil homónimo ('default' en ambos) son DOS bots
+        // distintos (contrato de identidad de la app). El subtítulo cuenta
+        // por par, no por nombre.
+        final memberPairs = <({String connId, String profile})>[
+          for (final c2 in conns)
+            for (final p2 in c2.profiles)
+              if (p2.membershipNames.contains(g)) (connId: c2.id, profile: p2.name),
+        ];
+        final memberTitles = <String>[];
+        final titlesByConn = {for (final c2 in conns) c2.id: c2.titles};
+        for (final pair in memberPairs) {
+          final t = titlesByConn[pair.connId]?[pair.profile] ??
+              titleByProfile[pair.profile] ??
+              pair.profile;
+          final label = t.isEmpty ? pair.profile : t;
+          // Desambiguar homónimos: 'Bot (claudio)' / 'Bot (boneca)'.
+          final shown = memberTitles.contains(label)
+              ? '$label (${pair.connId})'
+              : label;
+          memberTitles.add(shown);
+        }
+        final members = memberPairs.map((p) => p.profile).toList();
+        final title = memberTitles.length == 1
+            ? memberTitles.first
+            : memberTitles.take(3).join(', ');
+        final prefs = await db.localConvPrefs(id);
+        await db
+            .into(db.conversations)
+            .insertOnConflictUpdate(
+              ConversationsCompanion.insert(
+                id: id,
+                connectionId: c.id,
+                kind: 'group',
+                gatewayId: g,
+                title: title,
+                subtitle: Value(
+                  members.isEmpty
+                      ? c.label
+                      : members.length == 1
+                      ? '1 miembro · ${c.label}'
+                      : '${members.length} miembros · ${c.label}',
+                ),
+                avatarSeed: Value(g),
+                isGroup: const Value(true),
+                gatewayLabel: Value(c.label),
+                pinned: Value(prefs.pinned),
+                pinnedGateway: Value(prefs.pinnedGateway),
+                sortOrder: Value(prefs.sortOrder),
+                groupSyncName: Value(g),
+              ),
+            );
+        legacyPlaced.add(g);
+      }
+    }
+  }
   // 2b) Filas huérfanas: salas vivas cuya fila local quedó en una conexión
   //     que ya no es la dueña (o cuya conexión está caída y no participa en
   //     este ciclo). Se limpian sobre TODAS las filas de grupos con roomId,
