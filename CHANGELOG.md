@@ -1,3 +1,21 @@
+## Release 32 (2026-10-04)
+
+### fix(conexiones): renovación automática de sesión — 32
+
+- **Síntoma**: las conexiones «se quedaban sin conexión»: si el gateway
+  invalidaba la sesión (reinicio del servicio, rotación de secretos),
+  el enlace WS moría con close 4401 y la app se quedaba en «sesión
+  expirada» hasta reconectar a mano.
+- **Fix**: al expirar, la app se re-autentica en silencio con la
+  contraseña recordada y reconecta. Un enfriamiento de 2 minutos por
+  conexión evita gastar el anti-fuerza-bruta del gate en bucles.
+- **Nota de diagnóstico**: el gateway de claudio estaba PARADO
+  (`gateway_running: false`) — el router web respondía y eso confundía.
+  Con el gateway parado la app puede iniciar sesión pero el enlace cae.
+- tools/fake_gateway.py: escenario por defecto del gateway A restaurado
+  (regresión 0.1.28 con fakes recién iniciados); test E2E de renovación
+  (4401 → re-login → reconexión, sin bucle).
+
 ## Release 31 (2026-10-04)
 
 ### fix(groups): miembros y menciones en salas sin roomId — 31

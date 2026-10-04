@@ -1,7 +1,7 @@
 name: hermes_pocket
 description: "Hermes Pocket — cliente Android para Hermes Agent de Nous Research."
 publish_to: 'none'
-version: 31.0.0+31
+version: 32.0.0+32
 
 environment:
   sdk: ^3.9.2
