@@ -1,7 +1,7 @@
-# Hermes Pocket — estado del proyecto (2026-10-03)
+# Hermes Pocket — estado del proyecto (2026-10-04)
 
 App Android nativa (Flutter) cliente de gateways **Hermes Agent** (Nous
-Research). Versión actual: **0.1.27**. Windows: plataforma habilitada en el
+Research). Versión actual: **0.1.28**. Windows: plataforma habilitada en el
 workspace (adaptación de navegación pendiente de producto).
 
 ## Qué funciona (verificado contra gateway real + fake)
@@ -81,6 +81,22 @@ host y `adb forward tcp:9120 tcp:9120`:
   (`@default`, `@researcher`), selección reemplaza el token, envío → eco del
   bot con la mención; back/entrada repetida sin bloqueos; 0 errores de
   framework en logcat.
+
+## Verificación 0.1.28 en emulador (2026-10-04)
+
+Escenario del reporte (dos gateways con bot homónimo `default` y grupo
+«comun» declarado sólo por membresía, sin espejo) reproducido con
+`fake_gateway.py` en modo `nomirror=1` (puertos 9120/9121):
+
+- La fila del grupo legacy «Bot Claudio, Bot Boneca» aparece en «Grupos» con
+  subtítulo «2 miembros · FakeA»; los bots muestran «Grupos: comun».
+- Abrir la fila abre el chat por el WS de la dueña (`groups.state`/
+  `groups.log` con `room_id=comun` sólo en la dueña, no en el segundo
+  gateway).
+- Enviar «hola» → `groups.send {room_id: comun}` a la dueña; con el fake
+  rechazando (room desconocida) queda fila «Reintentar» (sin reenvío
+  automático); aceptando el envío, el mensaje y el eco del bot se renderizan
+  con autoría resuelta.
 
 ## Pendiente / roadmap honesto
 
