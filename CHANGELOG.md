@@ -1,3 +1,9 @@
+## Esquema de versionado (cambio, 2026-10-04)
+
+A partir de la próxima entrega, versión ÚNICA creciente: **31, 32, 33…**
+(versionName y versionCode iguales). Se abandona el esquema doble
+`0.1.29+30` que leía como dos releases en uno.
+
 ## Release 0.1.29 (2026-10-04)
 
 ### fix(groups): salas del espejo sin `roomId` (clave `name:`) — 0.1.29
