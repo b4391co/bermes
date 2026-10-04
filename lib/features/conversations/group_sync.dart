@@ -19,6 +19,8 @@
 ///   "sala ausente ≠ borrado" (`group-chat.ts:673-675`).
 library;
 
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import '../../data/database/app_database.dart';
@@ -441,7 +443,10 @@ Future<void> _writeRoom({
           kind: 'group',
           gatewayId: room.identity,
           title: title,
-          subtitle: Value(_subtitle(memberProfiles, conn.label)),
+          // El conteo honesto es el de la sala del espejo (miembros de
+          // TODOS los gateways), no el de la resolución local: 'Dual' tiene
+          // default+parker en Claudio Y en Boneca = 4, no 2.
+          subtitle: Value(_memberCountSubtitle(room, memberProfiles, conn.label)),
           avatarSeed: Value(room.identity),
           isGroup: const Value(true),
           gatewayLabel: Value(conn.label),
@@ -451,6 +456,9 @@ Future<void> _writeRoom({
           groupRoomId: Value(room.roomId),
           groupSyncRevision: Value(room.revision),
           groupSyncName: Value(room.name),
+          groupMembersJson: Value(
+            jsonEncode([for (final m in room.members) m.toJson()]),
+          ),
         ),
       );
 
@@ -513,9 +521,15 @@ String? _localIdForDeleted({
   return null;
 }
 
-String _subtitle(List<String> memberProfiles, String gatewayLabel) {
-  if (memberProfiles.isEmpty) return gatewayLabel;
-  return memberProfiles.length == 1
-      ? '1 miembro · $gatewayLabel'
-      : '${memberProfiles.length} miembros · $gatewayLabel';
+String _memberCountSubtitle(
+  GroupRoom room,
+  List<String> resolvedProfiles,
+  String gatewayLabel,
+) {
+  // El conteo honesto es el de la sala del espejo (miembros de TODOS los
+  // gateways): 'Dual' tiene default+parker en Claudio Y en Boneca = 4. La
+  // resolución local sólo alcanza los perfiles de las conexiones sincronizadas.
+  final count = room.members.isNotEmpty ? room.members.length : resolvedProfiles.length;
+  if (count == 0) return gatewayLabel;
+  return count == 1 ? '1 miembro · $gatewayLabel' : '$count miembros · $gatewayLabel';
 }

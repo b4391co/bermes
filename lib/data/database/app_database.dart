@@ -9,7 +9,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -45,6 +45,10 @@ class AppDatabase extends _$AppDatabase {
         // Adjuntos de imagen: JSON de rutas/nombres (los bytes se
         // re-resuelven contra el gateway; ver MessageAttachment + fetchMedia).
         await m.addColumn(messages, messages.attachmentsJson);
+      }
+      if (from < 10) {
+        // Miembros de grupo serializados (ficha + menciones de salas name:).
+        await m.addColumn(conversations, conversations.groupMembersJson);
       }
     },
   );

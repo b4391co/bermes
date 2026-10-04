@@ -1,5 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
-import 'package:drift/drift.dart' hide isNull;
+import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:hermes_pocket/clients/hermes/connection_manager.dart';
 import 'package:hermes_pocket/data/database/app_database.dart';
@@ -95,5 +97,10 @@ void main() {
     expect(msgs.map((m) => m.text_), ['que tal', 'Presente.']);
     expect(msgs.first.authorName, 'Tú');
     expect(msgs.last.authorName, 'default · Boneca');
+    // Miembros persistidos (ficha + menciones de salas name:).
+    final membersJson = dual.single.groupMembersJson;
+    expect(membersJson, isNotNull);
+    final members = (jsonDecode(membersJson!) as List).cast<Map>();
+    expect(members.map((m) => m['handle']), ['default-boneca', 'default-claudio']);
   });
 }

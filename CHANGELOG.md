@@ -1,3 +1,23 @@
+## Release 31 (2026-10-04)
+
+### fix(groups): miembros y menciones en salas sin roomId — 31
+
+- **Síntoma**: en el grupo «Dual» (clave `name:` del espejo, no hospedada)
+  no se veían los miembros en la ficha y el autocompletado `@` no aparecía:
+  ambos leían `groups.state`, que el gateway rechaza (4112) para estas salas.
+- **Fix**: syncGroupMirrors persiste los descriptores de miembros del espejo
+  (`GroupRoom.members`) en la nueva columna `conversations.groupMembersJson`
+  (migración v10). La ficha de miembros y el autocompletado `@` los usan
+  como fuente; los homónimos se distinguen por handle (default-boneca /
+  default-claudio) y el gateway de origen.
+- **Subtítulo honesto**: el conteo de miembros ahora es el de la sala del
+  espejo (miembros de TODOS los gateways): «Dual» = «4 miembros», no 2.
+- E2E en emulador contra el gateway real: ficha con 4 miembros desambiguados;
+  «@de» sugiere @default-boneca / @default-claudio; selección reemplaza el
+  token. El envío en salas no hospedadas sigue el contrato del gateway
+  (rechazo → fila Reintentar con la causa, nunca reenvío automático).
+- Versionado: esquema de número único (31, 32, 33…; versionName = versionCode).
+
 ## Esquema de versionado (cambio, 2026-10-04)
 
 A partir de la próxima entrega, versión ÚNICA creciente: **31, 32, 33…**

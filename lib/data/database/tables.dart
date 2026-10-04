@@ -63,6 +63,10 @@ class Conversations extends Table {
   TextColumn get groupRoomId => text().nullable()();
   IntColumn get groupSyncRevision => integer().withDefault(const Constant(0))();
   TextColumn get groupSyncName => text().nullable()();
+  // Descriptores de miembros del grupo (GroupRoom.members serializados):
+  // ficha de miembros y autocompletado `@` de salas sin roomId — el gateway
+  // no las hospeda (groups.state → 4112) y el roster del chat no alcanza.
+  TextColumn get groupMembersJson => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};

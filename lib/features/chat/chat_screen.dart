@@ -214,7 +214,18 @@ class _ChatScreenState extends State<ChatScreen> {
       // (groups.state/log → 4112/4114, verificado contra 0.21.5 real). Su
       // historia vive incrustada en el espejo y la persiste syncGroupMirrors
       // en la tabla messages; no hay canal en vivo ni log que pedir.
-      if (conv.groupRoomId != null) _startRoomLog();
+      if (conv.groupRoomId != null) {
+        _startRoomLog();
+      } else {
+        // Menciones desde los miembros persistidos (no hay roomState).
+        unawaited(
+          _loadMentionCandidates(
+            RoomsClient(runtime.gateway),
+            conv.gatewayId,
+            persistedOnly: true,
+          ),
+        );
+      }
       return;
     }
     _startController(path, sendSession, runtime);
@@ -262,8 +273,42 @@ class _ChatScreenState extends State<ChatScreen> {
   /// autocompletado `@`. El nombre que se inserta es el que el backend del
   /// grupo escucha para dirigir el turno (handle de `RelayAgentRow` /
   /// display name); los perfiles propios del usuario no se listan.
-  Future<void> _loadMentionCandidates(RoomsClient client, String roomId) async {
+  Future<void> _loadMentionCandidates(
+    RoomsClient client,
+    String roomId, {
+    bool persistedOnly = false,
+  }) async {
     List<MentionCandidate> out = const [];
+    if (persistedOnly) {
+      // Sala sin roomId (clave `name:` del espejo): el gateway NO la hospeda
+      // (groups.state → 4112) — los miembros vienen del espejo, persistidos
+      // por syncGroupMirrors en groupMembersJson.
+      final raw = _conversation?.groupMembersJson;
+      if (raw == null || raw.isEmpty) return;
+      final bots = [
+        for (final m in (jsonDecode(raw) as List).whereType<Map>())
+          // El mencionable es lo que el gateway escucha: el handle
+          // (`RelayAgentRow.handle`); con homónimos entre gateways el handle
+          // lleva el sufijo del origen (default-boneca / default-claudio).
+          (m.cast<String, Object?>())['handle'] ??
+              (m.cast<String, Object?>())['display_name'] ??
+              (m.cast<String, Object?>())['title'] ??
+              (m.cast<String, Object?>())['name'],
+      ].whereType<String>().toList();
+      if (mounted) {
+        setState(() {
+          _mentionCandidates = [
+            for (final name in bots)
+              MentionCandidate(
+                name: name,
+                avatarMeta: _botAvatars[name]?.$1,
+                avatarUrl: _botAvatars[name]?.$2,
+              ),
+          ];
+        });
+      }
+      return;
+    }
     for (var attempt = 0; attempt < 6; attempt++) {
       final gw = _runtime?.gateway;
       if (gw == null || !mounted) return;

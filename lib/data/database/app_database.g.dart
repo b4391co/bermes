@@ -996,6 +996,17 @@ class $ConversationsTable extends Conversations
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _groupMembersJsonMeta = const VerificationMeta(
+    'groupMembersJson',
+  );
+  @override
+  late final GeneratedColumn<String> groupMembersJson = GeneratedColumn<String>(
+    'group_members_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -1019,6 +1030,7 @@ class $ConversationsTable extends Conversations
     groupRoomId,
     groupSyncRevision,
     groupSyncName,
+    groupMembersJson,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1195,6 +1207,15 @@ class $ConversationsTable extends Conversations
         ),
       );
     }
+    if (data.containsKey('group_members_json')) {
+      context.handle(
+        _groupMembersJsonMeta,
+        groupMembersJson.isAcceptableOrUnknown(
+          data['group_members_json']!,
+          _groupMembersJsonMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -1288,6 +1309,10 @@ class $ConversationsTable extends Conversations
         DriftSqlType.string,
         data['${effectivePrefix}group_sync_name'],
       ),
+      groupMembersJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}group_members_json'],
+      ),
     );
   }
 
@@ -1319,6 +1344,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
   final String? groupRoomId;
   final int groupSyncRevision;
   final String? groupSyncName;
+  final String? groupMembersJson;
   const Conversation({
     required this.id,
     required this.connectionId,
@@ -1341,6 +1367,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     this.groupRoomId,
     required this.groupSyncRevision,
     this.groupSyncName,
+    this.groupMembersJson,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1385,6 +1412,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     map['group_sync_revision'] = Variable<int>(groupSyncRevision);
     if (!nullToAbsent || groupSyncName != null) {
       map['group_sync_name'] = Variable<String>(groupSyncName);
+    }
+    if (!nullToAbsent || groupMembersJson != null) {
+      map['group_members_json'] = Variable<String>(groupMembersJson);
     }
     return map;
   }
@@ -1432,6 +1462,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       groupSyncName: groupSyncName == null && nullToAbsent
           ? const Value.absent()
           : Value(groupSyncName),
+      groupMembersJson: groupMembersJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(groupMembersJson),
     );
   }
 
@@ -1462,6 +1495,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       groupRoomId: serializer.fromJson<String?>(json['groupRoomId']),
       groupSyncRevision: serializer.fromJson<int>(json['groupSyncRevision']),
       groupSyncName: serializer.fromJson<String?>(json['groupSyncName']),
+      groupMembersJson: serializer.fromJson<String?>(json['groupMembersJson']),
     );
   }
   @override
@@ -1489,6 +1523,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       'groupRoomId': serializer.toJson<String?>(groupRoomId),
       'groupSyncRevision': serializer.toJson<int>(groupSyncRevision),
       'groupSyncName': serializer.toJson<String?>(groupSyncName),
+      'groupMembersJson': serializer.toJson<String?>(groupMembersJson),
     };
   }
 
@@ -1514,6 +1549,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     Value<String?> groupRoomId = const Value.absent(),
     int? groupSyncRevision,
     Value<String?> groupSyncName = const Value.absent(),
+    Value<String?> groupMembersJson = const Value.absent(),
   }) => Conversation(
     id: id ?? this.id,
     connectionId: connectionId ?? this.connectionId,
@@ -1542,6 +1578,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     groupSyncName: groupSyncName.present
         ? groupSyncName.value
         : this.groupSyncName,
+    groupMembersJson: groupMembersJson.present
+        ? groupMembersJson.value
+        : this.groupMembersJson,
   );
   Conversation copyWithCompanion(ConversationsCompanion data) {
     return Conversation(
@@ -1588,6 +1627,9 @@ class Conversation extends DataClass implements Insertable<Conversation> {
       groupSyncName: data.groupSyncName.present
           ? data.groupSyncName.value
           : this.groupSyncName,
+      groupMembersJson: data.groupMembersJson.present
+          ? data.groupMembersJson.value
+          : this.groupMembersJson,
     );
   }
 
@@ -1614,7 +1656,8 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           ..write('pinnedGateway: $pinnedGateway, ')
           ..write('groupRoomId: $groupRoomId, ')
           ..write('groupSyncRevision: $groupSyncRevision, ')
-          ..write('groupSyncName: $groupSyncName')
+          ..write('groupSyncName: $groupSyncName, ')
+          ..write('groupMembersJson: $groupMembersJson')
           ..write(')'))
         .toString();
   }
@@ -1642,6 +1685,7 @@ class Conversation extends DataClass implements Insertable<Conversation> {
     groupRoomId,
     groupSyncRevision,
     groupSyncName,
+    groupMembersJson,
   ]);
   @override
   bool operator ==(Object other) =>
@@ -1667,7 +1711,8 @@ class Conversation extends DataClass implements Insertable<Conversation> {
           other.pinnedGateway == this.pinnedGateway &&
           other.groupRoomId == this.groupRoomId &&
           other.groupSyncRevision == this.groupSyncRevision &&
-          other.groupSyncName == this.groupSyncName);
+          other.groupSyncName == this.groupSyncName &&
+          other.groupMembersJson == this.groupMembersJson);
 }
 
 class ConversationsCompanion extends UpdateCompanion<Conversation> {
@@ -1692,6 +1737,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
   final Value<String?> groupRoomId;
   final Value<int> groupSyncRevision;
   final Value<String?> groupSyncName;
+  final Value<String?> groupMembersJson;
   final Value<int> rowid;
   const ConversationsCompanion({
     this.id = const Value.absent(),
@@ -1715,6 +1761,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     this.groupRoomId = const Value.absent(),
     this.groupSyncRevision = const Value.absent(),
     this.groupSyncName = const Value.absent(),
+    this.groupMembersJson = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ConversationsCompanion.insert({
@@ -1739,6 +1786,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     this.groupRoomId = const Value.absent(),
     this.groupSyncRevision = const Value.absent(),
     this.groupSyncName = const Value.absent(),
+    this.groupMembersJson = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        connectionId = Value(connectionId),
@@ -1767,6 +1815,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     Expression<String>? groupRoomId,
     Expression<int>? groupSyncRevision,
     Expression<String>? groupSyncName,
+    Expression<String>? groupMembersJson,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1791,6 +1840,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
       if (groupRoomId != null) 'group_room_id': groupRoomId,
       if (groupSyncRevision != null) 'group_sync_revision': groupSyncRevision,
       if (groupSyncName != null) 'group_sync_name': groupSyncName,
+      if (groupMembersJson != null) 'group_members_json': groupMembersJson,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1817,6 +1867,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     Value<String?>? groupRoomId,
     Value<int>? groupSyncRevision,
     Value<String?>? groupSyncName,
+    Value<String?>? groupMembersJson,
     Value<int>? rowid,
   }) {
     return ConversationsCompanion(
@@ -1841,6 +1892,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
       groupRoomId: groupRoomId ?? this.groupRoomId,
       groupSyncRevision: groupSyncRevision ?? this.groupSyncRevision,
       groupSyncName: groupSyncName ?? this.groupSyncName,
+      groupMembersJson: groupMembersJson ?? this.groupMembersJson,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1911,6 +1963,9 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
     if (groupSyncName.present) {
       map['group_sync_name'] = Variable<String>(groupSyncName.value);
     }
+    if (groupMembersJson.present) {
+      map['group_members_json'] = Variable<String>(groupMembersJson.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1941,6 +1996,7 @@ class ConversationsCompanion extends UpdateCompanion<Conversation> {
           ..write('groupRoomId: $groupRoomId, ')
           ..write('groupSyncRevision: $groupSyncRevision, ')
           ..write('groupSyncName: $groupSyncName, ')
+          ..write('groupMembersJson: $groupMembersJson, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -4009,6 +4065,7 @@ typedef $$ConversationsTableCreateCompanionBuilder =
       Value<String?> groupRoomId,
       Value<int> groupSyncRevision,
       Value<String?> groupSyncName,
+      Value<String?> groupMembersJson,
       Value<int> rowid,
     });
 typedef $$ConversationsTableUpdateCompanionBuilder =
@@ -4034,6 +4091,7 @@ typedef $$ConversationsTableUpdateCompanionBuilder =
       Value<String?> groupRoomId,
       Value<int> groupSyncRevision,
       Value<String?> groupSyncName,
+      Value<String?> groupMembersJson,
       Value<int> rowid,
     });
 
@@ -4148,6 +4206,11 @@ class $$ConversationsTableFilterComposer
 
   ColumnFilters<String> get groupSyncName => $composableBuilder(
     column: $table.groupSyncName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get groupMembersJson => $composableBuilder(
+    column: $table.groupMembersJson,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -4265,6 +4328,11 @@ class $$ConversationsTableOrderingComposer
     column: $table.groupSyncName,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get groupMembersJson => $composableBuilder(
+    column: $table.groupMembersJson,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ConversationsTableAnnotationComposer
@@ -4360,6 +4428,11 @@ class $$ConversationsTableAnnotationComposer
     column: $table.groupSyncName,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get groupMembersJson => $composableBuilder(
+    column: $table.groupMembersJson,
+    builder: (column) => column,
+  );
 }
 
 class $$ConversationsTableTableManager
@@ -4414,6 +4487,7 @@ class $$ConversationsTableTableManager
                 Value<String?> groupRoomId = const Value.absent(),
                 Value<int> groupSyncRevision = const Value.absent(),
                 Value<String?> groupSyncName = const Value.absent(),
+                Value<String?> groupMembersJson = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ConversationsCompanion(
                 id: id,
@@ -4437,6 +4511,7 @@ class $$ConversationsTableTableManager
                 groupRoomId: groupRoomId,
                 groupSyncRevision: groupSyncRevision,
                 groupSyncName: groupSyncName,
+                groupMembersJson: groupMembersJson,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -4462,6 +4537,7 @@ class $$ConversationsTableTableManager
                 Value<String?> groupRoomId = const Value.absent(),
                 Value<int> groupSyncRevision = const Value.absent(),
                 Value<String?> groupSyncName = const Value.absent(),
+                Value<String?> groupMembersJson = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ConversationsCompanion.insert(
                 id: id,
@@ -4485,6 +4561,7 @@ class $$ConversationsTableTableManager
                 groupRoomId: groupRoomId,
                 groupSyncRevision: groupSyncRevision,
                 groupSyncName: groupSyncName,
+                groupMembersJson: groupMembersJson,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

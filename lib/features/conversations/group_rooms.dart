@@ -117,19 +117,23 @@ class GroupMember {
   /// (`data.ts:1287`). La usamos literal, SIN sustituir `connectionId` por
   /// `installId`: en el empate Desktop también uniona miembros por esta clave
   /// y un `installId` en ese hueco convertiría dos espejos del mismo bot en
-  /// dos filas distintas (`group-chat.ts:446-448`, `l.556-569`). Para el
-  /// emparejamiento entre gateways se usa [profileKey], que sí es portable.
+  /// dos filas distintas (`group-chat.ts:446-448`, `l.556-569`).
   String get rosterKey => '${connectionId ?? 'legacy'}::${name ?? 'default'}';
 
-  /// Identidad portable entre clientes: el perfil del backend. `installId` es
-  /// el mismo token en todos los Desktop (`types.ts:103-106`); `connectionId`
-  /// solo lo entiende quien lo escribió, así que nunca participate de una
-  /// comparación entre gateways.
-  String? get profileKey => name;
-
-  /// Nombre para mostrar: título del miembro > display_name > handle > name.
-  String get label =>
-      title ?? displayName ?? handle ?? name ?? connectionLabel ?? '?';
+  /// Serialización para `conversations.groupMembersJson` (ficha de miembros
+  /// y autocompletado `@` de salas sin roomId). Los descriptores son
+  /// parciales — se guarda el mapa crudo que envió el gateway.
+  Map<String, Object?> toJson() => {
+    if (name != null) 'name': name,
+    if (connectionId != null) 'connectionId': connectionId,
+    if (installId != null) 'installId': installId,
+    if (connectionLabel != null) 'connectionLabel': connectionLabel,
+    if (handle != null) 'handle': handle,
+    if (displayName != null) 'display_name': displayName,
+    if (title != null) 'title': title,
+    if (targetProfile != null) 'targetProfile': targetProfile,
+    if (previousNames.isNotEmpty) 'previous_names': previousNames,
+  };
 }
 
 /// Snapshot completo de `ui_meta['hermes-bots-groups']`.

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../../clients/hermes/connection_manager.dart';
@@ -48,7 +50,6 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
     if (!conv.isGroup) return const _InfoData();
     final runtime = widget.runtime;
     final roomId = conv.groupRoomId;
-    if (runtime == null || roomId == null) return const _InfoData();
     // Iconos por perfil del backend: la identidad del miembro es el nombre de
     // perfil (`RoomMember.profile`), NO el display name — dos bots llamados
     // igual en gateways distintos son bots distintos (encargo §5).
@@ -58,6 +59,25 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
     final avatars = <String, db.Conversation>{
       for (final r in rows) r.gatewayId: r,
     };
+    // Sala sin roomId (clave `name:` del espejo): el gateway NO la hospeda
+    // (groups.state → 4112) — los miembros vienen del espejo, persistidos
+    // por syncGroupMirrors en groupMembersJson.
+    if (roomId == null) {
+      final raw = conv.groupMembersJson;
+      final members = <RoomMember>[
+        for (final m in (jsonDecode(raw ?? '[]') as List).whereType<Map>())
+          // GroupMember.toJson usa `name` (perfil del backend); RoomMember
+          // lo llama `profile` — la identidad del avatar/etiqueta.
+          RoomMember.fromJson({
+            ...m.cast<String, Object?>(),
+            'profile': m['name'],
+            'display_name':
+                m['display_name'] ?? m['title'] ?? m['connectionLabel'],
+          }),
+      ];
+      return _InfoData(members: members, botRows: avatars);
+    }
+    if (runtime == null) return const _InfoData();
     final room = await RoomsClient(runtime.gateway).roomState(roomId);
     return _InfoData(
       members: room?.members ?? const <RoomMember>[],
@@ -137,7 +157,19 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
             final m = members[i];
             final profile = m.profile ?? m.handle ?? '?';
             final row = snap.data?.botRows[profile];
+            // Homónimos entre gateways (default en Claudio y en Boneca): el
+            // handle los distingue (default-boneca / default-claudio) y el
+            // connectionLabel nombra el gateway de origen.
+            final duplicated =
+                members
+                    .where((o) => (o.profile ?? o.handle) == profile)
+                    .length >
+                1;
             final shown = row?.title ?? m.displayName ?? profile;
+            final title = duplicated && m.handle != null && m.handle != shown
+                ? '$shown · ${m.handle}'
+                : shown;
+            final origin = row?.gatewayLabel ?? m.target ?? profile;
             return ListTile(
               leading: row == null
                   ? BotAvatar(seed: profile, label: shown, size: 40)
@@ -148,14 +180,12 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
                       imageUrl: row.avatarUrl,
                       avatarMetaJson: row.botAvatarMeta,
                     ),
-              title: Text(shown),
-              subtitle: row == null
-                  ? Text(profile, maxLines: 1, overflow: TextOverflow.ellipsis)
-                  : Text(
-                      row.gatewayLabel ?? profile,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+              title: Text(title),
+              subtitle: Text(
+                origin,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             );
           },
         );
