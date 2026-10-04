@@ -350,7 +350,7 @@ def rpc_result(method: str, params: dict) -> object:
                     "canonical_session": ({"id": "sess-canonical-botb", "resolved_id": "sess-canonical-botb-r", "title": "Bot Chat"} if MODE["canonical"] else None),
                 },
             ]}
-        if False:  # (bloque original a conservar debajo)
+        if ROLE != "b":  # escenario por defecto del gateway A (0.1.26)
             return {"profiles": [
 
             {
@@ -596,6 +596,9 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse()
     await ws.prepare(request)
     LIVE_WS.append(ws)
+    if MODE.get("ws_reject"):
+        await ws.close(code=4401, message=b"fake-expired")
+        return
     # Primer frame servidor→cliente: gateway.ready (tui_gateway/ws.py:324-331).
     await ws.send_str(json.dumps({"jsonrpc": "2.0", "method": "event", "params": {
         "type": "gateway.ready", "payload": {"skin": "default", "change_events": True,
@@ -741,6 +744,8 @@ async def set_mode(request: web.Request) -> web.Response:
         MODE["approval"] = request.query["approval"] == "1"
     if "session_token" in request.query:
         MODE["session_token"] = request.query["session_token"] == "1"
+    if "ws_reject" in request.query:
+        MODE["ws_reject"] = request.query["ws_reject"] == "1"
     if "nomirror" in request.query:
         MODE["nomirror"] = request.query["nomirror"] == "1"
     return web.json_response(dict(MODE))

@@ -68,6 +68,10 @@ class ConnectionManager {
     // Roster de bots SIEMPRE al día: cuando el gateway pasa a ready
     // (arranque, reconexión), se redescubre una vez por transición.
     runtime.gateway.stateStream.listen((s) {
+      if (s == GatewayLinkState.authExpired) {
+        _maybeRenewSession(profile.id);
+        return;
+      }
       if (s != GatewayLinkState.ready) return;
       final row = _rowsById[profile.id];
       final db = _db;
@@ -81,6 +85,61 @@ class ConnectionManager {
     _runtimes[profile.id] = runtime;
     _notify();
     return runtime;
+  }
+
+  /// Renovación en caliente: cuando el enlace WS muere con `authExpired`
+  /// (close 4401: ticket muerto / sesión invalidada en el servidor) y hay
+  /// contraseña recordada, se re-autentica en silencio y se reconecta, en
+  /// vez de dejar la conexión en «sesión expirada» hasta que el usuario
+  /// toque reconectar. Un solo intento en vuelo por conexión y un
+  /// enfriamiento de 2 minutos entre intentos (éxito o fallo): si el
+  /// re-login falla (contraseña cambiada, gateway caído) o el gateway
+  /// vuelve a rechazar enseguida, NO se repite en bucle; el
+  /// anti-fuerza-bruta del gate (10/60s) no se gasta.
+  final _renewInFlight = <String>{};
+  final _renewLastAt = <String, DateTime>{};
+
+  void _maybeRenewSession(String connectionId) {
+    final row = _rowsById[connectionId];
+    final secrets = _secrets;
+    if (row == null || secrets == null) return;
+    if (row.authKind != 'password') return;
+    final last = _renewLastAt[connectionId];
+    if (last != null &&
+        DateTime.now().difference(last) < const Duration(minutes: 2)) {
+      return;
+    }
+    if (!_renewInFlight.add(connectionId)) return;
+    unawaited(() async {
+      try {
+        final runtime = _runtimes[connectionId];
+        if (runtime == null) return;
+        final password = await secrets.readRememberedPassword(connectionId);
+        if (password == null || password.isEmpty) return;
+        runtime.http.forgetSession();
+        final result = await login(
+          runtime,
+          username: row.username,
+          password: password,
+        );
+        if (!result.ok) {
+          _renewLastAt[connectionId] = DateTime.now();
+          _log.warning(
+            'renovación ${row.name}: re-login falló (${result.cause?.name})',
+          );
+          return;
+        }
+        _renewLastAt[connectionId] = DateTime.now();
+        _log.info('renovación ${row.name}: sesión renovada; reconectando');
+        await runtime.gateway.connect();
+        await runtime.gateway.readyOrTimeout(const Duration(seconds: 20));
+      } catch (e) {
+        _renewLastAt[connectionId] = DateTime.now();
+        _log.warning('renovación $connectionId: error', e);
+      } finally {
+        _renewInFlight.remove(connectionId);
+      }
+    }());
   }
 
   final _rowsById = <String, Connection>{};
@@ -508,14 +567,14 @@ class ConnectionManager {
         roster.profiles.add(
           GatewayProfileSnapshot(
             name: name,
-            groups: GroupSyncSnapshot.tryParse(
-              (p['ui_meta'] is Map)
-                  ? (p['ui_meta'] as Map)['hermes-bots-groups']
-                  : null,
-            ) ?? GroupSyncSnapshot.empty,
-            membershipNames: {
-              ...?BotRosterMeta.fromProfile(p)?.groups,
-            },
+            groups:
+                GroupSyncSnapshot.tryParse(
+                  (p['ui_meta'] is Map)
+                      ? (p['ui_meta'] as Map)['hermes-bots-groups']
+                      : null,
+                ) ??
+                GroupSyncSnapshot.empty,
+            membershipNames: {...?BotRosterMeta.fromProfile(p)?.groups},
           ),
         );
         if (botMeta?.hidden == true) continue; // bot oculto por Desktop
