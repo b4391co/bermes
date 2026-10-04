@@ -43,12 +43,19 @@ class GroupRoom {
   /// Miembros descriptores (`members`, subconjunto de `GroupMember`).
   final List<GroupMember> members;
 
+  /// Log INCORPORADO del espejo (`rooms[k].log`): Desktop guarda el historial
+  /// de la sala dentro del propio espejo. Para salas sin `roomId` (clave
+  /// `name:`) es la ÚNICA historia que existe — el gateway no las hospeda
+  /// (groups.state/log → 4112/4114, verificado contra 0.21.5 real).
+  final List<Map<String, Object?>> embeddedLog;
+
   const GroupRoom({
     required this.key,
     required this.roomId,
     required this.name,
     required this.revision,
     required this.members,
+    this.embeddedLog = const [],
   });
 
   /// Id de identidad del grupo: prefiere siempre el `roomId` inmutable.
@@ -202,9 +209,14 @@ class GroupSyncSnapshot {
       name: name,
       revision: revision,
       members: members,
+      embeddedLog: (map['log'] is List)
+          ? (map['log'] as List)
+                .whereType<Map>()
+                .map((m) => m.cast<String, Object?>())
+                .toList()
+          : const <Map<String, Object?>>[],
     );
   }
-
   /// Salas vivas: caen las tombstoneadas. Réplica de la regla de
   /// `mergeGroupChatSyncSnapshots` (`group-chat.ts:607-617`): un tombstone
   /// `id:` es final; uno `name:` solo gana si su revisión >= la de la sala.

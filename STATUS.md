@@ -1,7 +1,7 @@
 # Hermes Pocket — estado del proyecto (2026-10-04)
 
 App Android nativa (Flutter) cliente de gateways **Hermes Agent** (Nous
-Research). Versión actual: **0.1.28**. Windows: plataforma habilitada en el
+Research). Versión actual: **0.1.29**. Windows: plataforma habilitada en el
 workspace (adaptación de navegación pendiente de producto).
 
 ## Qué funciona (verificado contra gateway real + fake)
@@ -97,6 +97,19 @@ Escenario del reporte (dos gateways con bot homónimo `default` y grupo
   rechazando (room desconocida) queda fila «Reintentar» (sin reenvío
   automático); aceptando el envío, el mensaje y el eco del bot se renderizan
   con autoría resuelta.
+
+## Verificación 0.1.29 contra gateway REAL (2026-10-04)
+
+Gateway real «claudio» 0.21.5 (LAN del usuario, vía socat + adb reverse):
+
+- Login cookie (proveedor `basic`), roster WS con handshake `gateway.ready`,
+  espejo real con Casa/Oficina (con roomId) y «Dual» (clave `name:Dual`,
+  sin roomId, log incrustado).
+- «Dual» persiste tras dos ciclos de sync (0.1.28 lo borraba como fila
+  legacy) y el chat muestra su historia real: mensajes «Tú» y respuestas
+  «default · Claudio» / «default · Boneca» con fuente etiquetada.
+- Las salas `name:` no están hospedadas (groups.state/log → 4112/4114): el
+  historial se sirve del log incrustado del espejo, igual que Desktop.
 
 ## Pendiente / roadmap honesto
 

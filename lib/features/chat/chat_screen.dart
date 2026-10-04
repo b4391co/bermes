@@ -210,7 +210,11 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     if (conv.kind == 'group') {
       // Salas hosted: el timeline es `groups.log` + eventos `room.event`.
-      _startRoomLog();
+      // Sala sin roomId (clave `name:` del espejo): el gateway NO la hospeda
+      // (groups.state/log → 4112/4114, verificado contra 0.21.5 real). Su
+      // historia vive incrustada en el espejo y la persiste syncGroupMirrors
+      // en la tabla messages; no hay canal en vivo ni log que pedir.
+      if (conv.groupRoomId != null) _startRoomLog();
       return;
     }
     _startController(path, sendSession, runtime);

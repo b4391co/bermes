@@ -1,3 +1,30 @@
+## Release 0.1.29 (2026-10-04)
+
+### fix(groups): salas del espejo sin `roomId` (clave `name:`) — 0.1.29
+
+- **Síntoma real (gateway claudio 0.21.5)**: el grupo «Dual» publicado por
+  Desktop en el espejo bajo la clave `name:Dual` (Desktop aún no le asignó
+  `roomId`) aparecía un instante y desaparecía: el limpiador de filas legacy
+  (0.1.25) lo borraba en cada ciclo como «superseded», porque una sala sin
+  `roomId` se persiste igual que una fila legacy (groupRoomId NULL).
+- **Fix 1**: `_writeRoom` marca las salas del espejo con su `groupSyncRevision`
+  (> 0) y el limpiador legacy ya no toca filas con revisión — sólo borra filas
+  legacy de membresía puras. Verificado en dos ciclos contra el espejo real.
+- **Fix 2**: el gateway real NO hospeda las salas `name:` (`groups.state/log`
+  → 4112/4114): su historial vive INCORPORADO en el propio espejo
+  (`rooms[k].log`, como Desktop). `GroupRoom.embeddedLog` lo parsea y
+  `syncGroupMirrors` lo persiste como timeline (`roomlog-<id>` estable, no
+  duplica en re-sync). El chat no pide `groups.log` para esas salas.
+- **E2E contra el gateway real**: «Dual» visible en Grupos («2 miembros ·
+  claudio») y el chat muestra la historia real multi-gateway con autoría
+  («default · Claudio», «default · Boneca», mensajes del usuario «Tú»).
+- Descubierto de paso: `profiles.list` en gateway 0.21.5 exige handshake
+  `gateway.ready` antes de responder (sin él devuelve lista vacía) — el
+  cliente ya lo hacía bien; documentado en hermes-map.
+- fake_gateway: bloque de rol B restaurado (regresión introducida al editar el
+  modo `nomirror`); test nuevo `group_name_room_test` con espejo real
+  anonimizado. Suite: 65 verdes.
+
 ## Release 0.1.28 (2026-10-04)
 
 ### fix(groups): canal legacy de membresía sin espejo — 0.1.28

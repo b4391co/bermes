@@ -46,8 +46,8 @@ void main() {
     } else {
       final comun = rows.where((r) => r.gatewayId == 'comun').toList();
       expect(comun, hasLength(1), reason: 'canal legacy: UNA fila comun');
-      expect(comun.single.subtitle, '2 miembros · A');
-      expect(comun.single.title, 'Bot Claudio, Bot Boneca');
+      expect(comun.single.subtitle, '2 miembros · FakeA');
+      expect(comun.single.title, 'default, default (B)');
     }
   });
 }

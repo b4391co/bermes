@@ -210,24 +210,22 @@ Future<void> syncGroupMirrors({
     final hostIdx = conns.indexWhere(
       (c) => c.profiles.any((p) => p.groups.rooms.containsKey(room.key)),
     );
-    final owner = hostIdx >= 0 ? conns[hostIdx] : conns.firstWhere(
-      (c) => here.containsKey(c.id),
-      orElse: () => conns.first,
-    );
+    final owner = hostIdx >= 0
+        ? conns[hostIdx]
+        : conns.firstWhere(
+            (c) => here.containsKey(c.id),
+            orElse: () => conns.first,
+          );
     if (here.containsKey(owner.id) || hostIdx >= 0) {
       // Miembros PARA LA FILA: los de TODAS las conexiones que los
       // resolvieron, en orden del usuario (0.1.27). Antes sólo iban los de
       // la dueña: un grupo con bots de dos gateways se veía como
       // «1 miembro · <dueña>» aunque el otro gateway aportara miembros —
       // el usuario lo leía como «el grupo mixto no aparece».
-      final allMembers = <String>[
-        for (final c in conns) ...?here[c.id],
-      ];
+      final allMembers = <String>[for (final c in conns) ...?here[c.id]];
       placements['${owner.id}|${room.identity}'] = (
         room: room,
         connId: owner.id,
-        // Si nadie resolvió miembros (roster aún no sincronizado), la sala
-        // se coloca igualmente con lista vacía: su log es el real.
         members: allMembers,
       );
     }
@@ -255,7 +253,10 @@ Future<void> syncGroupMirrors({
   //       las conexiones;
   //     - sin `groupRoomId` (fila legacy por nombre): el purge de 2b) no la
   //       toca y 3) respeta su ocultamiento local (kind group-hidden).
-  final coveredNames = {for (final r in live) if (r.name.isNotEmpty) r.name};
+  final coveredNames = {
+    for (final r in live)
+      if (r.name.isNotEmpty) r.name,
+  };
   final legacyPlaced = <String>{};
   for (final c in conns) {
     for (final p in c.profiles) {
@@ -273,12 +274,14 @@ Future<void> syncGroupMirrors({
         final memberPairs = <({String connId, String profile})>[
           for (final c2 in conns)
             for (final p2 in c2.profiles)
-              if (p2.membershipNames.contains(g)) (connId: c2.id, profile: p2.name),
+              if (p2.membershipNames.contains(g))
+                (connId: c2.id, profile: p2.name),
         ];
         final memberTitles = <String>[];
         final titlesByConn = {for (final c2 in conns) c2.id: c2.titles};
         for (final pair in memberPairs) {
-          final t = titlesByConn[pair.connId]?[pair.profile] ??
+          final t =
+              titlesByConn[pair.connId]?[pair.profile] ??
               titleByProfile[pair.profile] ??
               pair.profile;
           final label = t.isEmpty ? pair.profile : t;
@@ -386,6 +389,13 @@ Future<void> syncGroupMirrors({
               ..where((c) => c.groupRoomId.isNull()))
             .get();
     for (final row in stale) {
+      // Una sala del espejo SIN roomId (clave `name:`) se materializa con
+      // groupRoomId NULL igual que una fila legacy por membresía. Distinguir:
+      // la fila del espejo lleva `groupSyncRevision` (> 0, la revisión que la
+      // escribió); la legacy no lleva ninguna. Sin este guard, el limpiador
+      // borraba la sala name: recién escrita como «superseded» (0.1.28: el
+      // grupo 'Dual' real del usuario desaparecía en cada ciclo).
+      if (row.groupSyncRevision > 0) continue;
       // El espejo cubre este nombre con una sala real → la fila legacy
       // (indexada por nombre) es un duplicado de esa misma sala.
       final superseded = coveredByMirror && liveNames.contains(row.gatewayId);
@@ -408,10 +418,8 @@ Future<void> _writeRoom({
   required Map<String, String> titleByProfile,
 }) async {
   final id = groupConversationId(conn.id, room.identity);
-  // Una sola lectura de la fila: identidad, revisión y bandera de oculta.
   final prior = await db.groupConversationRow(id);
   if (prior != null && room.revision < prior.groupSyncRevision) return;
-  // El usuario ocultó ESTA sala (mismo roomId): no se re-materializa. Un
   // `roomId` nuevo sí es una sala nueva — Desktop mintea un id fresco en cada
   // recreate y sus tombstones `id:` son finales (`group-chat.ts:607-613`), así
   // que un homónimo no hereda el ocultamiento.
@@ -445,6 +453,40 @@ Future<void> _writeRoom({
           groupSyncName: Value(room.name),
         ),
       );
+
+  // Sala sin roomId (clave `name:`): el gateway NO la hospeda (groups.state/
+  // log → 4112/4114 contra 0.21.5 real). Su historial es el log INCORPORADO
+  // del espejo: se persiste como timeline de la conversación (Desktop hace
+  // lo mismo con esas salas). Ids estables `roomlog-<id>` → re-sync no duplica.
+  if (room.roomId == null && room.embeddedLog.isNotEmpty) {
+    for (final ev in room.embeddedLog) {
+      final evId = (ev['id'] is String) ? ev['id'] as String : null;
+      if (evId == null || evId.isEmpty) continue;
+      final from = (ev['from'] is Map) ? ev['from'] as Map : const {};
+      final kind = from['kind'] is String ? from['kind'] as String : '';
+      final text = ev['text'] is String ? ev['text'] as String : '';
+      if (text.isEmpty) continue;
+      final at = (ev['at'] as num?)?.toInt() ?? 0;
+      final source = from['source'] is String ? from['source'] as String : null;
+      final author =
+          '${from['name'] ?? 'miembro'}${source == null ? '' : ' · $source'}';
+      await db
+          .into(db.messages)
+          .insertOnConflictUpdate(
+            MessagesCompanion.insert(
+              id: '$id/roomlog-$evId',
+              conversationId: id,
+              connectionId: conn.id,
+              role: kind == 'user' ? 'user' : 'assistant',
+              authorName: Value(kind == 'user' ? 'Tú' : author),
+              text_: Value(text),
+              timestamp: Value(
+                at > 0 ? DateTime.fromMillisecondsSinceEpoch(at) : null,
+              ),
+            ),
+          );
+    }
+  }
 }
 
 /// Localiza la fila local que un tombstone del espejo debe retirar.

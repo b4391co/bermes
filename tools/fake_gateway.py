@@ -318,20 +318,41 @@ def rpc_result(method: str, params: dict) -> object:
                 })
             return {"profiles": profs}
         if ROLE == "b":
-            # Escenario del reporte 2026-10-04 (claudio/boneca): NINGÚN
-            # gateway publica el espejo; el bot declara membresía legacy
-            # 'comun' (ui_meta.hermes-bots.groups).
+            # Segundo gateway del E2E multi-gateway (0.1.27): MISMA sala
+            # room-3 proyectada en su espejo con miembros LOCALES [botb];
+            # botb lleva además la membresía legacy ui_meta.hermes-bots.groups.
             return {"profiles": [
                 {
                     "name": "default",
-                    "display_name": "Bot Boneca",
+                    "display_name": "Bot B Default",
                     "is_default": True,
-                    "ui_meta": {"hermes-bots": {"title": "Bot Boneca", "groups": ["comun"]}},
-                    "ui_meta_revisions": {"hermes-bots": 1},
+                    "ui_meta": {
+                        "hermes-bots": {"title": "Bot B Default"},
+                        "hermes-bots-groups": {
+                            "version": 3, "updatedAt": now_ms(),
+                            "rooms": {
+                                "id:room-3": {
+                                    "name": "Conjunta", "roomId": "room-3",
+                                    "revision": 1,
+                                    "members": [{"name": "botb", "installId": "fake-install-b"}],
+                                },
+                            },
+                            "deleted": {},
+                        },
+                    },
+                    "ui_meta_revisions": {"hermes-bots": 1, "hermes-bots-groups": 1},
                     "canonical_session": ({"id": "sess-canonical-default", "resolved_id": "sess-canonical-default-r", "title": "Bot Chat"} if MODE["canonical"] else None),
                 },
+                {
+                    "name": "botb",
+                    "display_name": "Bot B",
+                    "ui_meta": {"hermes-bots": {"title": "Bot B", "groups": ["Conjunta"]}},
+                    "canonical_session": ({"id": "sess-canonical-botb", "resolved_id": "sess-canonical-botb-r", "title": "Bot Chat"} if MODE["canonical"] else None),
+                },
             ]}
-        return {"profiles": [
+        if False:  # (bloque original a conservar debajo)
+            return {"profiles": [
+
             {
                 "name": "default",
                 "display_name": "Default Bot",
