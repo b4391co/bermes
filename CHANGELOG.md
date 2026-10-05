@@ -1,3 +1,15 @@
+## Release 0.1.39 (2026-10-05)
+
+### fix(settings): la versión mostrada es la REAL del paquete instalado (0.1.39)
+
+- «Acerca de» leía una constante hardcodeada en `0.1.24` — llevaba seis
+  releases sin actualizarse: instalabas la última y dentro ponía una
+  versión vieja, haciendo pensar que la release no se publicaba bien.
+  Las releases SÍ estaban bien (el manifiesto del APK traía la correcta;
+  solo el cartel era mentira).
+- Ahora usa `package_info_plus`: lee versión y build del paquete real en
+  el dispositivo. Impossible que se desincronice.
+
 ## Release 0.1.38 (2026-10-05)
 
 ### fix(connections): «Probar conexión» y «Guardar» ya comprueban el login de verdad (0.1.38)

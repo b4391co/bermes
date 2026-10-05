@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:drift/drift.dart' hide Column;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/app_services.dart';
@@ -199,16 +200,42 @@ class _DataSectionState extends State<DataSection> {
   }
 }
 
-/// Sección Acerca de: versión fija (sin package_info en pubspec).
-class AboutSection extends StatelessWidget {
+/// Sección Acerca de: versión LEÍDA del paquete instalado (package_info_plus).
+/// Antes era una constante "sincronizada con pubspec.yaml"… que llevaba six
+/// releases sin sincronizar: el usuario veía v0.1.24 en builds 0.1.38 y con
+/// razón pensaba que la release no se publicaba bien.
+class AboutSection extends StatefulWidget {
   const AboutSection({super.key});
 
-  /// Sin package_info en pubspec: constante sincronizada con pubspec.yaml.
-  static const version = '0.1.24';
+  @override
+  State<AboutSection> createState() => _AboutSectionState();
+}
+
+class _AboutSectionState extends State<AboutSection> {
+  String? _version;
+  String? _build;
+
+  @override
+  void initState() {
+    super.initState();
+    // Falla CERRADO: si la plataforma no expone el paquete (Windows sin
+    // runner completo), simplemente no se muestra el número.
+    PackageInfo.fromPlatform().then((info) {
+      if (mounted) {
+        setState(() {
+          _version = info.version;
+          _build = info.buildNumber;
+        });
+      }
+    }).catchError((_) {});
+  }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final label = _version == null
+        ? ''
+        : 'v$_version+${_build ?? '0'}';
     return SettingsCard(
       children: [
         Padding(
@@ -227,10 +254,12 @@ class AboutSection extends StatelessWidget {
           subtitle: const Text(
             'Cliente Android para Hermes Agent de Nous Research',
           ),
-          trailing: const Text(
-            'v$version',
-            style: TextStyle(fontWeight: FontWeight.w600),
-          ),
+          trailing: label.isEmpty
+              ? null
+              : Text(
+                  label,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
         ),
         const SizedBox(height: Hp.s1),
       ],
