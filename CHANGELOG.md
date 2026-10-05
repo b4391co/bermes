@@ -1,3 +1,13 @@
+## Release 0.1.35 (2026-10-05)
+
+### fix(connections): diagnóstico accionable de credenciales rechazadas (0.1.35)
+
+- Cuando un gateway rechaza las credenciales, el panel ahora explica las
+  causas reales: cada gateway tiene SUS propios usuarios (el login de
+  boneca no tiene por qué ser el de claudio), y los paquetes de ajustes
+  NO incluyen secretos — hay que re-introducirlos en el editor.
+- Persistente del intento anterior: APKs firmados v1+v2+v3 (0.1.34).
+
 ## Release 0.1.34 (2026-10-05)
 
 ### fix(build): firma v1+v2+v3 para compatibilidad de instalación (0.1.34)

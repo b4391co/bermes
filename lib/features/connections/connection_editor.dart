@@ -733,7 +733,13 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
                       ? 'El gateway RECHAZA el token. Si el gateway está tras '
                             'un portal OAuth, cambia el método a «Usuario». Si '
                             'es loopback, el token del .env cambió o expiró.'
-                      : 'La sesión no está activa: prueba de nuevo el login.',
+                      : 'El gateway RECHAZÓ las credenciales. Cada gateway '
+                            'tiene sus propios usuarios: revisa en el editor el '
+                            'usuario y la contraseña EXACTOS de este gateway '
+                            '(pueden ser distintos a los de otras conexiones); '
+                            'si añadiste la conexión por paquete de ajustes, '
+                            'los secretos no se importan y hay que '
+                            're-introducirlos.',
                   style: TextStyle(color: Hp.error, fontSize: 12.5),
                 ),
               ),
