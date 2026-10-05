@@ -4,6 +4,7 @@ import 'dart:convert';
 import '../../core/logger.dart';
 import '../../features/chat/media_cache.dart';
 import '../../domain/message/chat_models.dart';
+import '../../domain/message/media_tags.dart';
 import 'gateway_client.dart';
 import 'rpc_types.dart';
 
@@ -280,21 +281,25 @@ class ChatSessionController {
       final m = _messages[idx];
       // Un `text` ausente NO borra lo ya streammeado: el contrato admite
       // payloads parciales (`partial`) y espejos sin cuerpo.
-      _messages[idx] = m.copyWith(
-        text: (text != null && text.isNotEmpty) ? text : m.text,
-        streaming: false,
-        sendState: status == 'error' ? SendState.failed : m.sendState,
+      _messages[idx] = _extractMedia(
+        m.copyWith(
+          text: (text != null && text.isNotEmpty) ? text : m.text,
+          streaming: false,
+          sendState: status == 'error' ? SendState.failed : m.sendState,
+        ),
       );
     } else if ((text != null && text.isNotEmpty) || err != null) {
       _messages.add(
-        ChatMessage(
-          id: _localId(),
-          path: path,
-          role: MessageRole.assistant,
-          text: text ?? '',
-          origin: MessageOrigin.live,
-          sendState: status == 'error' ? SendState.failed : SendState.sent,
-          timestamp: DateTime.now(),
+        _extractMedia(
+          ChatMessage(
+            id: _localId(),
+            path: path,
+            role: MessageRole.assistant,
+            text: text ?? '',
+            origin: MessageOrigin.live,
+            sendState: status == 'error' ? SendState.failed : SendState.sent,
+            timestamp: DateTime.now(),
+          ),
         ),
       );
     }
@@ -474,8 +479,25 @@ class ChatSessionController {
   void _sealStreaming() {
     final idx = _lastStreamingIndex();
     if (idx == null) return;
-    _messages[idx] = _messages[idx].copyWith(streaming: false);
+    _messages[idx] = _extractMedia(_messages[idx].copyWith(streaming: false));
     _notify();
+  }
+
+  /// Sella las etiquetas `MEDIA:` de un turno de asistente: el texto queda
+  /// limpio y los archivos se vuelven adjuntos renderizables (contrato de
+  /// entrega de Desktop, parts.ts). Se aplica al SELLAR (turno e interim),
+  /// no durante el stream: el tag puede llegar partido en deltas y una
+  /// burbuja en vivo no debe parpadear con el prefijo «MEDIA:».
+  ChatMessage _extractMedia(ChatMessage m) {
+    if (m.role != MessageRole.assistant || !m.text.contains('MEDIA:')) {
+      return m;
+    }
+    final split = splitAssistantMedia(m.text);
+    if (split.media.isEmpty) return m.copyWith(text: split.text);
+    return m.copyWith(
+      text: split.text,
+      attachments: [...m.attachments, ...split.media],
+    );
   }
 
   /// Sella la burbuja optimista cuando el turno cierra por eventos y el ACK

@@ -741,6 +741,56 @@ class HermesHttpClient {
     }
   }
 
+  /// Bytes de CUALQUIER archivo entregable vía
+  /// `GET /api/fs/read-data-url?path=…&profile=…` (files.py:901-922, la MISMA
+  /// ruta que usa Desktop para resolver `MEDIA:` sobre un gateway remoto).
+  /// Responde `{dataUrl: "data:<mime>;base64,…"}` con el mime sniffado del
+  /// archivo (mime_type.py) y tope `_FS_DATA_URL_MAX_BYTES` (413 si excede).
+  /// A diferencia de /api/media no está restringido a imágenes ni a las
+  /// raíces del dashboard: la ruta se valida contra el HOME del perfil
+  /// (`_fs_path`, files.py:885-899 → session_id/profile pinnan owner).
+  /// [profile] pinna el perfil dueño (sessionReadOwnerPin: sin él un host
+  /// que no es dueño puede 404). null si el gateway no lo expone (versión
+  /// antigua) o el archivo es demasiado grande / está fuera de raíz.
+  Future<({List<int> bytes, String mime})?> fetchFsDataUrl(
+    String path, {
+    String? profile,
+  }) async {
+    try {
+      final data = await _authorized<Object?>(
+        send: (headers) => _dio.get<Object?>(
+          '/api/fs/read-data-url',
+          queryParameters: {
+            'path': path,
+            if (profile != null && profile.isNotEmpty)
+              'profile': profile,
+          },
+          options: dio.Options(
+            headers: headers,
+            responseType: dio.ResponseType.json,
+            validateStatus: (c) => c != null && c < 600,
+            receiveTimeout: const Duration(seconds: 30),
+          ),
+        ),
+        read: (r) => (r?.statusCode ?? 0) == 200 ? _unwrap(r) : null,
+      );
+      final url = data is Map ? data['dataUrl'] : null;
+      if (url is! String || url.isEmpty) return null;
+      final comma = url.indexOf(',');
+      if (!url.startsWith('data:') || comma < 0) return null;
+      final mime = url.substring(5, comma).split(';').first;
+      try {
+        final bytes = base64Decode(url.substring(comma + 1));
+        if (bytes.isEmpty) return null;
+        return (bytes: bytes, mime: mime.isEmpty ? 'application/octet-stream' : mime);
+      } on FormatException {
+        return null;
+      }
+    } on dio.DioException {
+      return null;
+    }
+  }
+
   /// Lee la identidad de la sesión vigente (routes.py:449-455):
   /// `{user_id,email,display_name,org_id,provider,expires_at}`. null si no
   /// hay sesión utilizable — es la comprobación de sesión barata del bootstrap.

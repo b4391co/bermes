@@ -24,6 +24,7 @@ import '../../data/database/app_database.dart' as db;
 import '../../design/tokens.dart';
 import '../../domain/entity/entity_ref.dart';
 import '../../domain/message/chat_models.dart';
+import '../../domain/message/media_tags.dart';
 import '../app_shell.dart' show BotAvatar;
 import 'chat_info_sheet.dart';
 import 'message_bubble.dart';
@@ -660,10 +661,21 @@ class _ChatScreenState extends State<ChatScreen> {
   ) {
     final role = m['role'] as String?;
     if (role != 'user' && role != 'assistant' && role != 'system') return null;
-    final text = (m['text'] as String?) ?? m['content']?.toString();
-    if (text == null || text.isEmpty) return null;
+    var text = (m['text'] as String?) ?? m['content']?.toString();
     final rowId = (m['row_id'] as num?)?.toInt();
     final ts = (m['timestamp'] as num?)?.toDouble();
+    // El asistente DELIVERA archivos con etiquetas `MEDIA: <ruta>` en su
+    // texto (contrato de Desktop, parts.ts). Aquí se separan: la fila
+    // guarda el texto limpio + adjuntos; la burbuja los pinta como medios.
+    String? attachmentsJson;
+    if (role == 'assistant') {
+      final split = splitAssistantMedia(text ?? '');
+      text = split.text;
+      if (split.media.isNotEmpty) {
+        attachmentsJson = MessageAttachment.encodeJson(split.media);
+      }
+    }
+    if (text == null || (text.isEmpty && attachmentsJson == null)) return null;
     return db.MessagesCompanion.insert(
       id: rowId == null ? 'gw:${text.hashCode}' : 'gw:$rowId',
       conversationId: conv.id,
@@ -677,6 +689,7 @@ class _ChatScreenState extends State<ChatScreen> {
             : DateTime.fromMillisecondsSinceEpoch((ts * 1000).round()),
       ),
       origin: const Value('history'),
+      attachmentsJson: Value(attachmentsJson),
     );
   }
 

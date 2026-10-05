@@ -59,6 +59,9 @@ dependencies:
   # novnc.bundle.js) no cargan por file:// (CORS); se sirven por http.
   shelf: ^1.4.0
   shelf_static: ^1.1.0
+  video_player: ^2.14.1
+  audioplayers: ^6.8.1
+  open_filex: ^4.7.0
 
 dev_dependencies:
   flutter_test:

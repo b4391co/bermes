@@ -6,6 +6,8 @@ import 'package:gpt_markdown/gpt_markdown.dart';
 import '../../core/app_services.dart';
 import '../../design/tokens.dart';
 import '../../domain/message/chat_models.dart';
+import '../../domain/message/media_tags.dart';
+import 'bot_media_view.dart';
 import '../app_shell.dart' show BotAvatar;
 
 /// Burbuja estilo Grok Bot: usuario derecha sobre tinta, bot izquierda sobre
@@ -331,23 +333,32 @@ class ImageStrip extends StatelessWidget {
       runSpacing: Hp.s2,
       children: [
         for (final a in attachments)
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 230, maxHeight: 230),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: a.localBytes != null
-                  ? Image.memory(
-                      Uint8List.fromList(a.localBytes!),
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => _card(cs, fg, a),
-                    )
-                  : _MediaThumb(
-                      attachment: a,
-                      connectionId: connectionId,
-                      fallback: _card(cs, fg, a),
-                    ),
+          if (mediaKindOf(a.path) != 'image')
+            // Vídeo/audio/documento ENTREGADO POR EL BOT (`MEDIA:`): tile
+            // específico con visor/reproductor/apertura de sistema.
+            BotMediaTile(
+              attachment: a,
+              connectionId: connectionId,
+              onDark: onDark,
+            )
+          else
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 230, maxHeight: 230),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: a.localBytes != null
+                    ? Image.memory(
+                        Uint8List.fromList(a.localBytes!),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => _card(cs, fg, a),
+                      )
+                    : _MediaThumb(
+                        attachment: a,
+                        connectionId: connectionId,
+                        fallback: _card(cs, fg, a),
+                      ),
+              ),
             ),
-          ),
       ],
     );
   }
