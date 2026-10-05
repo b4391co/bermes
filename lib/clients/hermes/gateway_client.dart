@@ -626,6 +626,15 @@ class HermesGatewayClient {
       // La credencial activa (token o sesión) es aceptada por el gateway.
       'auth_ok': me != null,
       'auth_kind': http.hasGatewayToken ? 'sessionToken' : 'password/bearer',
+      // Diagnóstico de rechazo: ¿anuncia el gateway un proveedor de
+      // contraseña? Si no, NADIE puede entrar por usuario/contraseña —
+      // el problema es de configuración del servidor, no de credenciales.
+      'auth_providers': me == null
+          ? (await http.authProviders())
+                ?.map((p) =>
+                      '${p['name']}${p['supports_password'] == true ? ' (contraseña)' : ''}')
+                .toList()
+          : null,
     };
   }
 

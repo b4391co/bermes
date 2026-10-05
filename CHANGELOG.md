@@ -1,3 +1,15 @@
+## Release 0.1.36 (2026-10-05)
+
+### diag(connections): el panel de prueba lista los métodos de acceso del gateway (0.1.36)
+
+- Al rechazar credenciales, la prueba de conexión ahora muestra QUÉ
+  proveedores anuncia el gateway (`GET /api/auth/providers`): si ninguno
+  admite contraseña, el problema es de configuración del SERVIDOR (no hay
+  usuario/contraseña que valga); si los hay, la credencial guardada no es
+  válida para ese gateway concreto.
+- Responde al caso boneca: mismo usuario/contraseña que claudio pero
+  rechazo — el panel dirá si es que boneca no admite login por contraseña.
+
 ## Release 0.1.35 (2026-10-05)
 
 ### fix(connections): diagnóstico accionable de credenciales rechazadas (0.1.35)

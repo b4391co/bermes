@@ -743,6 +743,16 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
                   style: TextStyle(color: Hp.error, fontSize: 12.5),
                 ),
               ),
+            if (d['auth_ok'] != true && d['auth_providers'] != null)
+              Padding(
+                padding: const EdgeInsets.only(top: Hp.s1),
+                child: Text(
+                  'El gateway anuncia estos métodos de acceso: '
+                  '${(d['auth_providers'] as List).join(', ')}. '
+                  '${(d['auth_providers'] as List).any((p) => p.toString().contains('(contraseña)')) ? 'Hay proveedor de contraseña: si falla, la credencial guardada no es válida PARA ESTE gateway.' : 'NINGÚN proveedor admite contraseña: este gateway no permite entrar con usuario/contraseña — configura un proveedor de contraseña en el gateway o usa otro método.'}',
+                  style: TextStyle(color: Hp.offline, fontSize: 11.5),
+                ),
+              ),
             if (!ok)
               Padding(
                 padding: const EdgeInsets.only(top: Hp.s1),
