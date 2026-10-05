@@ -53,6 +53,11 @@ android {
                     storePassword = keystoreProperties.getProperty("storePassword")
                     keyAlias = keystoreProperties.getProperty("keyAlias")
                     keyPassword = keystoreProperties.getProperty("keyPassword")
+                    // v1+v2+v3: máximo de compatibilidad de instalación
+                    // (v1 cubre ROMs/gestores antiguos; v2/v3, Android 7+).
+                    enableV1Signing = true
+                    enableV2Signing = true
+                    enableV3Signing = true
                 }
             } else {
                 // Sin key.properties: firma debug (build de prueba).

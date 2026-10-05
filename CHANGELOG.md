@@ -1,3 +1,18 @@
+## Release 0.1.34 (2026-10-05)
+
+### fix(build): firma v1+v2+v3 para compatibilidad de instalación (0.1.34)
+
+- Los APKs de release se firmaban sólo con el esquema v2. Ahora se
+  habilitan v1 (JAR), v2 y v3: cubre ROMs y flujos de instalación que
+  rechazan paquetes sin firma v1 (el fallo «no se puede instalar» sin
+  más explicación).
+- La MISMA clave de distribución (cert SHA-256 idéntico): se puede
+  actualizar desde 0.1.33 sin desinstalar.
+- Verificado: el asset publicado de 0.1.33 era íntegro (checksum idéntico
+  al local); la causa del fallo en tu teléfono fue o bien una descarga
+  cortada, o un APK previo instalado con otra firma (p. ej. un build de
+  debug). Si vuelve a fallar: desinstala la app e instala la 0.1.34.
+
 ## Release 0.1.33 (2026-10-05)
 
 ### feat(groups): editar miembros de grupo — añadir y quitar (0.1.33)
