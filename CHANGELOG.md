@@ -1,3 +1,25 @@
+## Release 0.1.37 (2026-10-05)
+
+### feat(chat): los bots entregan imagen, vídeo, audio y archivos — y se ven bien (0.1.37)
+
+- El bot entrega archivos escribiendo `MEDIA: <ruta>` en su respuesta
+  (contrato real de Hermes, verificado contra Desktop `parts.ts` y el
+  gateway en vivo). La app lo parsea fielmente: líneas dedicadas o en
+  prosa, rutas con espacios, Windows, comillas; nunca verás el texto
+  crudo `MEDIA: …`.
+- Imagen → miniatura en la burbuja + visor a pantalla completa con zoom.
+- Vídeo → tarjeta con play + reproductor real (pantalla completa).
+- Audio → fila reproduciéndose (alto-parlante del móvil).
+- Documento/archivo (PDF, zip, epub…) → se abre con la app que tengas
+  instalada; si no hay ninguna, se comparte.
+- Cascada de lectura como Desktop: `/api/media` y si 403 (fuera de las
+  raíces del dashboard — típico en multiperfil), `/api/fs/read-data-url`
+  con el perfil dueño. Caché local: no se repite la descarga.
+- Probado EN VIVO de punta a punta: el bot de claudio creó un PNG, lo
+  entregó por `MEDIA:` y la app lo renderizó (inline y en el visor).
+- El diagnóstico de credenciales rechazadas lista los métodos de acceso
+  que anuncia el gateway (heredado de 0.1.36).
+
 ## Release 0.1.36 (2026-10-05)
 
 ### diag(connections): el panel de prueba lista los métodos de acceso del gateway (0.1.36)
