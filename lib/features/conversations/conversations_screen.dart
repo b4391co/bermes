@@ -14,6 +14,7 @@ import '../../clients/hermes/bot_meta.dart';
 import 'group_create.dart';
 import '../chat/chat_screen.dart';
 import '../connections/connection_editor.dart';
+import '../../clients/hermes/gateway_client.dart';
 
 /// Lista unificada de conversaciones: bots y grupos de todos los gateways,
 /// desde la tabla Conversations (drift) — nada simulado.
@@ -165,6 +166,8 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                                 context,
                                 convs,
                               ),
+                              _EmptyConnection(:final connId, :final name) =>
+                                _emptyConnectionTile(context, connId, name),
                               _Row(:final conv) => _tile(context, conv),
                             },
                       );
@@ -248,7 +251,16 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     }
     for (final conn in connOrder) {
       final list = byConn.remove(conn.id);
-      if (list == null || list.isEmpty) continue;
+      if (list == null || list.isEmpty) {
+        // Conexión guardada sin NINGUNA conversación: normalmente sesión
+        // no establecida (credenciales de otro gateway, gateway caído) o
+        // primer arranque antes del primer sync. Invisible = el usuario
+        // "guarda y no va" sin pista (caso 9119). Se muestra una fila
+        // honesta con el estado real del runtime.
+        out.add(_Line.header(conn.name, conns.length > 1));
+        out.add(_Line.emptyConnection(conn.id, conn.name));
+        continue;
+      }
       out.add(_Line.header(conn.name, conns.length > 1));
       out.addAll(list.map((c) => _Line.row(c)));
     }
@@ -338,6 +350,52 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// Fila honesta para una conexión guardada que aún no produce
+  /// conversaciones: estado real del runtime + acceso directo al editor.
+  /// Sin ella, una conexión con login rechazado es INVISIBLE (caso 9119:
+  /// "pongo el puerto y no va" sin una sola pista en pantalla).
+  Widget _emptyConnectionTile(
+    BuildContext context,
+    String connId,
+    String name,
+  ) {
+    final cs = Theme.of(context).colorScheme;
+    final runtime = AppServices.connections.runtimeFor(connId);
+    final state = runtime?.gateway.state ?? GatewayLinkState.disconnected;
+    final (icon, color, texto) = switch (state) {
+      GatewayLinkState.ready => (
+        Icons.sync_problem_rounded,
+        cs.onSurfaceVariant,
+        'conectada · sin conversaciones todavía',
+      ),
+      GatewayLinkState.connecting || GatewayLinkState.reconnecting => (
+        Icons.hourglass_top_rounded,
+        Hp.connecting,
+        'conectando…',
+      ),
+      GatewayLinkState.authExpired => (
+        Icons.key_off_rounded,
+        Hp.error,
+        'sesión rechazada · revisa usuario y contraseña de ESTE gateway',
+      ),
+      GatewayLinkState.error => (
+        Icons.wifi_off_rounded,
+        Hp.error,
+        'error de conexión · toca para revisar',
+      ),
+      GatewayLinkState.disconnected => (
+        Icons.link_off_rounded,
+        Hp.offline,
+        'sin sesión · toca para revisar usuario y contraseña',
+      ),
+    };
+    return ListTile(
+      leading: Icon(icon, color: color),
+      title: Text(texto, style: TextStyle(color: color, fontSize: 14)),
+      onTap: _openConnectionEditor,
     );
   }
 
@@ -1010,15 +1068,24 @@ String relativeTime(DateTime? time, {DateTime? now}) {
   return DateFormat('dd/MM/yy').format(time);
 }
 
-/// Línea de la lista: encabezado de sección o fila de conversación.
 sealed class _Line {
   const _Line();
-  const factory _Line.row(Conversation conv) = _Row;
   const factory _Line.header(String label, bool reorderable) = _Header;
-
+  const factory _Line.row(Conversation conv) = _Row;
   /// Banda de Fijados estilo Grok Bot: UNA fila de tiles (icono grande
   /// centrado, nombre pequeño debajo), encima de todo lo demás.
   const factory _Line.pinnedRow(List<Conversation> convs) = _PinnedRow;
+
+  /// Conexión guardada que todavía no produce conversaciones (sesión no
+  /// establecida o primer sync pendiente): fila honesta con el estado.
+  const factory _Line.emptyConnection(String connId, String name) =
+      _EmptyConnection;
+}
+
+final class _EmptyConnection extends _Line {
+  final String connId;
+  final String name;
+  const _EmptyConnection(this.connId, this.name);
 }
 
 final class _Row extends _Line {

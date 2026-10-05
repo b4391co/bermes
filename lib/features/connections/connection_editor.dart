@@ -43,6 +43,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
   bool _rememberPassword = true;
   bool _testing = false;
   AuthResult? _testResult;
+  bool _testedLogin = false; // el último «Probar» hizo login completo
   bool _diagLoading = false;
   Map<String, Object?>? _rosterDiag;
 
@@ -118,22 +119,46 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
 
   /// Probe REAL contra el transporte: usa un cliente efímero con el
   /// profile del formulario (sin tocar el runtime persistente).
+  ///
+  /// Con Usuario+Contraseña rellenos hace el login COMPLETO (proveedor →
+  /// password-login → cookie), igual que Desktop: una prueba que no prueba
+  /// credenciales mandó conexiones imposibles a "guardada sin queja"
+  /// (caso 9119). Un intento por pulsación explícita es exactamente el
+  /// gasto de anti-fuerza-bruta que Desktop asume.
   Future<void> _test() async {
     FocusScope.of(context).unfocus();
     setState(() {
       _testing = true;
       _testResult = null;
+      _testedLogin = false;
     });
     final client = HermesHttpClient(_profileFromForm(_currentId));
-    final result = await client.probeTransport(
-      username: _username.text.trim(),
-      password: _password.text,
-    );
+    final passwordKind = _authKind == HermesAuthKind.password;
+    final hasPassword = passwordKind && _password.text.isNotEmpty;
+    AuthResult result;
+    if (hasPassword) {
+      try {
+        result = await client.login(
+          _username.text.trim(),
+          _password.text,
+        );
+      } catch (e) {
+        result = AuthResult.fail(
+          AuthFailureCause.network,
+          e.toString(),
+        );
+      }
+    } else {
+      result = await client.probeTransport(
+        username: _username.text.trim(),
+      );
+    }
     client.dispose();
     if (!mounted) return;
     setState(() {
       _testing = false;
       _testResult = result;
+      _testedLogin = hasPassword;
     });
   }
 
@@ -159,6 +184,14 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
     final connections = AppServices.connections;
     try {
       final id = _currentId;
+      // Instantánea de la fila original (si es una edición): el rechazo por
+      // credenciales debe dejar la conexión EXACTAMENTE como estaba, no
+      // borrarla (la actualización sustituye la fila por el mismo id).
+      final original = widget.existing == null
+          ? null
+          : await (db.select(
+              db.connections,
+            )..where((c) => c.id.equals(id))).getSingleOrNull();
       final profile = _profileFromForm(id);
       final row = ConnectionsCompanion.insert(
         id: id,
@@ -254,6 +287,53 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
               createdAt: DateTime.now(),
             );
             await connections.connectAndSync(runtime, savedRow);
+          } else {
+            // NO guardar en silencio una conexión imposible (caso 9119:
+            // credenciales de otro gateway → "guardada" sin queja y el
+            // usuario solo ve que "no va"). Rechazo explícito con la causa;
+            // red caída SÍ permite guardar (el bootstrap reintentará).
+            final (color, _, title, detail) = _describeResult(result);
+            _log.warning(
+              'post-save login rechazado ${profile.name}: '
+              '${result.cause} ${result.detail ?? ''}',
+            );
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  backgroundColor: color,
+                  content: Text(
+                    '$title: ${detail ?? 'credenciales rechazadas'}. '
+                    'La conexión NO se guardó.',
+                  ),
+                ),
+              );
+            }
+            // Deshacer: nueva → fuera del todo; edición → la fila ORIGINAL
+            // vuelve tal cual (la actualización la había sustituido).
+            if (original == null) {
+              await (AppServices.db.delete(
+                AppServices.db.connections,
+              )..where((c) => c.id.equals(id))).go();
+              await AppServices.secrets.deleteRememberedPassword(id);
+              await AppServices.secrets.deleteGatewayToken(id);
+              await connections.removeRuntime(id);
+            } else {
+              await db.into(db.connections).insertOnConflictUpdate(
+                ConnectionsCompanion.insert(
+                  id: original.id,
+                  name: original.name,
+                  scheme: original.scheme,
+                  host: original.host,
+                  port: original.port,
+                  basePath: Value(original.basePath),
+                  authKind: original.authKind,
+                  username: Value(original.username),
+                  allowInsecureTls: Value(original.allowInsecureTls),
+                  enabled: Value(original.enabled),
+                ),
+              );
+            }
+            return;
           }
         } catch (e) {
           _log.warning('post-save connect falló', e);
@@ -771,18 +851,26 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
 
   (Color, IconData, String, String?) _describeResult(AuthResult r) {
     if (r.ok) {
-      return (
-        Hp.online,
-        Icons.check_circle_rounded,
-        'Gateway Hermes alcanzable',
-        // «Probar conexión» NO comprueba credenciales: sondea GET /api/status,
-        // que es público aunque el panel esté tras el gate
-        // (hermes_cli/dashboard_auth/public_paths.py:15). Disparar el login
-        // desde aquí gastaría el anti-fuerza-bruta de 10 intentos/60 s
-        // (routes.py:338-339) y bloquearía el inicio de sesión real.
-        'El servidor responde como gateway en $_scheme://${_host.text.trim()}. '
-            'Guarda la conexión para comprobar las credenciales.',
-      );
+      return _testedLogin
+          ? (
+              Hp.online,
+              Icons.check_circle_rounded,
+              'Login correcto',
+              'El gateway aceptó el usuario y la contraseña: esta conexión '
+                  'habla y escucha. Guarda para sincronizar bots y grupos.',
+            )
+          : (
+              Hp.online,
+              Icons.check_circle_rounded,
+              'Gateway Hermes alcanzable',
+              // «Probar conexión» sin contraseña no toca el login: sondea
+              // GET /api/status, público aunque el panel esté tras el gate
+              // (public_paths.py:15). Es el mismo probe que lee el Desktop
+              // (connection-config.ts:18).
+              'El servidor responde como gateway en '
+                  '$_scheme://${_host.text.trim()}. Escribe la contraseña '
+                  'para probar el acceso completo.',
+            );
     }
     return switch (r.cause) {
       AuthFailureCause.network => (

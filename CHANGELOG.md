@@ -1,3 +1,29 @@
+## Release 0.1.38 (2026-10-05)
+
+### fix(connections): «Probar conexión» y «Guardar» ya comprueban el login de verdad (0.1.38)
+
+El caso que lo destapa: **misma máquina, dos gateways**. 9110 y 9119 en
+10.20.20.67 son DOS instalaciones Hermes distintas (`install_id`
+diferente): 9110=claudio, 9119=otro servidor (boneca) con SUS propios
+usuarios. Con credenciales correctas para 9110, el 9119 responde
+`401 Invalid credentials` — y la app lo tragaba en silencio.
+
+- **Probar conexión**: con Usuario+Contraseña rellenos hace el login
+  COMPLETO (proveedor → password-login → cookie), como Desktop. Muestra
+  «Login correcto» o «Acceso denegado · HTTP 401» con la causa real.
+  Sin contraseña sigue sondeando solo el transporte (GET /api/status).
+- **Guardar**: si el login falla, la conexión NO se guarda — snackbar
+  rojo con la causa. Nueva → no se crea nada; edición → la conexión
+  original queda EXACTAMENTE como estaba (rollback de fila y secretos).
+- **Lista de chats**: una conexión guardada sin conversaciones ya NO es
+  invisible: fila honesta con su estado real («sin sesión · toca para
+  revisar usuario y contraseña», «conectando…», etc.) y salto directo
+  al editor.
+
+Probado en el emulador contra el gateway real de boneca (9119):
+prueba → «Acceso denegado · HTTP 401»; guardar → no se crea nada;
+la conexión sin sesión aparece en la lista con su estado.
+
 ## Release 0.1.37 (2026-10-05)
 
 ### feat(chat): los bots entregan imagen, vídeo, audio y archivos — y se ven bien (0.1.37)
