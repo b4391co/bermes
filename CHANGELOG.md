@@ -1,3 +1,23 @@
+## Release 0.1.40 (2026-10-05)
+
+### fix(connections): Origin/Referer en las peticiones — los gateways «webapp» aceptan el login (0.1.40)
+
+Caso real descubierto con TU configuración (breo en ambas): 9110 y 9119 son
+DOS instalaciones hermes en la misma máquina con credenciales idénticas —
+tenías razón, el login SÍ funciona en las dos a nivel HTTP. Pero la app
+fallaba en 9119 en un paso posterior: el mint del ticket WS
+(`POST /api/auth/ws-ticket`) responde **403 «Cookie-authenticated writes
+must come from the dashboard's own origin»** cuando la petición no trae
+header `Origin`. Un navegador (Desktop) siempre lo manda; un cliente
+nativo no — y la app interpretaba el 403 como «sesión no utilizable» y
+eliminaba el login.
+
+- `HermesHttpClient` envía ahora `Origin`/`Referer` del propio gateway en
+  todas las peticiones (`ConnectionProfile.schemeOrigin`).
+- Verificado contra tu 9119: «Probar conexión» → **Login correcto**; el
+  mint responde con ticket igual que en 9110.
+- La versión visible en Ajustes sigue siendo la real del paquete (0.1.39).
+
 ## Release 0.1.39 (2026-10-05)
 
 ### fix(settings): la versión mostrada es la REAL del paquete instalado (0.1.39)

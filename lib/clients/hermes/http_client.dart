@@ -201,7 +201,16 @@ class HermesHttpClient {
       ..baseUrl = profile.baseUrl
       ..connectTimeout = const Duration(seconds: 10)
       ..receiveTimeout = const Duration(seconds: 30)
-      ..headers = {'user-agent': 'HermesPocket/0.1'};
+      // Origin/Referer: los gateways con `ui_surface: webapp` exigen que los
+      // writes autenticados por cookie (p. ej. POST /api/auth/ws-ticket)
+      // vengan del propio origen del dashboard; un cliente nativo que no los
+      // envía recibe 403 ('Cookie-authenticated writes must come from the
+      // dashboard's own origin'). Desktop los manda por ser navegador.
+      ..headers = {
+        'user-agent': 'HermesPocket/0.1',
+        'Origin': profile.schemeOrigin,
+        'Referer': '${profile.schemeOrigin}/',
+      };
     _dio.httpClientAdapter = adapterOverride ?? _makeAdapter();
   }
 

@@ -54,11 +54,19 @@ class ConnectionProfile {
     final b = basePath.isEmpty
         ? ''
         : (basePath.startsWith('/') ? basePath : '/$basePath');
+    return '$schemeOrigin$b';
+  }
+
+  /// `scheme://host:port` sin ruta base — el valor del header `Origin` que
+  /// los gateways con `ui_surface: webapp` exigen en los writes con cookie
+  /// (hermes_cli/dashboard_auth: 'Cookie-authenticated writes must come
+  /// from the dashboard's own origin').
+  String get schemeOrigin {
     final p =
         (scheme == 'http' && port == 80) || (scheme == 'https' && port == 443)
         ? ''
         : ':$port';
-    return '$scheme://$host$p$b';
+    return '$scheme://$host$p';
   }
 
   /// Ruta WS del gateway JSON-RPC: `basePath` + `/api/ws`
