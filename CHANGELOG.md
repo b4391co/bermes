@@ -1,3 +1,23 @@
+## Release 0.1.44 (2026-10-06)
+
+### fix(connections): el editor de conexión se abría en blanco (0.1.44)
+
+Regresión introducida en 0.1.41: al refactorizar el editor se borró por
+accidente la inicialización `_scheme = e?.scheme ?? 'http'` del `initState`,
+y cualquier lectura de `_scheme` (build, chips http/https, banner TLS,
+diagnóstico) lanzaba `LateInitializationError` → pantalla en blanco al
+añadir O editar una conexión. Restaurada la inicialización y verificado en
+emulador: editor renderiza, guarda, y la conexión funciona (alta fake +
+login + roster).
+
+Nota de instalación: los APKs de release usan el keystore real
+(CN=Hermes Pocket). Los de CI no tienen `android/key.properties` y salen
+firmados en debug — si tu app instalada viene de una build por adb/CI, el
+release no se instala encima (firmas distintas): exporta ajustes,
+desinstala, instala el release, importa.
+
+pubspec: 0.1.43+43 → 0.1.44+44.
+
 ## Release 0.1.43 (2026-10-06)
 
 ### style(conversations): densidad y acentos de lista como la referencia (0.1.43)

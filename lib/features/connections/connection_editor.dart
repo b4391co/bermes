@@ -64,6 +64,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
   void initState() {
     super.initState();
     final e = widget.existing;
+    _scheme = e?.scheme ?? 'http';
     _name = TextEditingController(text: e?.name ?? '');
     _host = TextEditingController(text: e?.host ?? '');
     _port = TextEditingController(
