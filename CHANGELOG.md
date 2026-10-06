@@ -1,3 +1,21 @@
+## Release 0.1.43 (2026-10-06)
+
+### style(conversations): densidad y acentos de lista como la referencia (0.1.43)
+
+Segunda pasada de estilo: forma y estructura, no solo colores.
+
+- Filas de la lista de chats compactas (`VisualDensity.compact`, avatar
+  46→42): la lista se acerca a la densidad de la referencia y caben más
+  conversaciones por pantalla.
+- Hora y badge de no leídos en verde `#3ECF8E` con texto oscuro: antes el
+  badge usaba `cs.primary` (#242424) y era invisible sobre el fondo
+  `#1A1A1A`.
+- FAB circular neutro (`#2A2A2A`, icono claro) vía tema: el teal por
+  defecto de M3 rompía la calma del fondo; la referencia no usa acentos
+  de color en botones flotantes.
+
+pubspec: 0.1.42+42 → 0.1.43+43.
+
 ## Release 0.1.42 (2026-10-06)
 
 ### feat(theme): tema oscuro calibrado contra Hermes Desktop (0.1.42)

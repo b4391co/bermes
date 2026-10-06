@@ -308,6 +308,13 @@ ThemeData buildDarkTheme() {
       backgroundColor: const Color(0xFF2A2A2A),
       contentTextStyle: const TextStyle(color: Colors.white, fontSize: 13.5),
     ),
+    floatingActionButtonTheme: FloatingActionButtonThemeData(
+      // Referencia: botón circular neutro (#2A2A2A) con icono claro, no un
+      // bloque de color que rompe la calma del fondo.
+      backgroundColor: const Color(0xFF2A2A2A),
+      foregroundColor: ink,
+      shape: const CircleBorder(),
+    ),
     splashFactory: InkSparkle.splashFactory,
   );
 }

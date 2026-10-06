@@ -542,11 +542,14 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     final cs = Theme.of(context).colorScheme;
     final showGateway = _connectionCount > 1 && c.gatewayLabel != null;
     return ListTile(
+      // Densidad de la referencia: filas compactas (~64dp), no las altas
+      // por defecto de ListTile.
+      visualDensity: VisualDensity.compact,
       contentPadding: const EdgeInsets.symmetric(horizontal: Hp.s4),
       leading: BotAvatar(
         seed: c.avatarSeed ?? c.id,
         label: c.title,
-        size: 46,
+        size: 42,
         isGroup: c.isGroup,
         imageUrl: c.avatarUrl,
         avatarMetaJson: c.botAvatarMeta,
@@ -564,7 +567,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           Text(
             relativeTime(c.lastActivity),
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: c.unreadCount > 0 ? cs.primary : cs.onSurfaceVariant,
+              // Verde de la referencia (#3ECF8E) cuando hay no leídos:
+              // legible sobre #1A1A1A (cs.primary es la burbuja #242424).
+              color: c.unreadCount > 0 ? const Color(0xFF3ECF8E) : cs.onSurfaceVariant,
               fontWeight: c.unreadCount > 0 ? FontWeight.w600 : null,
             ),
           ),
@@ -604,7 +609,9 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
               margin: const EdgeInsets.only(left: Hp.s2),
               padding: const EdgeInsets.symmetric(horizontal: 6.5, vertical: 2),
               decoration: BoxDecoration(
-                color: cs.primary,
+                // Verde acento con texto oscuro: contraste real sobre el
+                // fondo oscuro (antes cs.primary #242424 era invisible).
+                color: const Color(0xFF3ECF8E),
                 borderRadius: BorderRadius.circular(10),
               ),
               constraints: const BoxConstraints(minWidth: 19),
@@ -612,7 +619,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                 c.unreadCount > 99 ? '99+' : '${c.unreadCount}',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: Color(0xFF141414),
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                 ),
