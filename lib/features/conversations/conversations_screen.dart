@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/app_services.dart';
+import '../../core/turn_activity.dart';
 import '../../data/database/app_database.dart';
 import '../../design/live_avatar.dart';
 import '../app_shell.dart' show BotAvatar;
@@ -293,14 +294,18 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
             ),
           ),
         ),
+        // Center: el Wrap encoge al ancho de su fila más larga y el padre
+        // lo deja a la izquierda; así cada fila queda centrada de verdad.
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: Hp.s2),
-          child: Wrap(
-            alignment: WrapAlignment.center,
-            runSpacing: Hp.s2,
-            children: [
-              for (final c in convs) _pinnedTile(context, c),
-            ],
+          child: Center(
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              runSpacing: Hp.s2,
+              children: [
+                for (final c in convs) _pinnedTile(context, c),
+              ],
+            ),
           ),
         ),
       ],
@@ -326,32 +331,42 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
         onLongPress: () => _rowActions(context, c),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: Hp.s1),
-          child: Column(
-            children: [
-              LiveAvatar(
-                size: 104,
-                active: true,
-                float: true,
-                child: BotAvatar(
-                  seed: c.avatarSeed ?? c.id,
-                  label: c.title,
-                  size: 104,
-                  isGroup: c.isGroup,
-                  imageUrl: c.avatarUrl,
-                  avatarMetaJson: c.botAvatarMeta,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                c.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ],
+          // Aura orbital + bocadillo «…» SOLO si el bot tiene un turno en
+          // vivo ahora mismo (TurnActivity); el resto respira quieto.
+          child: ValueListenableBuilder<Set<String>>(
+            valueListenable: TurnActivity.streaming,
+            builder: (context, live, _) {
+              final working = live.contains(c.id);
+              return Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  LiveAvatar(
+                    size: 104,
+                    active: working,
+                    float: working,
+                    child: BotAvatar(
+                      seed: c.avatarSeed ?? c.id,
+                      label: c.title,
+                      size: 104,
+                      isGroup: c.isGroup,
+                      imageUrl: c.avatarUrl,
+                      avatarMetaJson: c.botAvatarMeta,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    c.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),

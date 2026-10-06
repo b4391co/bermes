@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import '../../core/logger.dart';
 import '../../core/notify.dart';
+import '../../core/turn_activity.dart';
 import '../../features/chat/media_cache.dart';
 import '../../domain/message/chat_models.dart';
 import '../../domain/message/media_tags.dart';
@@ -304,6 +305,9 @@ class ChatSessionController {
         ),
       );
     }
+    // El turno cerró por `message.complete`: quitar el «trabajando» aunque
+    // el segmento viniera ya sellado (idempotente).
+    TurnActivity.end(path.storageId);
     if (status == 'interrupted') {
       _systemLine('Turno cancelado.', failed: false);
     }
@@ -485,14 +489,17 @@ class ChatSessionController {
         timestamp: DateTime.now(),
       ),
     );
+    // Registro global «este bot está trabajando»: aura + bocadillo en la
+    // banda de fijados aunque no estés dentro del chat.
+    TurnActivity.begin(path.storageId);
     _notify();
   }
 
-  /// Sella el segmento en streaming (deja de aceptar deltas).
   void _sealStreaming() {
     final idx = _lastStreamingIndex();
     if (idx == null) return;
     _messages[idx] = _extractMedia(_messages[idx].copyWith(streaming: false));
+    TurnActivity.end(path.storageId);
     _notify();
   }
 
@@ -790,6 +797,10 @@ class ChatSessionController {
 
   void dispose() {
     _disposed = true;
+    // El chat se cierra: si había un turno en vivo, la banda de fijados
+    // deja de mostrarlo como trabajando (el turno sigue en el servidor,
+    // pero aquí ya no hay nadie observándolo).
+    TurnActivity.end(path.storageId);
     for (final s in _subs) {
       s.cancel();
     }

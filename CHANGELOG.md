@@ -1,3 +1,15 @@
+## Release 0.1.46 (2026-10-06)
+
+### fix(conversations): aura y bocadillo «…» solo en los bots trabajando
+
+- El aura orbital y el bocadillo «…» de la banda de Fijados ahora
+  aparecen SOLO en los bots con un turno en vivo (streaming real);
+  antes se pintaban en todos los fijados siempre.
+- Los tiles grandes de Fijados quedan alineados al centro de verdad
+  (el `Wrap` encogía a su ancho y la banda lo pegaba a la izquierda).
+- Registro `TurnActivity` (memoria, por conversación): la cabecera del
+  chat y las burbujas ya lo usaban; ahora la lista también.
+
 ## Release 0.1.45 (2026-10-06)
 
 ### fix(screen): contrato real de DisplayStatus + flujo de instalación
