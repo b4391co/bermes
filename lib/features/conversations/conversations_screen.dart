@@ -7,8 +7,9 @@ import 'package:intl/intl.dart';
 
 import '../../core/app_services.dart';
 import '../../data/database/app_database.dart';
-import '../../design/tokens.dart';
+import '../../design/live_avatar.dart';
 import '../app_shell.dart' show BotAvatar;
+import '../../design/tokens.dart';
 import 'bot_editor_sheet.dart';
 import '../../clients/hermes/bot_meta.dart';
 import 'group_create.dart';
@@ -273,9 +274,10 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     return out;
   }
 
-  /// Banda "Fijados" estilo Grok Bot: tiles horizontales con el icono
-  /// grande centrado y el nombre pequeño debajo. Desplazamiento lateral
-  /// si no caben.
+  /// Banda "Fijados" estilo Grok Bot / Hermes Desktop: tiles con avatar
+  /// grande flotando rodeado de su aura orbital (LiveAvatar) y el bocadillo
+  /// «…» — los fijados tienen vida. Centrados; si no caben en una fila
+  /// (>3 con el ancho actual), saltan a una segunda fila (`Wrap`).
   Widget _pinnedBand(BuildContext context, List<Conversation> convs) {
     final cs = Theme.of(context).colorScheme;
     return Column(
@@ -291,16 +293,14 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
             ),
           ),
         ),
-        // x2 respecto a la tira anterior (tile 72×92, avatar 56): el
-        // fijado global se mira de un vistazo.
-        SizedBox(
-          height: 184,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: Hp.s4),
-            itemCount: convs.length,
-            separatorBuilder: (_, _) => const SizedBox(width: Hp.s3),
-            itemBuilder: (context, i) => _pinnedTile(context, convs[i]),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Hp.s2),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            runSpacing: Hp.s2,
+            children: [
+              for (final c in convs) _pinnedTile(context, c),
+            ],
           ),
         ),
       ],
@@ -309,7 +309,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
 
   Widget _pinnedTile(BuildContext context, Conversation c) {
     return SizedBox(
-      width: 144,
+      width: 168,
       child: InkWell(
         borderRadius: BorderRadius.circular(Hp.rMd),
         onTap: () {
@@ -328,13 +328,18 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           padding: const EdgeInsets.symmetric(vertical: Hp.s1),
           child: Column(
             children: [
-              BotAvatar(
-                seed: c.avatarSeed ?? c.id,
-                label: c.title,
-                size: 112,
-                isGroup: c.isGroup,
-                imageUrl: c.avatarUrl,
-                avatarMetaJson: c.botAvatarMeta,
+              LiveAvatar(
+                size: 104,
+                active: true,
+                float: true,
+                child: BotAvatar(
+                  seed: c.avatarSeed ?? c.id,
+                  label: c.title,
+                  size: 104,
+                  isGroup: c.isGroup,
+                  imageUrl: c.avatarUrl,
+                  avatarMetaJson: c.botAvatarMeta,
+                ),
               ),
               const SizedBox(height: 8),
               Text(

@@ -5,12 +5,13 @@ import '../../clients/hermes/connection_manager.dart';
 import '../../core/app_services.dart';
 import '../../data/database/app_database.dart';
 
-/// Estado del escritorio del bot (display.status → DisplayStatus).
-///
-/// Contrato: `tui_gateway/contracts/display.py` (status: stopped|starting|
-/// running|installing|error + lease opcional).
+/// Estado del escritorio del bot, según el contrato REAL del gateway
+/// (`tui_gateway/contracts/display.py::DisplayStatus`): el resultado no trae
+/// una cadena `state`, sino `running: bool`, `installed: bool`, `missing[]`,
+/// `blocker` y `install_command`. El mapeo a estados de UI es nuestro:
+/// running | needsInstall | starting | stopped | error.
 class ScreenStatus {
-  final String state; // stopped | starting | running | installing | error
+  final String state;
   final bool hasLease;
   final String? leaseHolder; // agent | human
   final String? error;
@@ -25,6 +26,7 @@ class ScreenStatus {
   });
 
   bool get running => state == 'running' || state == 'starting';
+  bool get needsInstall => state == 'needsInstall';
   bool get humanControls => hasLease && leaseHolder == 'human';
 
   factory ScreenStatus.fromRpc(Object? result) {
@@ -34,11 +36,33 @@ class ScreenStatus {
     final lease = m['lease'] is Map
         ? Map<String, Object?>.from(m['lease'] as Map)
         : null;
+    final supported = m['supported'] as bool? ?? true;
+    final installed = m['installed'] as bool? ?? true;
+    final running = m['running'] as bool? ?? false;
+    final blocker = m['blocker'] as String?;
+
+    // Mapeo del contrato real (`tools/bot_desktop/runtime.py::status`):
+    // `running` gana; sin binarios (Xvnc/Xfce) el arranque SIEMPRE falla →
+    // needsInstall (el panel ofrece display.install); `blocker` = razón por
+    // la que start() se negaría (p. ej. memoria del host).
+    String state;
+    if (running) {
+      state = 'running';
+    } else if (!supported || !installed) {
+      state = 'needsInstall';
+    } else if (blocker != null) {
+      state = 'error';
+    } else if (m['status'] is String || m['state'] is String) {
+      // Gateways futuros que añadan `state`/`status` explícito: respetarlo.
+      state = (m['status'] ?? m['state'])! as String;
+    } else {
+      state = 'stopped';
+    }
     return ScreenStatus(
-      state: (m['status'] ?? m['state'] ?? 'stopped') as String,
+      state: state,
       hasLease: lease != null,
       leaseHolder: lease?['holder'] as String?,
-      error: m['error'] as String?,
+      error: m['error'] as String? ?? blocker,
       raw: m,
     );
   }
@@ -124,6 +148,18 @@ class ScreenController {
       ticket: ticket,
       path: (m['path'] ?? '/api/display/ws') as String,
       viewerId: viewerId,
+    );
+  }
+
+  /// Lanza la instalación del entorno de escritorio en el host del gateway
+  /// (Xvnc + Xfce vía el gestor de paquetes). Devuelve enseguida: el
+  /// progreso llega por eventos `display.install.log`, y puede pedir la
+  /// contraseña de sudo del host por server-request `display.install.sudo`.
+  /// Fin: evento `display.install.done {code, status}` (0 = ok).
+  Future<void> install() async {
+    await runtime.gateway.rawCall(
+      'display.install',
+      params: {'profile': profile},
     );
   }
 

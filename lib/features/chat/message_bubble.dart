@@ -6,6 +6,7 @@ import '../../design/tokens.dart';
 import '../../domain/message/chat_models.dart';
 import 'bot_media_view.dart';
 import '../app_shell.dart' show BotAvatar;
+import '../../design/live_avatar.dart';
 
 /// Burbuja estilo Grok Bot: usuario derecha sobre tinta, bot izquierda sobre
 /// superficie suave con avatar, markdown real y chips colapsables de tools.
@@ -148,12 +149,16 @@ class MessageBubble extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         if (!_isUser) ...[
-          BotAvatar(
-            seed: message.authorConnectionId ?? message.path.connectionId,
-            label: message.authorName ?? message.path.gatewayId,
+          LiveAvatar(
             size: 26,
-            imageUrl: avatarUrl,
-            avatarMetaJson: avatarMetaJson,
+            active: message.streaming,
+            child: BotAvatar(
+              seed: message.authorConnectionId ?? message.path.connectionId,
+              label: message.authorName ?? message.path.gatewayId,
+              size: 26,
+              imageUrl: avatarUrl,
+              avatarMetaJson: avatarMetaJson,
+            ),
           ),
           const SizedBox(width: Hp.s2),
         ],

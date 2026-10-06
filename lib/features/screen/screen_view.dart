@@ -11,6 +11,8 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../../design/tokens.dart';
 import 'screen_controller.dart';
 
+import '../../clients/hermes/rpc_types.dart';
+
 /// Convierte la base HTTP del gateway en la URL del WS de pantalla.
 /// Mismo patrón que `sibling-ws-url.ts` de Hermes Desktop; el ticket viaja en
 /// QUERY a propósito (web_routers/display.py: noVNC no negocia subprotocolos).
@@ -59,6 +61,10 @@ class _ScreenViewState extends State<ScreenView> {
 
   StreamSubscription<ScreenStatus>? _statusSub;
   StreamSubscription<Map<String, Object?>>? _eventSub;
+  StreamSubscription<GatewayEvent>? _installLogSub;
+  StreamSubscription<ServerRequest>? _sudoSub;
+  final List<String> _installLog = <String>[];
+  bool _installing = false;
   String _message = 'Preparando escritorio…';
   bool _viewerReady = false;
 
@@ -104,9 +110,60 @@ class _ScreenViewState extends State<ScreenView> {
       }
     });
     _eventSub = widget.controller.viewerEvents.listen(_onViewerEvent);
+    // Eventos globales de instalación (display.install.log/done) + el
+    // server-request de sudo que el gateway dirige a ESTA conexión.
+    _installLogSub = widget.controller.runtime.gateway.events.listen((ev) {
+      if (ev.type == 'display.install.log') {
+        final line = ev.payload['line']?.toString() ?? '';
+        if (mounted) {
+          setState(() {
+            _installLog.add(line);
+            _message = 'Instalando en el host… ${_installLog.length} líneas';
+          });
+        }
+      } else if (ev.type == 'display.install.done') {
+        final code = ev.payload['code'];
+        if (mounted) {
+          setState(() {
+            _installing = false;
+            _message = code == 0
+                ? 'Instalación completada. Iniciando escritorio…'
+                : 'La instalación terminó con código $code.';
+          });
+        }
+        if (code == 0) {
+          unawaited(_run('Iniciar', () async {
+            await widget.controller.start();
+            if (!mounted) return;
+            if (await _awaitRunning()) await _startViewer();
+          }));
+        }
+      }
+    });
+    _sudoSub = widget.controller.runtime.gateway.serverRequests.listen((sr) {
+      if (sr.method != 'display.install.sudo') return;
+      _askSudoPassword(sr);
+    });
     unawaited(_boot());
   }
 
+  Future<void> _askSudoPassword(ServerRequest sr) async {
+    final pw = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _SudoPasswordDialog(host: widget.botTitle),
+    );
+    if (pw == null) {
+      await widget.controller.runtime.gateway.failServerRequest(
+        sr.id,
+        -32000,
+        'El usuario canceló la tarjeta de sudo.',
+      );
+      return;
+    }
+    await widget.controller.runtime.gateway.respondToServerRequest(sr.id, {
+      'password': pw,
+    });
+  }
   Future<void> _boot() async {
     try {
       final st = await widget.controller.refresh();
@@ -117,6 +174,7 @@ class _ScreenViewState extends State<ScreenView> {
         // (recursos del host). El botón Iniciar está en la barra.
         return;
       }
+      if (st.needsInstall) return;
       await _startViewer();
     } catch (e) {
       if (mounted) setState(() => _message = 'El gateway no responde: $e');
@@ -249,6 +307,10 @@ class _ScreenViewState extends State<ScreenView> {
 
   String _messageFor(ScreenStatus s) => switch (s.state) {
     'stopped' => 'El escritorio del bot está parado.',
+    'needsInstall' =>
+      'Este host no tiene el escritorio instalado '
+          '(falta TigerVNC/Xfce${s.error != null ? ': ${s.error}' : ''}). '
+          'Pulsa Instalar en el host.',
     'starting' => 'Iniciando el escritorio…',
     'installing' => 'Instalando el entorno de escritorio en el host…',
     'error' => 'Error en el escritorio: ${s.error ?? 'desconocido'}',
@@ -262,6 +324,8 @@ class _ScreenViewState extends State<ScreenView> {
   void dispose() {
     _statusSub?.cancel();
     _eventSub?.cancel();
+    _installLogSub?.cancel();
+    _sudoSub?.cancel();
     // Ocultar el panel NO destruye el escritorio del bot: aquí solo se corta
     // el WebSocket del visor y se libera el ticket/lease local. Si no se
     // cierra, la RFB queda abierta y el lease del observador vivo puede
@@ -481,17 +545,36 @@ class _ScreenViewState extends State<ScreenView> {
                 if (!running && st?.state != 'installing')
                   Padding(
                     padding: const EdgeInsets.only(top: Hp.s4),
-                    child: FilledButton.icon(
-                      onPressed: _busy
-                          ? null
-                          : () => _run('Iniciar', () async {
-                              await widget.controller.start();
-                              if (!mounted) return;
-                              if (await _awaitRunning()) await _startViewer();
-                            }),
-                      icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                      label: const Text('Iniciar escritorio'),
-                    ),
+                    child: st?.needsInstall ?? false
+                        ? FilledButton.icon(
+                            onPressed: _busy || _installing
+                                ? null
+                                : () => _run('Instalar', () async {
+                                    setState(() => _installing = true);
+                                    await widget.controller.install();
+                                    // El progreso llega por eventos
+                                    // (display.install.log/done); el done
+                                    // con code 0 dispara el start.
+                                  }),
+                            icon: const Icon(Icons.download_rounded, size: 18),
+                            label: const Text('Instalar en el host'),
+                          )
+                        : FilledButton.icon(
+                            onPressed: _busy
+                                ? null
+                                : () => _run('Iniciar', () async {
+                                    await widget.controller.start();
+                                    if (!mounted) return;
+                                    if (await _awaitRunning()) {
+                                      await _startViewer();
+                                    }
+                                  }),
+                            icon: const Icon(
+                              Icons.play_arrow_rounded,
+                              size: 18,
+                            ),
+                            label: const Text('Iniciar escritorio'),
+                          ),
                   ),
               ],
             ),
@@ -572,6 +655,7 @@ class _ScreenStateBadgeState extends State<_ScreenStateBadge> {
         s.humanControls ? Colors.orange : Colors.green,
       ),
       'stopped' => ('parado', cs.onSurfaceVariant),
+      'needsInstall' => ('sin instalar', Colors.deepOrange),
       'starting' || 'installing' => ('arrancando', Colors.blueGrey),
       _ => ('error', Colors.red),
     };
@@ -589,6 +673,73 @@ class _ScreenStateBadgeState extends State<_ScreenStateBadge> {
           color: color,
         ),
       ),
+    );
+  }
+}
+
+/// Tarjeta de contraseña sudo del HOST (server-request `display.install.sudo`).
+/// La contraseña viaja al gateway que pidió instalar; no se guarda.
+class _SudoPasswordDialog extends StatefulWidget {
+  final String host;
+
+  const _SudoPasswordDialog({required this.host});
+
+  @override
+  State<_SudoPasswordDialog> createState() => _SudoPasswordDialogState();
+}
+
+class _SudoPasswordDialogState extends State<_SudoPasswordDialog> {
+  final _pw = TextEditingController();
+
+  @override
+  void dispose() {
+    _pw.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: const Text('Contraseña de sudo'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'El gateway de ${widget.host} necesita permiso de administrador '
+            'para instalar TigerVNC (Xvnc) y Xfce en su máquina.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: Hp.s4),
+          TextField(
+            controller: _pw,
+            obscureText: true,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Contraseña sudo del host',
+            ),
+            onSubmitted: (v) => Navigator.of(context).pop(v),
+          ),
+          const SizedBox(height: Hp.s2),
+          Text(
+            'Va solo a esta máquina; no se guarda en el teléfono.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_pw.text),
+          child: const Text('Instalar'),
+        ),
+      ],
     );
   }
 }

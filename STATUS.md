@@ -1,8 +1,22 @@
 # Hermes Pocket — estado del proyecto (2026-10-06)
 
 App Android nativa (Flutter) cliente de gateways **Hermes Agent** (Nous
-Research). Versión actual: **0.1.41** (versionCode = contador: 41). Windows: plataforma habilitada en el
+Research). Versión actual: **0.1.45** (versionCode = contador: 45). Windows: plataforma habilitada en el
 workspace (adaptación de navegación pendiente de producto).
+
+## Release 0.1.45 (2026-10-06) — verificado
+
+- Tests: 80 pasando (suite completa, `flutter test`).
+- `flutter analyze lib/`: 0 errores/warnings (12 infos preexistentes,
+  idénticas al baseline de HEAD).
+- `app-release.apk` 0.1.45+45 (88.6 MB) firmado con la release key
+  (CN=Hermes Pocket, O=Bermes), verificado con `apksigner`.
+- Contenido: fix del contrato real de `DisplayStatus` (el panel Screen ya
+  distingue «sin instalar» y lanza `display.install` con eventos de
+  progreso y tarjeta de sudo) + notificación local de turno terminado
+  (`message.complete` cuando el chat no está visible; sin push externo).
+- Build Android: se añadió core library desugaring
+  (`desugar_jdk_libs:2.1.5`) — requerido por flutter_local_notifications 19.
 
 ## Qué funciona (verificado contra gateway real + fake)
 

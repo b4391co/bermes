@@ -1,3 +1,32 @@
+## Release 0.1.45 (2026-10-06)
+
+### fix(screen): contrato real de DisplayStatus + flujo de instalación
+
+El panel de Pantalla mapeaba el resultado de `display.status` como si
+trajera una cadena `state`; el contrato real
+(`tui_gateway/contracts/display.py::DisplayStatus`) trae
+`running/installed/missing[]/blocker/install_command`. La app mostraba
+«el escritorio del bot está parado» para un host sin instalar y no
+ofrecía remedio.
+
+- `ScreenStatus.fromRpc` ahora respeta el contrato: `running`,
+  `needsInstall` (`installed == false`), `error` (blocker) y lease.
+- Flujo de instalación real: RPC `display.install` → eventos
+  `display.install.log`/`display.install.done` → server-request
+  `display.install.sudo` con tarjeta de contraseña → arranque automático
+  del escritorio al terminar (`code == 0`).
+- Insignia «sin instalar» y botón «Instalar en el host» con registro de
+  progreso; el arranque manual sigue sin arrancar escritorios por sorpresa.
+
+### feat(notifications): aviso local al terminar la respuesta del bot
+
+- Notificación local (flutter_local_notifications, canal `turns`) cuando
+  un turno termina (`message.complete`) y el usuario NO está mirando ese
+  chat con la app en primer plano. Sin push externo: el gateway no
+  ofrece push y la app no abre servicios a Internet.
+- Permiso `POST_NOTIFICATIONS` en el manifest (Android 13+ lo pide en
+  runtime); sin el permiso la app funciona igual, sólo no avisa.
+
 ## Release 0.1.44 (2026-10-06)
 
 ### fix(connections): el editor de conexión se abría en blanco (0.1.44)

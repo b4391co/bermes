@@ -47,6 +47,9 @@
     <!-- Nota de voz: grabación local con `record` (AAC/m4a). Permiso de
          runtime: se pide al primer uso, nunca en silencio. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Notificaciones locales de turno terminado (Android 13+ lo pide en
+         runtime; el plugin gestiona el canal, el usuario el permiso). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.

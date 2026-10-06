@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'core/logger.dart';
+import 'core/notify.dart';
 
 import 'design/theme.dart';
 import 'features/app_shell.dart';
@@ -30,11 +33,25 @@ class HermesPocketApp extends StatefulWidget {
   State<HermesPocketApp> createState() => _HermesPocketAppState();
 }
 
-class _HermesPocketAppState extends State<HermesPocketApp> {
+class _HermesPocketAppState extends State<HermesPocketApp>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     ThemeModeSetting.load().then((m) => themeNotifier.value = m);
+    unawaited(Notifier.init());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    Notifier.lifecycle = state;
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   @override

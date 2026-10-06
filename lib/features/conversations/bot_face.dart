@@ -115,7 +115,7 @@ Color resolveAvatarColor(String? colorSpec, String name) {
 /// cuerpo desde el anillo de la forma, dos ojos elípticos con catchlight,
 /// proporciones del viewBox 40×40 de avatar.tsx (ojos cx 15.4/24.6, cy 17.2,
 /// avatar.tsx:710-713).
-class BotFace extends StatelessWidget {
+class BotFace extends StatefulWidget {
   final String name;
   final String? shape;
   final String? color;
@@ -130,18 +130,63 @@ class BotFace extends StatelessWidget {
   });
 
   @override
+  State<BotFace> createState() => _BotFaceState();
+}
+
+/// Ojos con vida: parpadeo cada ~4 s (caída rápida del alto del ojo) y un
+/// micro-desplazamiento de la mirada. Coste mínimo: un TickPeriodic mientras
+/// el widget está montado (los avatares son pequeños).
+class _BotFaceState extends State<BotFace>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _blink;
+
+  @override
+  void initState() {
+    super.initState();
+    _blink = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 160),
+    )..repeatPeriodicallyAndBlink();
+  }
+
+  @override
+  void dispose() {
+    _blink.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: size,
-      height: size,
-      child: CustomPaint(
-        painter: _BotFacePainter(
-          name: name,
-          shape: shape,
-          colorSpec: color,
+      width: widget.size,
+      height: widget.size,
+      child: AnimatedBuilder(
+        animation: _blink,
+        builder: (context, _) => CustomPaint(
+          painter: _BotFacePainter(
+            name: widget.name,
+            shape: widget.shape,
+            colorSpec: widget.color,
+            blink: _blink.value,
+          ),
         ),
       ),
     );
+  }
+}
+
+extension on AnimationController {
+  /// Parpadeo natural: espera ~3.8 s quieto, cierra y abre (160 ms), repite.
+  void repeatPeriodicallyAndBlink() {
+    void cycle() {
+      if (!isAnimating) {
+        forward(from: 0).whenComplete(() {
+          Future.delayed(const Duration(milliseconds: 3800), cycle);
+        });
+      }
+    }
+
+    Future.delayed(const Duration(milliseconds: 1200), cycle);
   }
 }
 
@@ -150,10 +195,14 @@ class _BotFacePainter extends CustomPainter {
   final String? shape;
   final String? colorSpec;
 
+  /// 0 = ojos abiertos, 1 = cerrados (curva del parpadeo).
+  final double blink;
+
   _BotFacePainter({
     required this.name,
     required this.shape,
     required this.colorSpec,
+    this.blink = 0,
   });
 
   @override
@@ -173,22 +222,28 @@ class _BotFacePainter extends CustomPainter {
     final eyePaint = Paint()..color = Colors.white;
     final r = 2.1 * math.min(sx, sy);
     for (final ex in [15.4, 24.6]) {
+      // Parpadeo: el ojo colapsa a una línea (escala Y → 8%) sin tocar el
+      // catchlight (queda debajo del párpado al cerrarse del todo).
+      final openH = r * 2.6;
+      final h = openH * (1.0 - 0.92 * blink);
       final oval = RRect.fromRectAndRadius(
         Rect.fromCenter(
           center: Offset(ex * sx, eyeY),
           width: r * 1.55,
-          height: r * 2.6,
+          height: math.max(h, r * 0.2),
         ),
         Radius.circular(r),
       );
       canvas.drawRRect(oval, eyePaint);
-      // Catchlight (avatar.tsx:717-724): punto blanco arriba-izquierda del
-      // ojo; sobre ojo blanco Desktop usa el color del cuerpo aquí.
-      canvas.drawCircle(
-        Offset(ex * sx - r * 0.35, eyeY - r * 0.75),
-        r * 0.42,
-        Paint()..color = color.withValues(alpha: 0.9),
-      );
+      if (blink < 0.6) {
+        // Catchlight (avatar.tsx:717-724): punto blanco arriba-izquierda del
+        // ojo; sobre ojo blanco Desktop usa el color del cuerpo aquí.
+        canvas.drawCircle(
+          Offset(ex * sx - r * 0.35, eyeY - r * 0.75),
+          r * 0.42,
+          Paint()..color = color.withValues(alpha: 0.9),
+        );
+      }
     }
   }
 

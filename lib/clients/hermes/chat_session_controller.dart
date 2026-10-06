@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../../core/logger.dart';
+import '../../core/notify.dart';
 import '../../features/chat/media_cache.dart';
 import '../../domain/message/chat_models.dart';
 import '../../domain/message/media_tags.dart';
@@ -306,6 +307,18 @@ class ChatSessionController {
     if (status == 'interrupted') {
       _systemLine('Turno cancelado.', failed: false);
     }
+    // Aviso local si el usuario no está mirando este chat: «el bot
+    // terminó». Sin push externo: el gateway no ofrece push propio.
+    unawaited(
+      Notifier.turnDone(
+        conversationId: path.storageId,
+        botTitle: profile ?? 'Bot',
+        preview: (text ?? '').isEmpty
+            ? (err ?? '')
+            : (text!.length > 120 ? '${text.substring(0, 120)}…' : text),
+        ok: status != 'error',
+      ),
+    );
     // El turno cerró por eventos. Si el ACK de `prompt.submit` sigue en vuelo
     // (el fake lento no lo responde hasta el final), la burbuja optimista
     // quedaría pegada en 'enviando' para siempre — y con ella el botón
@@ -765,8 +778,9 @@ class ChatSessionController {
           : const <String, Object?>{};
       final interrupted =
           map['interrupted'] == true || map['status'] == 'interrupted';
-      if (!interrupted)
+      if (!interrupted) {
         _log.info('interrupt: ${map['status'] ?? 'sin status'}');
+      }
       return interrupted;
     } on JsonRpcError catch (e) {
       _log.warning('interrupt failed ${e.code} ${e.message}');

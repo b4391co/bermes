@@ -1,7 +1,7 @@
 name: hermes_pocket
 description: "Hermes Pocket — cliente Android para Hermes Agent de Nous Research."
 publish_to: 'none'
-version: 0.1.44+44
+version: 0.1.45+45
 
 environment:
   sdk: ^3.9.2
@@ -63,6 +63,7 @@ dependencies:
   audioplayers: ^6.8.1
   open_filex: ^4.7.0
   package_info_plus: ^10.2.2
+  flutter_local_notifications: ^19.0.0
 
 dev_dependencies:
   flutter_test:

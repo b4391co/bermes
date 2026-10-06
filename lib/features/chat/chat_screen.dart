@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' show FontFeature;
 
 import 'package:file_picker/file_picker.dart';
+import '../../core/notify.dart';
 
 import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
@@ -24,6 +25,7 @@ import '../../data/database/app_database.dart' as db;
 import '../../design/tokens.dart';
 import '../../domain/entity/entity_ref.dart';
 import '../../domain/message/chat_models.dart';
+import '../../design/live_avatar.dart';
 import '../../domain/message/media_tags.dart';
 import '../app_shell.dart' show BotAvatar;
 import 'chat_info_sheet.dart';
@@ -95,11 +97,15 @@ class _ChatScreenState extends State<ChatScreen> {
     // La caché resuelve rutas síncronas en _fromRow: hay que tener el
     // directorio antes de la primera página de historial.
     unawaited(MediaCache.warm());
+    Notifier.visibleConversationId = widget.conversationId;
     _loadConversation();
   }
 
   @override
   void dispose() {
+    if (Notifier.visibleConversationId == widget.conversationId) {
+      Notifier.visibleConversationId = null;
+    }
     _removeMentionOverlay();
     _draftTimer?.cancel();
     _liveSub?.cancel();
@@ -1070,13 +1076,17 @@ class _ChatScreenState extends State<ChatScreen> {
           onTap: _openInfo,
           child: Row(
             children: [
-              BotAvatar(
-                seed: conv.avatarSeed ?? conv.id,
-                label: conv.title,
+              LiveAvatar(
                 size: 32,
-                isGroup: isGroup,
-                imageUrl: conv.avatarUrl,
-                avatarMetaJson: conv.botAvatarMeta,
+                active: _isStreaming,
+                child: BotAvatar(
+                  seed: conv.avatarSeed ?? conv.id,
+                  label: conv.title,
+                  size: 32,
+                  isGroup: isGroup,
+                  imageUrl: conv.avatarUrl,
+                  avatarMetaJson: conv.botAvatarMeta,
+                ),
               ),
               const SizedBox(width: Hp.s3),
               Expanded(
