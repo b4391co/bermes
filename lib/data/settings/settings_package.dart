@@ -41,7 +41,23 @@ class SettingsPackage {
         'El archivo no contiene un objeto JSON',
       );
     }
+    // Un config.yaml EXPORTADO de un gateway Hermes real (server-side) no es
+    // un paquete Pocket: no trae `format`, y NUNCA trae la URL del gateway
+    // (el dashboard escucha donde arranque `hermes serve`). Detectarlo y
+    // explicarlo vale más que un «formato no reconocido» seco. Lo útil que
+    // sí aporta: el usuario del dashboard (dashboard.basic_auth.username).
     if (json['format'] != format) {
+      final dashboard = json['dashboard'];
+      final isHermesServerConfig =
+          dashboard is Map &&
+          (json['agent'] is Map || json['providers'] is Map);
+      if (isHermesServerConfig) {
+        final basicAuth = dashboard['basic_auth'];
+        final username = basicAuth is Map ? basicAuth['username'] : null;
+        throw HermesServerConfigException(
+          username is String && username.isNotEmpty ? username : '',
+        );
+      }
       throw const SettingsFormatException('Formato no reconocido');
     }
     final v = json['version'];
@@ -56,6 +72,18 @@ class SettingsPackage {
       includesSecrets: json['includes_secrets'] as bool? ?? false,
     );
   }
+}
+
+/// El archivo es un config de SERVIDOR Hermes (config.yaml exportado), no un
+/// paquete Pocket. [dashboardUsername] es el usuario del panel si constaba.
+class HermesServerConfigException implements Exception {
+  final String dashboardUsername;
+  const HermesServerConfigException(this.dashboardUsername);
+
+  @override
+  String toString() =>
+      'Es un config de servidor Hermes (config.yaml), no un paquete de '
+      'ajustes de Hermes Pocket';
 }
 
 class SettingsFormatException implements Exception {

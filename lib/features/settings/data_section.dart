@@ -13,6 +13,7 @@ import '../../data/database/app_database.dart';
 import '../../data/settings/settings_package.dart';
 import '../../design/tokens.dart';
 import 'appearance_section.dart';
+import '../connections/connection_editor.dart';
 
 /// Sección Datos: exportar/importar ajustes con SettingsPackage real.
 ///
@@ -181,6 +182,50 @@ class _DataSectionState extends State<DataSection> {
           ),
         ),
       );
+    } on HermesServerConfigException catch (e) {
+      // config.yaml de un SERVIDOR Hermes: no es un paquete Pocket y no
+      // contiene la URL del gateway (el dashboard escucha donde arranque
+      // `hermes serve`). En vez de «formato no reconocido», abrir el
+      // editor con el usuario del panel precargado.
+      _log.info('import: detectado config de servidor hermes');
+      if (!mounted) return;
+      final username = e.dashboardUsername;
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Config de servidor Hermes'),
+          content: Text(
+            'Este archivo es el config.yaml de un gateway Hermes (el del '
+            'SERVIDOR), no un paquete de ajustes de Hermes Pocket: no trae '
+            'la dirección del gateway, así que no se puede importar '
+            'directamente.\n\n'
+            'Lo que sí aporta: el usuario del panel'
+            '${username.isEmpty ? '' : ' («$username»)'} — se precarga en el '
+            'editor. Introduce la dirección (host y puerto) de ese gateway '
+            'y su contraseña.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Crear conexión'),
+            ),
+          ],
+        ),
+      );
+      if (go == true && mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ConnectionEditor(
+              initialUsername: username,
+              initialPort: 9119,
+            ),
+          ),
+        );
+      }
     } on SettingsFormatException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

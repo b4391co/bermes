@@ -1,3 +1,28 @@
+## Release 0.1.41 (2026-10-06)
+
+### feat(settings): importar un config.yaml REAL de Hermes ya no es «formato no reconocido» (0.1.41)
+
+Importabas el `config.yaml` de tu gateway (boneca) y la app soltaba un
+«Formato no reconocido» seco. Era cierto a medias: ese archivo NO es un
+paquete de ajustes de Pocket (y no contiene la URL del gateway — el
+dashboard escucha donde arranque `hermes serve`), pero el mensaje no
+ayudaba y tiraba lo único aprovechable.
+
+- Detección del config real de servidor (claves `dashboard`+`agent`/
+  `providers`): diálogo explicando QUÉ es y por qué no basta, y el
+  usuario del panel (`dashboard.basic_auth.username`, p. ej. `breo`)
+  se PRECARGA en el editor de conexión — solo te falta host, puerto y
+  contraseña.
+- El paquete propio de Pocket sigue importándose igual (con previews
+  y dedupe), y un JSON desconocido sigue avisando de formato inválido.
+- Pruebas: 3 casos nuevos (paquete propio OK / config hermes detectado
+  con usuario / JSON ajeno rechazado). Suite: 80 verdes.
+
+Nota de fondo: el hash `scrypt` del `basic_auth` de tu boneca CONFIRMA
+que el usuario/contraseña del panel 9119 son los mismos que claudio —
+tu tesis de las credenciales era correcta; el bloqueo real era el
+header `Origin` (arreglado en 0.1.40).
+
 ## Release 0.1.40 (2026-10-05)
 
 ### fix(connections): Origin/Referer en las peticiones — los gateways «webapp» aceptan el login (0.1.40)

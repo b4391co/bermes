@@ -22,7 +22,18 @@ class ConnectionEditor extends StatefulWidget {
   /// Fila existente (edición) o null (alta).
   final Connection? existing;
 
-  const ConnectionEditor({super.key, this.existing});
+  /// Precarga para el flujo «config de servidor Hermes importado»: usuario
+  /// del panel (dashboard.basic_auth.username) y puerto por defecto del
+  /// dashboard. La dirección NO viene en ese config: la escribe el usuario.
+  final String? initialUsername;
+  final int? initialPort;
+
+  const ConnectionEditor({
+    super.key,
+    this.existing,
+    this.initialUsername,
+    this.initialPort,
+  });
 
   @override
   State<ConnectionEditor> createState() => _ConnectionEditorState();
@@ -55,10 +66,13 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
     final e = widget.existing;
     _name = TextEditingController(text: e?.name ?? '');
     _host = TextEditingController(text: e?.host ?? '');
-    _port = TextEditingController(text: e?.port.toString() ?? '9119');
+    _port = TextEditingController(
+      text: (e?.port ?? widget.initialPort)?.toString() ?? '9119',
+    );
     _basePath = TextEditingController(text: e?.basePath ?? '');
-    _username = TextEditingController(text: e?.username ?? '');
-    _scheme = e?.scheme ?? 'http';
+    _username = TextEditingController(
+      text: e?.username ?? (widget.initialUsername ?? ''),
+    );
     _insecureTls = e?.allowInsecureTls ?? false;
     _authKind =
         HermesAuthKind.values.asNameMap()[e?.authKind] ??
