@@ -1,7 +1,7 @@
-# Hermes Pocket — estado del proyecto (2026-10-04)
+# Hermes Pocket — estado del proyecto (2026-10-06)
 
 App Android nativa (Flutter) cliente de gateways **Hermes Agent** (Nous
-Research). Versión actual: **0.1.32** (versionCode = contador: 32). Windows: plataforma habilitada en el
+Research). Versión actual: **0.1.41** (versionCode = contador: 41). Windows: plataforma habilitada en el
 workspace (adaptación de navegación pendiente de producto).
 
 ## Qué funciona (verificado contra gateway real + fake)
@@ -124,3 +124,18 @@ Gateway real «claudio» 0.21.5 (LAN del usuario, vía socat + adb reverse):
   exóticos de servidores VNC reales del bot) sólo probada contra el fake.
 - Notificaciones push: no hay (el backend Hermes no expone push propio; la
   app mantiene sesiones vivas en primer plano).
+
+## Verificación 0.1.41 en emulador (2026-10-06): tema oscuro calibrado
+
+Tema oscuro recalibrado contra la referencia visual del usuario (Hermes
+Desktop): fondo `#1A1A1A`, chrome superior `#141414`, burbuja del bot
+`#212121` (ahora el texto del bot va en tarjeta redondeada, igual que
+Desktop), burbuja del usuario `#242424` con texto `#EDEDED`, campos
+`#242424`, secundario `#747474`, verde de estado `#3ECF8E` (también en
+`Hp.online`), filas `#262626`. Tema claro intacto. Verificado en emulador
+con el gateway real: home, chat de bot y burbujas renderizan con la
+paleta exacta; `flutter analyze` sin incidencias nuevas.
+
+Nota de red observada (preexistente, no del tema): el WS del gateway real
+a través de socat alterna «en línea»/«reconectando…» de forma
+intermitente; REST y chat funcionan. A investigar aparte.

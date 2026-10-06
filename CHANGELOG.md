@@ -1,3 +1,20 @@
+## Release 0.1.42 (2026-10-06)
+
+### feat(theme): tema oscuro calibrado contra Hermes Desktop (0.1.42)
+
+El tema oscuro era un carbón genérico (#101114); la referencia visual del
+encargo es la de Hermes Desktop. Recalibrado con los valores medidos de la
+captura: fondo `#1A1A1A` (sidebar+chat), chrome superior `#141414`,
+burbuja del bot `#212121` (el texto del bot ahora va en tarjeta redondeada,
+como en Desktop; antes era prosa plana sin burbuja), burbuja del usuario
+`#242424` con texto `#EDEDED`, campos `#242424`, secundario `#747474`,
+filas `#262626` y verde de estado `#3ECF8E` (también `Hp.online`). Tema
+claro intacto. Verificado en emulador contra el gateway real: home, chat y
+burbujas renderizan la paleta exacta; `flutter analyze` sin incidencias
+nuevas.
+
+pubspec: 0.1.41+41 → 0.1.42+42.
+
 ## Release 0.1.41 (2026-10-06)
 
 ### feat(settings): importar un config.yaml REAL de Hermes ya no es «formato no reconocido» (0.1.41)

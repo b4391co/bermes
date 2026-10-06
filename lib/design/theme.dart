@@ -156,15 +156,19 @@ ThemeData buildLightTheme() {
   );
 }
 
-/// Tema oscuro diseñado de verdad: no una inversión.
-/// Fondo carbón neutro, sin negros puros, acentos ligeramente elevados.
+/// Tema oscuro calibrado contra Hermes Desktop (referencia del usuario):
+/// fondo #1A1A1A uniforme, topbar #141414, burbuja del bot #212121, burbuja
+/// del usuario #242424, campos #242424, texto #EDEDED, secundario #747474,
+/// acento verde #3ECF8E. Separación por elevación, sin negros puros.
 ThemeData buildDarkTheme() {
-  const bg = Color(0xFF101114); // carbón, no negro
-  const surface = Color(0xFF17181C);
-  const surfaceSoft = Color(0xFF1D1F24); // burbujas del bot
-  const ink = Color(0xFFEDEEF2);
-  const inkSoft = Color(0xFF9BA1AF);
-  // Burbuja del usuario (elevada en oscuro): la consume features/chat.
+  const bg = Color(0xFF1A1A1A); // sidebar + chat (referencia)
+  const chrome = Color(0xFF141414); // topbar/appbar
+  const botBubble = Color(0xFF212121);
+  const userBubble = Color(0xFF242424);
+  const field = Color(0xFF242424);
+  const ink = Color(0xFFEDEDED);
+  const inkSoft = Color(0xFF747474);
+  const hairline = Color(0xFF262626);
 
   final base = ThemeData(
     useMaterial3: true,
@@ -175,11 +179,11 @@ ThemeData buildDarkTheme() {
           brightness: Brightness.dark,
         ).copyWith(
           surface: bg,
-          surfaceContainerLowest: surface,
-          surfaceContainerLow: surfaceSoft,
-          primary: ink,
-          onPrimary: const Color(0xFF101114),
-          secondary: const Color(0xFF7C89FF),
+          surfaceContainerLowest: chrome,
+          surfaceContainerLow: botBubble,
+          primary: userBubble, // burbuja del usuario (consume features/chat)
+          onPrimary: ink, // texto sobre la burbuja del usuario (#EDEDED)
+          secondary: const Color(0xFF3ECF8E),
           error: const Color(0xFFF87171),
         ),
     scaffoldBackgroundColor: bg,
@@ -187,7 +191,7 @@ ThemeData buildDarkTheme() {
 
   return base.copyWith(
     appBarTheme: const AppBarTheme(
-      backgroundColor: bg,
+      backgroundColor: chrome,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       scrolledUnderElevation: 0.5,
@@ -239,14 +243,14 @@ ThemeData buildDarkTheme() {
           ),
         ),
     dividerTheme: const DividerThemeData(
-      color: Color(0xFF26282E),
+      color: hairline,
       thickness: 0.7,
       space: 0.7,
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: surface,
-      hintStyle: const TextStyle(color: Color(0xFF6B7180)),
+      fillColor: field,
+      hintStyle: const TextStyle(color: inkSoft),
       contentPadding: const EdgeInsets.symmetric(
         horizontal: Hp.s4,
         vertical: Hp.s3,
@@ -261,13 +265,13 @@ ThemeData buildDarkTheme() {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(Hp.rLg),
-        borderSide: const BorderSide(color: Color(0xFF3A3E48)),
+        borderSide: const BorderSide(color: Color(0xFF3A3A3A)),
       ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         backgroundColor: ink,
-        foregroundColor: bg,
+        foregroundColor: const Color(0xFF141414),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(Hp.rMd),
         ),
@@ -288,11 +292,12 @@ ThemeData buildDarkTheme() {
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith(
         (s) => s.contains(WidgetState.selected)
-            ? const Color(0xFF101114)
-            : const Color(0xFF3A3D46),
+            ? const Color(0xFF141414)
+            : const Color(0xFF3A3A3A),
       ),
       trackColor: WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.selected) ? ink : const Color(0xFF33363F),
+        (s) =>
+            s.contains(WidgetState.selected) ? ink : const Color(0xFF303030),
       ),
     ),
     snackBarTheme: SnackBarThemeData(
@@ -300,7 +305,7 @@ ThemeData buildDarkTheme() {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(Hp.rSm),
       ),
-      backgroundColor: const Color(0xFF2A2D36),
+      backgroundColor: const Color(0xFF2A2A2A),
       contentTextStyle: const TextStyle(color: Colors.white, fontSize: 13.5),
     ),
     splashFactory: InkSparkle.splashFactory,

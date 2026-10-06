@@ -45,7 +45,7 @@ abstract final class Hp {
   }
 
   // ── Estados (no solo color: siempre acompañados de icono/texto) ──────
-  static const online = Color(0xFF22C55E);
+  static const online = Color(0xFF3ECF8E); // verde Hermes Desktop
   static const connecting = Color(0xFFF59E0B);
   static const offline = Color(0xFF94A3B8);
   static const error = Color(0xFFEF4444);

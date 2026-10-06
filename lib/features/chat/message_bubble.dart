@@ -120,24 +120,25 @@ class MessageBubble extends StatelessWidget {
       ],
     );
 
-    final body = _isUser
-        ? Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Hp.s4,
-              vertical: Hp.s3,
-            ),
-            decoration: BoxDecoration(
-              color: cs.primary,
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(Hp.rBubble),
-                topRight: Radius.circular(Hp.rBubble),
-                bottomLeft: Radius.circular(Hp.rBubble),
-                bottomRight: Radius.circular(Hp.rSm),
-              ),
-            ),
-            child: content,
-          )
-        : content;
+    final body = Container(
+      padding: const EdgeInsets.symmetric(horizontal: Hp.s4, vertical: Hp.s3),
+      decoration: BoxDecoration(
+        // Referencia Hermes Desktop: bot en tarjeta #212121 de esquinas
+        // redondas; usuario en #242424 (cs.primary) con cola abajo-derecha.
+        color: _isUser ? cs.primary : cs.surfaceContainerLow,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(Hp.rBubble),
+          topRight: const Radius.circular(Hp.rBubble),
+          bottomLeft: _isUser
+              ? const Radius.circular(Hp.rBubble)
+              : const Radius.circular(Hp.rSm),
+          bottomRight: _isUser
+              ? const Radius.circular(Hp.rSm)
+              : const Radius.circular(Hp.rBubble),
+        ),
+      ),
+      child: content,
+    );
 
     // El avatar del bot queda centrado con la burbuja (Grok), no pegado
     return Row(
