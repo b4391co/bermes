@@ -49,4 +49,15 @@ abstract final class Hp {
   static const connecting = Color(0xFFF59E0B);
   static const offline = Color(0xFF94A3B8);
   static const error = Color(0xFFEF4444);
+
+  // ── Burbujas de chat ─────────────────────────────────────────────────
+  /// Fondo de la burbuja del usuario en tema claro. `cs.primary` es tinta
+  /// casi negra (la consumen botones/FAB); el chat la sustituye por este
+  /// grafito suave para que el contraste bot/usuario sea de tono, no de
+  /// blanco-sobre-negro.
+  static const userBubbleLight = Color(0xFFE9EAEE);
+  static const userBubbleFgLight = Color(0xFF16181D);
+  /// Tema oscuro: la referencia Desktop usa #242424 sobre #1A1A1A.
+  static const userBubbleDark = Color(0xFF2A2A2A);
+  static const userBubbleFgDark = Color(0xFFEDEDED);
 }

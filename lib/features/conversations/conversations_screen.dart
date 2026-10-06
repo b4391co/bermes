@@ -158,19 +158,10 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                   }
                   final rows = snapshot.data ?? const <Conversation>[];
                   final filtered = _filter(rows);
-                  // Caras de los bots (avatar real) indexadas por id de
-                  // conversación: los iconos de grupo las usan.
-                  _botFaces = {
-                    for (final c in rows)
-                      if (!c.isGroup && c.kind == 'bot')
-                        c.id: GroupFace.ofConversation(
-                          connectionId: c.connectionId,
-                          gatewayId: c.gatewayId,
-                          title: c.title,
-                          avatarUrl: c.avatarUrl,
-                          botAvatarMeta: c.botAvatarMeta,
-                        ),
-                  };
+                  // Caras de bots indexadas por TODAS sus claves de miembro
+                  // (installId, gatewayId, id de conversación, name de
+                  // perfil): los miembros del espejo referencian por las tres.
+                  _botFaces = GroupFaceIndex.of(rows, _installIdToConn);
                   if (rows.isEmpty) return _emptyState(context);
                   if (filtered.isEmpty) return _noResults(context);
                   return FutureBuilder<List<Connection>>(
@@ -622,7 +613,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
             relativeTime(c.lastActivity),
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               // Verde de la referencia (#3ECF8E) cuando hay no leídos:
-              // legible sobre #1A1A1A (cs.primary es la burbuja #242424).
+              // legible sobre el fondo de la fila.
               color: c.unreadCount > 0 ? const Color(0xFF3ECF8E) : cs.onSurfaceVariant,
               fontWeight: c.unreadCount > 0 ? FontWeight.w600 : null,
             ),
@@ -664,7 +655,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 6.5, vertical: 2),
               decoration: BoxDecoration(
                 // Verde acento con texto oscuro: contraste real sobre el
-                // fondo oscuro (antes cs.primary #242424 era invisible).
+                // fondo de la fila.
                 color: const Color(0xFF3ECF8E),
                 borderRadius: BorderRadius.circular(10),
               ),

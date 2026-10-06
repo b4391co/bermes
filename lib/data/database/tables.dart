@@ -67,6 +67,10 @@ class Conversations extends Table {
   // ficha de miembros y autocompletado `@` de salas sin roomId — el gateway
   // no las hospeda (groups.state → 4112) y el roster del chat no alcanza.
   TextColumn get groupMembersJson => text().nullable()();
+  // true = el gateway hospeda la sala (`groups.create` OK → turnos reales
+  // vía `groups.send`/`groups.log`). false/null = sala de espejo
+  // (legada de Desktop o gateway sin groups.*): sólo lectura. v11.
+  BoolColumn get groupHosted => boolean().withDefault(const Constant(false))();
 
   @override
   Set<Column> get primaryKey => {id};

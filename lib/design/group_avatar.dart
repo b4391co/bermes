@@ -1,9 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-
+import '../data/database/app_database.dart';
 import '../features/app_shell.dart' show BotAvatar;
-import '../domain/entity/entity_ref.dart';
 import '../features/conversations/group_rooms.dart';
 
 /// Icono de grupo = las caras de los bots dentro (máx. 3) + badge «+N» si
@@ -61,18 +60,31 @@ class GroupAvatarStack extends StatelessWidget {
     );
   }
 
+  /// Resuelve la cara de un miembro probando sus claves de identidad en
+  /// orden: `installId` → `connectionId` (puede ser id local de Desktop) →
+  /// `name` de perfil (con los nombres previos) → `handle`. El índice de
+  /// caras se construye con todas esas claves, así que un miembro del espejo
+  /// enlaza con su bot aunque Desktop lo referencie por otra clave.
   static GroupFace? _faceOf(
     GroupMember m,
     Map<String, GroupFace> faceByConvId,
     Map<String, String> connIdByInstallId,
   ) {
-    final connId = m.installId == null ? null : connIdByInstallId[m.installId];
-    if (connId == null) return null;
-    for (final name in {
-      if (m.name != null) m.name!,
-      ...m.previousNames,
-    }) {
-      final f = faceByConvId['$connId/bot/$name'];
+    final connId =
+        m.installId != null ? connIdByInstallId[m.installId!] : null;
+    for (final key in <String?>[
+      if (connId != null && m.name != null) '$connId/bot/${m.name}',
+      if (m.connectionId != null && m.name != null)
+        '${m.connectionId}/bot/${m.name}',
+      for (final prev in m.previousNames)
+        if (connId != null) '$connId/bot/$prev',
+      if (m.handle != null && connId != null) '$connId/bot/${m.handle}',
+      m.name,
+      m.installId,
+      m.connectionId,
+    ]) {
+      if (key == null) continue;
+      final f = faceByConvId[key];
       if (f != null) return f;
     }
     return null;
@@ -208,7 +220,7 @@ class GroupFace {
     String? botAvatarMeta,
   }) {
     return GroupFace(
-      seed: '$connectionId/${EntityKind.bot.name}/$gatewayId',
+      seed: '$connectionId/bot/$gatewayId',
       label: title,
       imageUrl: avatarUrl,
       avatarMetaJson: botAvatarMeta,
@@ -216,3 +228,36 @@ class GroupFace {
   }
 }
 
+/// Índice de caras de bots para resolver miembros del espejo. Indexa cada bot
+/// por TODAS las claves con las que un miembro puede referenciarlo:
+/// `installId`, `gatewayId`, `connectionId`, id de conversación, y
+/// `<connId>/bot/<name>` (incluidos nombres previos del perfil).
+class GroupFaceIndex {
+  static Map<String, GroupFace> of(
+    Iterable<Conversation> conversations,
+    Map<String, String> installIdToConn,
+  ) {
+    final out = <String, GroupFace>{};
+    for (final c in conversations) {
+      if (c.isGroup || c.kind != 'bot') continue;
+      final face = GroupFace(
+        seed: c.avatarSeed ?? '${c.connectionId}/${c.gatewayId}',
+        label: c.title,
+        imageUrl: c.avatarUrl,
+        avatarMetaJson: c.botAvatarMeta,
+      );
+      final connId = c.connectionId;
+      final profileName = c.avatarSeed?.split('/').last;
+      for (final key in <String?>[
+        c.id,
+        c.gatewayId,
+        if (profileName != null && profileName.isNotEmpty)
+          '$connId/bot/$profileName',
+      ]) {
+        if (key == null || key.isEmpty) continue;
+        out.putIfAbsent(key, () => face);
+      }
+    }
+    return out;
+  }
+}

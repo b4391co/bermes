@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
-import 'package:hermes_pocket/clients/hermes/connection_manager.dart';
 import 'package:hermes_pocket/data/database/app_database.dart';
 import 'package:hermes_pocket/features/conversations/group_rooms.dart';
 import 'package:hermes_pocket/features/conversations/group_sync.dart';

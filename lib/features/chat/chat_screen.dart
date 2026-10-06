@@ -10,6 +10,7 @@ import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
 
 import '../../design/group_avatar.dart';
+import '../../core/turn_activity.dart';
 import '../../clients/hermes/chat_session_controller.dart';
 import '../../clients/hermes/connection_manager.dart';
 import '../../clients/hermes/gateway_client.dart';
@@ -111,6 +112,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     _removeMentionOverlay();
     _draftTimer?.cancel();
+    _groupWatchdog?.cancel();
     _liveSub?.cancel();
     _roomSub?.cancel();
     // El controller se suscribe al gateway en attach(): sin dispose, cada
@@ -257,11 +259,22 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     _startController(path, sendSession, runtime);
   }
-
   int _roomLastSeq = 0;
   StreamSubscription<GatewayEvent>? _roomSub;
   bool _roomLoading = false;
   bool _roomLogLoaded = false;
+
+  /// Watchdog de silencio para grupos: tras enviar, si no llega NINGÚN
+  /// `room.event` en 4 min se baja la vida del bot grupal (el gateway pudo
+  /// no enrutar el turno). Se rearma con cada evento vivo.
+  Timer? _groupWatchdog;
+
+  void _armGroupWatchdog(String convId) {
+    _groupWatchdog?.cancel();
+    _groupWatchdog = Timer(const Duration(minutes: 4), () {
+      TurnActivity.end(convId);
+    });
+  }
 
   /// Miembros de la sala para el autocompletado `@` (sólo grupos).
   List<MentionCandidate> _mentionCandidates = const [];
@@ -291,6 +304,22 @@ class _ChatScreenState extends State<ChatScreen> {
       final seq = (ev['seq'] as num?)?.toInt() ?? 0;
       if (seq <= _roomLastSeq) return;
       _roomLastSeq = seq;
+      // Vida del grupo: cada evento del log es señal viva. `message.member`
+      // (respuesta de un bot) y los turn.* terminales apagan el aura; si
+      // siguen llegando eventos de sala, `_armGroupWatchdog` la reenciende.
+      final kind = ev['kind'] as String? ?? '';
+      if (kind == 'message.member' ||
+          kind == 'turn.end' ||
+          kind == 'turn.complete' ||
+          kind == 'turn.cancelled' ||
+          kind == 'turn.error') {
+        _groupWatchdog?.cancel();
+        _groupWatchdog = null;
+        TurnActivity.end(conv.id);
+      } else {
+        TurnActivity.begin(conv.id);
+        _armGroupWatchdog(conv.id);
+      }
       setState(() => _live = [..._live, _roomMessage(conv, roomId, ev)]);
       _roomController.add(_live);
     });
@@ -410,6 +439,8 @@ class _ChatScreenState extends State<ChatScreen> {
               actor['handle'] as String? ??
               actor['profile'] as String? ??
               'miembro');
+    // El avatar del autor (bot miembro) se resuelve en el render por
+    // `authorName` contra _botAvatars (línea del chat grupal).
     return ChatMessage(
       id: 'room-${ev['event_id']}',
       path: EntityRefPath(
@@ -966,10 +997,18 @@ class _ChatScreenState extends State<ChatScreen> {
       // log de la sala (grupos.log / eventos room.event) la confirma al
       // reconectar. No se inventa `message.author` local.
       await _roomAck(r, text, conv, roomId);
+      // Vida del grupo: los bots miembros van a pensar/responder tras el ACK.
+      // El aura se apaga con `turn.end`/`message.member` o por el watchdog
+      // de silencio (4 min sin eventos de sala).
+      TurnActivity.begin(conv.id);
+      _armGroupWatchdog(conv.id);
     } catch (e) {
       // La pareja (event_id, thread_id) SEGURO pendiente: el reintento
       // explícito del mismo texto la reenvía (idempotente).
       _log.warning('group send failed', e);
+      // 4112 = el gateway NO hospeda esta sala (grupo del espejo de Desktop,
+      // o sala antigua creada antes de hosted-rooms). No es un fallo de red:
+      // queda registrado en el log y la UI muestra el error reintentable.
       if (mounted) {
         setState(() {
           _sending = false;
@@ -1021,7 +1060,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _interrupt() => _controller?.interrupt() ?? Future.value();
 
-  bool get _isStreaming => _live.any((m) => m.streaming);
+  /// Vida del turno en el chat: segmento en streaming O turno vivo
+  /// (`TurnActivity`: thinking/herramientas sin `message.start` en gateways
+  /// que no abren segmento hasta el primer delta, y grupos tras
+  /// `groups.send`). Alimenta el aura de la cabecera y el «escribiendo…».
+  bool get _isStreaming =>
+      _live.any((m) => m.streaming) ||
+      (_conversation != null && TurnActivity.isStreaming(_conversation!.id));
 
   // ── UI ────────────────────────────────────────────────────────────────
 
@@ -1078,6 +1123,63 @@ class _ChatScreenState extends State<ChatScreen> {
       showDragHandle: true,
       useSafeArea: true,
       builder: (_) => ChatInfoSheet(conversation: conv, runtime: _runtime),
+    );
+  }
+
+  /// Fila «escribiendo…/pensando…»: avatar del bot (o pila de grupo) con
+  /// aura y burbuja de puntos. Se pinta cuando el turno está vivo
+  /// (`TurnActivity`) sin segmento en streaming abierto — thinking largo,
+  /// herramientas, y grupos tras `groups.send`.
+  Widget _typingRow(db.Conversation conv) {
+    final cs = Theme.of(context).colorScheme;
+    final isGroup = conv.isGroup;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: Hp.s4, vertical: Hp.s1),
+      child: Row(
+        children: [
+          LiveAvatar(
+            size: 26,
+            active: true,
+            child: isGroup
+                ? GroupAvatarStack.fromMembersJson(
+                    membersJson: conv.groupMembersJson,
+                    faceByConvId: _groupFaces,
+                    connIdByInstallId: _installIdToConn,
+                    fallbackTitle: conv.title,
+                    size: 26,
+                  )
+                : BotAvatar(
+                    seed: conv.avatarSeed ?? conv.id,
+                    label: conv.title,
+                    size: 26,
+                    imageUrl: conv.avatarUrl,
+                    avatarMetaJson: conv.botAvatarMeta,
+                  ),
+          ),
+          const SizedBox(width: Hp.s3),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Hp.s4,
+              vertical: Hp.s3,
+            ),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerLow,
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(Hp.rBubble),
+                topRight: const Radius.circular(Hp.rBubble),
+                bottomRight: const Radius.circular(Hp.rBubble),
+                bottomLeft: const Radius.circular(Hp.rSm),
+              ),
+            ),
+            child: Text(
+              'escribiendo…',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1220,9 +1322,16 @@ class _ChatScreenState extends State<ChatScreen> {
                           top: Hp.s4,
                           bottom: Hp.s6,
                         ),
+                        // Fila «escribiendo…/pensando…»: turno vivo sin
+                        // segmento abierto en streaming (thinking largo,
+                        // herramientas, grupos tras `groups.send`).
                         itemCount:
                             all.length +
-                            (_hasMoreHistory || _loadingOlder ? 1 : 0),
+                            (_hasMoreHistory || _loadingOlder ? 1 : 0) +
+                            (_isStreaming &&
+                                    !_live.any((m) => m.streaming)
+                                ? 1
+                                : 0),
                         itemBuilder: (context, index) {
                           final header = _hasMoreHistory || _loadingOlder
                               ? 1
@@ -1231,6 +1340,9 @@ class _ChatScreenState extends State<ChatScreen> {
                             return _olderIndicator();
                           }
                           final i = index - header;
+                          if (i == all.length) {
+                            return _typingRow(conv);
+                          }
                           final message = all[i];
                           final previous = i > 0 ? all[i - 1] : null;
                           // Burbujas de sesión sin autor (línea viva del bot):

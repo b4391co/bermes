@@ -22,6 +22,12 @@ enum HermesAuthKind {
   /// (web_server_chat.py:291-297). SOLO vale en gateways sin gate OAuth:
   /// en modo gated el token ni se inyecta ni se acepta.
   sessionToken,
+
+  /// Gateway sin autenticación: `GET /api/status` responde
+  /// `auth_required: false` (web_routers/status.py). REST y WS se abren sin
+  /// credenciales. Típico de instalaciones LAN antiguas/loopback (p. ej.
+  /// Hermes 0.15.0).
+  none,
 }
 
 class ConnectionProfile {

@@ -23,8 +23,16 @@ class AuthResult {
   final AuthFailureCause? cause;
   final String? detail;
 
-  const AuthResult.ok() : ok = true, cause = null, detail = null;
-  const AuthResult.fail(this.cause, [this.detail]) : ok = false;
+  /// Marcador del probe: el gateway anuncia `auth_required: false`.
+  final bool noAuth;
+
+  const AuthResult.ok({this.noAuth = false})
+    : ok = true,
+      cause = null,
+      detail = null;
+  const AuthResult.fail(this.cause, [this.detail])
+    : ok = false,
+      noAuth = false;
 }
 
 /// Resultado de `POST /api/audio/transcribe` (web_models.py:84-86;
@@ -267,7 +275,14 @@ class HermesHttpClient {
         final isHermes =
             data is Map &&
             (data.containsKey('auth_required') || data.containsKey('version'));
-        if (isHermes) return const AuthResult.ok();
+        if (isHermes) {
+          // Gateway sin autenticación (auth_required=false): el editor lo
+          // ofrece como modo «Sin acceso» en lugar de exigir credenciales.
+          if (data['auth_required'] == false) {
+            return const AuthResult.ok(noAuth: true);
+          }
+          return const AuthResult.ok();
+        }
         return const AuthResult.fail(
           AuthFailureCause.version,
           'Hay un servidor en esa dirección pero no responde como un gateway '
@@ -350,6 +365,8 @@ class HermesHttpClient {
     String password, {
     String provider = '',
   }) async {
+    // Gateway sin autenticación (`authKind: none`): no hay login que hacer.
+    if (profile.authKind == HermesAuthKind.none) return const AuthResult.ok();
     var name = provider;
     if (name.isEmpty) {
       // Sin lista de proveedores no adivinamos: el contrato no fija ningún
@@ -834,6 +851,11 @@ class HermesHttpClient {
   }
 
   Future<Map<String, Object?>?> authMe() async {
+    // Gateway sin autenticación: no hay /api/auth/me que consultar; la vida
+    // de la conexión la demuestra el propio transporte (WS abierto).
+    if (profile.authKind == HermesAuthKind.none) {
+      return const {'authenticated': false, 'noAuth': true};
+    }
     try {
       final data = await _authorized<Map<String, Object?>?>(
         send: (headers) => _dio.get<Object?>(

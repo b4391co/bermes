@@ -5,7 +5,6 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:hermes_pocket/clients/hermes/connection_manager.dart';
-import 'package:hermes_pocket/clients/hermes/gateway_client.dart';
 import 'package:hermes_pocket/data/database/app_database.dart';
 import 'package:hermes_pocket/data/secure/secure_store.dart';
 import 'package:hermes_pocket/clients/hermes/http_client.dart';

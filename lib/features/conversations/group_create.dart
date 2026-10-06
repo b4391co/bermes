@@ -23,6 +23,7 @@ import 'package:drift/drift.dart';
 
 import '../../clients/hermes/bot_meta.dart';
 import '../../clients/hermes/connection_manager.dart';
+import '../../clients/hermes/rooms_client.dart';
 import '../../data/database/app_database.dart';
 import 'group_rooms.dart';
 
@@ -133,6 +134,36 @@ Future<GroupCreateOutcome> createGroup({
         'title': m.conv.title,
       },
   ];
+
+  // ── 1b. HOSTED ROOM: el gateway authorities la sala (driver de turnos).
+  //      Sin esto, `groups.send`/`groups.log` fallan con 4112 (room not
+  //      found) y el grupo es una etiqueta vacía: los mensajes no enrutan
+  //      ningún turno. Se intenta en el gateway del PRIMER miembro; si el
+  //      gateway no expone groups.* (versión antigua), el grupo sigue
+  //      existiendo como sala de espejo (sólo-lectura, como en Desktop).
+  final hostRuntime = runtimes[members.first.connectionId];
+  bool hosted = false;
+  if (hostRuntime != null) {
+    try {
+      final created = await RoomsClient(hostRuntime.gateway).create(
+        trimmed,
+        [
+          for (final m in members)
+            {
+              'name': m.conv.gatewayId,
+              if (m.installId != null) 'installId': m.installId,
+              'target': m.conv.gatewayId,
+            },
+        ],
+        roomId: roomId,
+      );
+      hosted = created != null;
+    } catch (_) {
+      // Gateway sin groups.* o sala ya existente con otro contenido: la sala
+      // vive en el espejo; no se miente — la UI lo indica al abrir el chat.
+      hosted = false;
+    }
+  }
 
   // ── 2. Parche de membresía de cada bot (group-membership.ts:181-202).
   //      La sección hermes-bots se REEMPLAZA entera → se reenvía la cruda
@@ -285,6 +316,7 @@ Future<GroupCreateOutcome> createGroup({
           groupRoomId: Value(roomId),
           groupSyncRevision: const Value(1),
           groupSyncName: Value(trimmed),
+          groupHosted: Value(hosted),
           lastActivity: Value(DateTime.now()),
         ),
       );

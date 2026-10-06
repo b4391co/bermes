@@ -130,8 +130,12 @@ class HermesGatewayClient {
       //   `?token=` (web_server_chat.py:291-297). El endpoint del ticket no
       //   existe en ese modo (es ruta del gate), así que el mint fallaría
       //   siempre; se consulta hasGatewayToken para bifurcar.
+      // - Sin autenticación (`authKind: none`, gateway LAN que anuncia
+      //   auth_required=false): ninguna credencial — ni ticket ni token.
       final uri = Uri.parse(profile.wsUrl).replace(
-        queryParameters: http.hasGatewayToken
+        queryParameters: profile.authKind == HermesAuthKind.none
+            ? const {}
+            : http.hasGatewayToken
             ? {'token': http.gatewayToken!}
             : {'ticket': await _mintTicketOrExpire()},
       );

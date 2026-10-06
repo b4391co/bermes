@@ -136,9 +136,12 @@ class ScreenController {
         params: {'profile': profile},
       );
     } on JsonRpcError catch (e) {
-      // Gateway SIN Bot Screen (método -32601, p. ej. 0.21.4 donde
-      // tools/bot_desktop no existía): estado honesto, no error genérico.
-      if (e.code == -32601) {
+      // Gateway SIN Bot Screen: -32601 (p. ej. 0.21.4, donde tools/
+      // bot_desktop no existía) o equivalentes que reportan «method not
+      // found» con otro code (0.15.0). Estado honesto, no error genérico.
+      if (e.code == -32601 ||
+          e.message.toLowerCase().contains('method not found') ||
+          e.message.toLowerCase().contains('not found')) {
         _status = const ScreenStatus(
           state: 'unsupported',
           hasLease: false,

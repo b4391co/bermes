@@ -16,6 +16,7 @@ void main() {
     pinnedGateway: false,
     sortOrder: 0,
     groupSyncRevision: 0,
+    groupHosted: false,
   );
 
   test('mismo perfil en dos gateways: una sola entrada (primer gateway)', () {

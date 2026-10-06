@@ -1,3 +1,30 @@
+## Release 0.1.48 (2026-10-07)
+
+### fix: grupos funcionales (hosted rooms), iconos de grupo, vida del turno, gateways sin auth
+
+- **Grupos**: al crear un grupo la app ahora HOSTEA la sala en el gateway
+  (`groups.create` → `groups.send`/`groups.log` con turnos reales). Antes
+  sólo se publicaba en el espejo de Desktop y el backend no conocía la
+  sala: los mensajes fallaban con 4112 «room not found» y «no había turno».
+  Las salas del espejo que Desktop dirige siguen siendo de sólo-lectura
+  (el driver de turnos es de quien creó la sala).
+- **Iconos de grupo**: resueltos por identidad de miembro (installId →
+  conexión local → perfil), no sólo por id de conversación: las caras
+  reales aparecen también para grupos llegados del espejo de Desktop.
+- **Thinking continuo**: el aura del avatar y la fila «escribiendo…» del
+  chat ya no dependen de que el gateway emita `message.start` — gateways
+  como 0.15.0 no lo emiten hasta el primer delta; ahora cubren
+  `status.update`/`tool.*`/`thinking.delta` y grupos tras `groups.send`,
+  con watchdog de 4 min de silencio.
+- **Contraste**: en tema claro la burbuja del usuario pasa de negro tinta
+  a grafito suave (token dedicado); el contraste bot/usuario es de tono.
+- **Gateways sin autenticación** (`auth_required: false`, p. ej. LAN
+  0.15.0): nuevo método «Sin acceso» — el probe de conexión lo detecta y
+  lo sugiere. REST/WS se abren sin credenciales (ni ticket ni token).
+- **Screen**: la detección de «sin Bot Screen» acepta también «not
+  found» con códigos distintos de -32601 (0.15.0); el visor ya no se
+  queda en blanco.
+
 ## Release 0.1.47 (2026-10-06)
 
 ### feat(chat): PDF y vídeo integrados, iconos de grupo con miembros, vida del bot completa

@@ -340,12 +340,14 @@ class ConnectionManager {
     await _syncGroupMirrors(db);
   }
 
-  /// Devuelve true si el runtime quedó con una sesión utilizable.
   Future<bool> _restoreSession(
     ConnectionRuntime runtime,
     Connection row,
     SecureStore store,
   ) async {
+    // 0) gateway sin autenticación (`authKind: none`): no hay sesión que
+    //    restaurar — REST/WS se abren directos.
+    if (row.authKind == 'none') return true;
     // 1) sesión bearer guardada: `/api/auth/me` es la comprobación barata y es
     //    LA ÚNICA que demuestra una sesión bearer viva (routes.py:449-455).
     final stored = await store.readSession(row.id);

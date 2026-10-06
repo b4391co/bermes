@@ -249,7 +249,28 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
       }
       final runtime = connections.ensureRuntime(profile);
       connections.registerRows(const [], db, secrets: AppServices.secrets);
-      if (_authKind == HermesAuthKind.sessionToken &&
+      if (_authKind == HermesAuthKind.none) {
+        // Sin credenciales: conectar y sincronizar directo.
+        try {
+          final savedRow = Connection(
+            id: id,
+            name: profile.name,
+            scheme: profile.scheme,
+            host: profile.host,
+            port: profile.port,
+            basePath: profile.basePath,
+            authKind: profile.authKind.name,
+            username: profile.username,
+            allowInsecureTls: profile.allowInsecureTls,
+            enabled: profile.enabled,
+            displayOrder: await _nextDisplayOrder(db),
+            createdAt: DateTime.now(),
+          );
+          await connections.connectAndSync(runtime, savedRow);
+        } catch (e) {
+          _log.warning('post-save no-auth connect falló', e);
+        }
+      } else if (_authKind == HermesAuthKind.sessionToken &&
           _gatewayToken.text.trim().isNotEmpty) {
         // Modo token: NO hay password-login. Sembrar el token en el cliente
         // del runtime y conectar (WS con ?token=). La comprobación de vida
@@ -484,6 +505,10 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
                         value: HermesAuthKind.sessionToken,
                         label: Text('Token'),
                       ),
+                      ButtonSegment(
+                        value: HermesAuthKind.none,
+                        label: Text('Sin acceso'),
+                      ),
                     ],
                     selected: {_authKind},
                     onSelectionChanged: (s) =>
@@ -498,6 +523,11 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
                         ? 'Pega el session token del gateway '
                               '(HERMES_DASHBOARD_SESSION_TOKEN en su .env). '
                               'Válido solo en gateways sin portal OAuth.'
+                        : _authKind == HermesAuthKind.none
+                        ? 'Para gateways LAN sin autenticación (los que '
+                              'responden auth_required=false en /api/status, '
+                              'p. ej. Hermes 0.15.0). No se envía ninguna '
+                              'credencial.'
                         : 'Inicio de sesión con usuario y contraseña '
                               '(sesión renovada automáticamente).',
                     style: Theme.of(context).textTheme.bodySmall,
@@ -866,6 +896,15 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
 
   (Color, IconData, String, String?) _describeResult(AuthResult r) {
     if (r.ok) {
+      if (r.noAuth) {
+        return (
+          Hp.online,
+          Icons.check_circle_rounded,
+          'Gateway sin autenticación',
+          'Responde auth_required=false. Selecciona el método «Sin acceso» '
+              'y guarda: no hará falta usuario ni contraseña.',
+        );
+      }
       return _testedLogin
           ? (
               Hp.online,

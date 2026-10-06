@@ -2,12 +2,13 @@ import 'package:flutter/foundation.dart';
 
 /// Registro en memoria de conversaciones con turno EN VIVO (el bot está
 /// escribiendo/herramientas corriendo). Lo llenan los `ChatSessionController`
-/// al abrir/sellar un segmento de streaming; lo miran la banda de fijados,
-/// la cabecera del chat y las burbujas para mostrar aura + bocadillo «…»
-/// SOLO en los bots que están trabajando ahora mismo.
+/// al abrir/sellar un segmento de streaming, y el envío de grupos al aceptar
+/// `groups.send`; lo miran la banda de fijados, la cabecera del chat y las
+/// burbujas para mostrar aura + bocadillo «…» SOLO en los bots que están
+/// trabajando ahora mismo.
 ///
-/// Clave: `EntityRefPath.storageId` == `conversations.id`
-/// (`connectionId/kind/gatewayId`) — la misma identidad en toda la app.
+/// Clave: id de fila de `conversations` — bots (su `EntityRefPath.storageId`,
+/// `connectionId/kind/gatewayId`) y grupos (su `conversations.id`).
 class TurnActivity {
   TurnActivity._();
 
@@ -18,13 +19,25 @@ class TurnActivity {
   static bool isStreaming(String conversationId) =>
       streaming.value.contains(conversationId);
 
+  /// Último evento vivo visto por conversación. El stream de eventos ES el
+  /// heartbeat del turno: si el gateway corta los deltas (thinking muy largo
+  /// sin eventos, reconexión que pierde el `message.complete`), un watchdog
+  /// que mire esta marca baja la vida tras N minutos de silencio. Sin
+  /// watchdog el aura quedaría encendida para siempre.
+  static final Map<String, DateTime> _lastEventAt = {};
+
+  static DateTime? lastEvent(String conversationId) =>
+      _lastEventAt[conversationId];
+
   static void begin(String conversationId) {
+    _lastEventAt[conversationId] = DateTime.now();
     if (streaming.value.add(conversationId)) {
       streaming.value = Set.of(streaming.value);
     }
   }
 
   static void end(String conversationId) {
+    _lastEventAt.remove(conversationId);
     if (streaming.value.remove(conversationId)) {
       streaming.value = Set.of(streaming.value);
     }

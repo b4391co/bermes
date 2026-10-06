@@ -242,6 +242,18 @@ class _ScreenViewState extends State<ScreenView> {
       await _web.runJavaScript(
         "window.connectScreen && window.connectScreen(${_json({'wsUrl': url, 'viewOnly': !(widget.controller.status?.humanControls ?? false) && !_controlling})});",
       );
+    } on JsonRpcError catch (e) {
+      // Gateway sin Bot Screen (display.* no existe: -32601 o «not found»,
+      // p. ej. 0.15.0/0.21.4). Decirlo claro; no dejar el visor en blanco.
+      final missing =
+          e.code == -32601 || e.message.toLowerCase().contains('not found');
+      if (mounted) {
+        setState(
+          () => _message = missing
+              ? 'Este gateway no tiene Bot Screen (requiere Hermes 0.21.5+).'
+              : 'No se pudo abrir la pantalla: ${e.message}',
+        );
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _message = 'No se pudo abrir la pantalla: $e');

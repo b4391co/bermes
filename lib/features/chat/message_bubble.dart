@@ -89,10 +89,15 @@ class MessageBubble extends StatelessWidget {
 
   Widget _bubble(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    // Tema hermes-mobile: usuario = burbuja primary sólida a la derecha;
-    // asistente = prose full-bleed sobre el background del chat (sin card),
-    // avatar inline a la izquierda.
-    final fg = _isUser ? cs.onPrimary : cs.onSurface;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    // Tema hermes-mobile: usuario = burbuja a la derecha; asistente =
+    // tarjeta suave a la izquierda. El contraste entre ambas es de TONO
+    // (no negro/blanco): en claro la burbuja del usuario pasa de tinta
+    // casi negra a grafito suave legible.
+    final userBubble = dark ? Hp.userBubbleDark : Hp.userBubbleLight;
+    final fg = _isUser
+        ? (dark ? Hp.userBubbleFgDark : Hp.userBubbleFgLight)
+        : cs.onSurface;
 
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -104,7 +109,7 @@ class MessageBubble extends StatelessWidget {
           ImageStrip(
             attachments: message.attachments,
             connectionId: connectionId,
-            onDark: _isUser,
+            onDark: _isUser && dark,
           ),
           const SizedBox(height: Hp.s2),
         ],
@@ -125,9 +130,9 @@ class MessageBubble extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: Hp.s4 + 2, vertical: Hp.s3 + 2),
       constraints: const BoxConstraints(maxWidth: 560),
       decoration: BoxDecoration(
-        // Referencia Hermes Desktop: bot en tarjeta #212121 de esquinas
-        // redondas; usuario en #242424 (cs.primary) con cola abajo-derecha.
-        color: _isUser ? cs.primary : cs.surfaceContainerLow,
+        // Contraste por tono: usuario = grafito suave (Hp tokens), bot =
+        // superficie baja. Ambos legibles sin el salto negro/blanco.
+        color: _isUser ? userBubble : cs.surfaceContainerLow,
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(Hp.rBubble),
           topRight: const Radius.circular(Hp.rBubble),

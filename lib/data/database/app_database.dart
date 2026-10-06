@@ -9,7 +9,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -49,6 +49,12 @@ class AppDatabase extends _$AppDatabase {
       if (from < 10) {
         // Miembros de grupo serializados (ficha + menciones de salas name:).
         await m.addColumn(conversations, conversations.groupMembersJson);
+      }
+      if (from < 11) {
+        // Sala hosted: el gateway la hospeda vía groups.create (turnos
+        // reales). false = sala sólo-espejo (legada de Desktop o gateway
+        // sin groups.*).
+        await m.addColumn(conversations, conversations.groupHosted);
       }
     },
   );

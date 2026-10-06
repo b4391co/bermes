@@ -73,6 +73,9 @@ class ChatSessionController {
   // usan (tui_gateway/server.py:1173-1187). null = aún sin resume OK.
   String? _runtimeId;
   Future<String>? _resuming;
+  /// Timer de silencio del turno (ver `_liveEventTypes`): se reprograma con
+  /// cada evento vivo; al expirar baja la vida del bot.
+  Timer? _turnWatchdog;
 
   ChatSessionController(
     this.path,
@@ -132,18 +135,38 @@ class ChatSessionController {
         .whenComplete(() => _resuming = null);
   }
 
+  /// Tipos que significan «el turno sigue vivo» (se reprograma el watchdog).
+  static const _liveEventTypes = {
+    'message.start',
+    'message.delta',
+    'message.interim',
+    'reasoning.delta',
+    'thinking.delta',
+    'reasoning.available',
+    'tool.start',
+    'tool.complete',
+    'status.update',
+    'notification.show',
+  };
+
   void _onEvent(GatewayEvent e) {
-    if (_disposed) return;
-    // Los frames del turno llegan con el RUNTIME id (server.py:1296-1325,
-    // ui_session_id); el canónico sólo identifica la fila almacenada. Si
-    // todavía no hay resume, el runtime desconocido entra igual: el primer
-    // frame con sesión mintea el binding (Desktop re-mapea runtime→stored).
-    if (e.sessionId != null &&
-        e.sessionId != sessionId &&
-        e.sessionId != _runtimeId) {
+    // Watchdog de silencio: cualquier evento vivo reprograma un timer de 4
+    // min. Si expira, el turno se consideró terminado sin `message.complete`
+    // (thinking larguísimo o cierre perdido en reconexión) y se baja la vida
+    // — más honesto que un «…» eterno. El tipo interno `turn.silence` lo
+    // dispara el propio timer.
+    if (e.type == 'turn.silence') {
+      _turnWatchdog?.cancel();
+      _turnWatchdog = null;
+      TurnActivity.end(path.storageId);
       return;
     }
-    // Primer frame con sesión ANTES del resume: adopta el runtime id.
+    if (_liveEventTypes.contains(e.type)) {
+      _turnWatchdog?.cancel();
+      _turnWatchdog = Timer(const Duration(minutes: 4), () {
+        if (!_disposed) TurnActivity.end(path.storageId);
+      });
+    }
     if (_runtimeId == null && e.sessionId != null && e.sessionId!.isNotEmpty) {
       _runtimeId = e.sessionId;
     }
@@ -164,6 +187,9 @@ class ChatSessionController {
         // formateada del trozo; el texto crudo sigue en `text`.
         final text = e.payload['text'] as String? ?? '';
         if (text.isEmpty) break;
+        // Aura en gateways que no emiten `message.start` (0.15.0): el delta
+        // es la primera señal viva del turno.
+        TurnActivity.begin(path.storageId);
         final idx = _lastStreamingIndex();
         if (idx == null) {
           _openStreamingSegment(text: text);
@@ -194,6 +220,9 @@ class ChatSessionController {
       // ── razonamiento ────────────────────────────────────────────────────
       case 'reasoning.delta':
       case 'thinking.delta':
+        // Thinking largo SIN deltas de texto: sigue encendiendo la vida del
+        // bot (aura + bocadillo) — el turno no ha terminado.
+        TurnActivity.begin(path.storageId);
         _appendReasoning(e.payload['text'] as String? ?? '');
         break;
 
@@ -660,6 +689,15 @@ class ChatSessionController {
           ? Map<String, Object?>.from(result)
           : const <String, Object?>{};
       final status = map['status'] as String?;
+      // El ACK dice que el turno ESTÁ vivo (streaming|queued|steered|
+      // redirected). Encender la vida del bot aquí mismo: entre el ACK y el
+      // primer evento (message.start/tool.start/delta) puede pasar un rato
+      // (fases de contexto/skills), y si el gateway no emite `message.start`
+      // el aura dependería de los deltas — el hueco se vería como «parada».
+      // El turno lo apaga `message.complete`/`interrupt`/cierre de runtime.
+      if (status == null || _knownSubmitStatuses.contains(status)) {
+        TurnActivity.begin(path.storageId);
+      }
       // PromptSubmitResult: status ∈ streaming|queued|steered|redirected y
       // `user_row_id` es la fila duradera escrita para ESTE input
       // (contracts/prompt_voice.py:61-73). Con la fila conocida el optimista ya
@@ -814,6 +852,8 @@ class ChatSessionController {
 
   void dispose() {
     _disposed = true;
+    _turnWatchdog?.cancel();
+    _turnWatchdog = null;
     // El chat se cierra: si había un turno en vivo, la banda de fijados
     // deja de mostrarlo como trabajando (el turno sigue en el servidor,
     // pero aquí ya no hay nadie observándolo).
