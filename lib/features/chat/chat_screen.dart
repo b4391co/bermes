@@ -9,6 +9,7 @@ import '../../core/notify.dart';
 import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
 
+import '../../design/group_avatar.dart';
 import '../../clients/hermes/chat_session_controller.dart';
 import '../../clients/hermes/connection_manager.dart';
 import '../../clients/hermes/gateway_client.dart';
@@ -87,6 +88,8 @@ class _ChatScreenState extends State<ChatScreen> {
   /// display name del autor de grupo → (meta avatar, data-url). Lo llena
   /// [_loadConversation] con los bots sincronizados.
   Map<String, (String?, String?)> _botAvatars = const {};
+  Map<String, GroupFace> _groupFaces = const {};
+  Map<String, String> _installIdToConn = const {};
 
   /// Runtime del gateway de esta conversación (null = sólo historial).
   ConnectionRuntime? _runtime;
@@ -150,12 +153,29 @@ class _ChatScreenState extends State<ChatScreen> {
       database.conversations,
     )..where((c) => c.kind.equals('bot'))).get();
     if (!mounted) return;
+    final installIdByConn = {
+      for (final c in await database.select(database.connections).get())
+        if (c.installId != null) c.installId!: c.id,
+    };
+    if (!mounted) return;
     setState(() {
       _botAvatars = {
         for (final r in botRows)
           if (r.title.isNotEmpty && r.botAvatarMeta != null)
             r.title: (r.botAvatarMeta, r.avatarUrl),
       };
+      // Caras para el icono de grupo de la cabecera (miembros reales):
+      _groupFaces = {
+        for (final r in botRows)
+          r.id: GroupFace.ofConversation(
+            connectionId: r.connectionId,
+            gatewayId: r.gatewayId,
+            title: r.title,
+            avatarUrl: r.avatarUrl,
+            botAvatarMeta: r.botAvatarMeta,
+          ),
+      };
+      _installIdToConn = installIdByConn;
     });
     setState(() => _conversation = row);
     _connectRuntime();
@@ -1079,14 +1099,21 @@ class _ChatScreenState extends State<ChatScreen> {
               LiveAvatar(
                 size: 32,
                 active: _isStreaming,
-                child: BotAvatar(
-                  seed: conv.avatarSeed ?? conv.id,
-                  label: conv.title,
-                  size: 32,
-                  isGroup: isGroup,
-                  imageUrl: conv.avatarUrl,
-                  avatarMetaJson: conv.botAvatarMeta,
-                ),
+                child: isGroup
+                    ? GroupAvatarStack.fromMembersJson(
+                        membersJson: conv.groupMembersJson,
+                        faceByConvId: _groupFaces,
+                        connIdByInstallId: _installIdToConn,
+                        fallbackTitle: conv.title,
+                        size: 32,
+                      )
+                    : BotAvatar(
+                        seed: conv.avatarSeed ?? conv.id,
+                        label: conv.title,
+                        size: 32,
+                        imageUrl: conv.avatarUrl,
+                        avatarMetaJson: conv.botAvatarMeta,
+                      ),
               ),
               const SizedBox(width: Hp.s3),
               Expanded(
@@ -1534,8 +1561,32 @@ class _ChatScreenState extends State<ChatScreen> {
                           maxLines: 5,
                           textInputAction: TextInputAction.newline,
                           onChanged: _onDraftChanged,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             hintText: 'Mensaje',
+                            // Caja con relleno interior: el texto ya no
+                            // choca contra los bordes del campo.
+                            filled: true,
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: Hp.s3,
+                              vertical: Hp.s3,
+                            ),
+                            hintStyle: TextStyle(
+                              color: cs.onSurfaceVariant,
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(22),
+                              borderSide: BorderSide(
+                                color: cs.outlineVariant.withValues(alpha: 0.7),
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(22),
+                              borderSide: BorderSide(
+                                color: cs.primary.withValues(alpha: 0.8),
+                                width: 1.4,
+                              ),
+                            ),
                           ),
                         ),
                       ),

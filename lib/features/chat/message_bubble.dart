@@ -122,7 +122,8 @@ class MessageBubble extends StatelessWidget {
     );
 
     final body = Container(
-      padding: const EdgeInsets.symmetric(horizontal: Hp.s4, vertical: Hp.s3),
+      padding: const EdgeInsets.symmetric(horizontal: Hp.s4 + 2, vertical: Hp.s3 + 2),
+      constraints: const BoxConstraints(maxWidth: 560),
       decoration: BoxDecoration(
         // Referencia Hermes Desktop: bot en tarjeta #212121 de esquinas
         // redondas; usuario en #242424 (cs.primary) con cola abajo-derecha.
@@ -160,13 +161,10 @@ class MessageBubble extends StatelessWidget {
               avatarMetaJson: avatarMetaJson,
             ),
           ),
-          const SizedBox(width: Hp.s2),
+          const SizedBox(width: Hp.s3),
         ],
         Flexible(
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: body,
-          ),
+          child: body,
         ),
         if (_isUser) const SizedBox(width: Hp.s2),
       ],
@@ -285,9 +283,7 @@ class _ToolsChipsState extends State<ToolsChips> {
                     const SizedBox(width: Hp.s2),
                     Flexible(
                       child: Text(
-                        t.summary == null || t.summary!.isEmpty
-                            ? t.name
-                            : '${t.name} — ${t.summary}',
+                        _toolLabel(t),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
@@ -301,6 +297,23 @@ class _ToolsChipsState extends State<ToolsChips> {
         ],
       ),
     );
+  }
+
+  /// Nombre amable del DM bot→bot: la herramienta `message_agent` es el
+  /// turno interno con otro agente — se traduce a «Esperando a `target`…»
+  /// (target del args JSON; si no, «otro agente»).
+  static String _toolLabel(ToolActivity t) {
+    final base = t.summary == null || t.summary!.isEmpty
+        ? t.name
+        : '${t.name} — ${t.summary}';
+    if (t.name != 'message_agent') return base;
+    if (base != t.name) {
+      // Ya hay summary del backend (ack/reply): respetarlo.
+      return t.running ? 'Esperando a ${t.target ?? 'otro agente'}…' : base;
+    }
+    return t.running
+        ? 'Esperando a ${t.target ?? 'otro agente'}…'
+        : 'DM con ${t.target ?? 'otro agente'}';
   }
 }
 

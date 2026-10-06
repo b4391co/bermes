@@ -401,14 +401,21 @@ class HermesHttpClient {
       // La señal de éxito es la cookie AT: routes.py:413-417 sólo emite
       // Set-Cookie cuando la sesión se completó; el body `{ok,next}` no trae
       // tokens (routes.py:110-115 es del flujo nativo).
+      final setCookieCount =
+          r.headers[HttpHeaders.setCookieHeader]?.length ?? 0;
       if (observeCookies(r)) {
         _bearer = null; // la cookie manda; un bearer viejo no debe reaparecer
         _log.info('login ok por cookie (proveedor $name)');
         return const AuthResult.ok();
       }
+      // Diagnóstico honesto: 2xx sin `hermes_session_at` en el tarro. El
+      // detalle dice si el gate envió Set-Cookie y cuántas: si envió y el
+      // tarro no la guardó, el prefijo/atributos lo delatan; si no envió,
+      // el gate decidió no abrir sesión (p. ej. flujo nativo del broker).
       return AuthResult.fail(
         code == 401 ? AuthFailureCause.badCredentials : _causeOf(code),
-        'password-login sin cookie de sesión (HTTP $code)',
+        'password-login sin cookie de sesión (HTTP $code, '
+        'set-cookie: $setCookieCount)',
       );
     } on dio.DioException catch (e) {
       return AuthResult.fail(_causeFrom(e), e.message);

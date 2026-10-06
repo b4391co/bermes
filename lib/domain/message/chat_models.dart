@@ -36,6 +36,17 @@ class ToolActivity {
     required this.running,
   });
 
+  /// Target del DM bot→bot (`message_agent`): `target` del args JSON.
+  String? get target {
+    final a = argsText;
+    if (a == null || a.isEmpty) return null;
+    try {
+      final m = jsonDecode(a);
+      if (m is Map) return m['target']?.toString();
+    } catch (_) {}
+    return null;
+  }
+
   ToolActivity copyWith({bool? running, String? summary, double? durationS}) =>
       ToolActivity(
         toolId: toolId,

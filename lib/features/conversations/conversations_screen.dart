@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../../core/app_services.dart';
 import '../../core/turn_activity.dart';
 import '../../data/database/app_database.dart';
+import '../../design/group_avatar.dart';
 import '../../design/live_avatar.dart';
 import '../app_shell.dart' show BotAvatar;
 import '../../design/tokens.dart';
@@ -36,6 +37,8 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   final _search = TextEditingController();
   Timer? _tick;
   int _connectionCount = 0;
+  Map<String, String> _installIdToConn = const {};
+  Map<String, GroupFace> _botFaces = const {};
   String? _openId; // two-pane: conversación abierta en el panel derecho
 
   @override
@@ -48,7 +51,13 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     // Chip de gateway solo cuando hay más de una conexión.
     AppServices.db.select(AppServices.db.connections).get().then((rows) {
       if (!mounted) return;
-      setState(() => _connectionCount = rows.length);
+      setState(() {
+        _connectionCount = rows.length;
+        _installIdToConn = {
+          for (final c in rows)
+            if (c.installId != null) c.installId!: c.id,
+        };
+      });
     });
   }
 
@@ -149,6 +158,19 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                   }
                   final rows = snapshot.data ?? const <Conversation>[];
                   final filtered = _filter(rows);
+                  // Caras de los bots (avatar real) indexadas por id de
+                  // conversación: los iconos de grupo las usan.
+                  _botFaces = {
+                    for (final c in rows)
+                      if (!c.isGroup && c.kind == 'bot')
+                        c.id: GroupFace.ofConversation(
+                          connectionId: c.connectionId,
+                          gatewayId: c.gatewayId,
+                          title: c.title,
+                          avatarUrl: c.avatarUrl,
+                          botAvatarMeta: c.botAvatarMeta,
+                        ),
+                  };
                   if (rows.isEmpty) return _emptyState(context);
                   if (filtered.isEmpty) return _noResults(context);
                   return FutureBuilder<List<Connection>>(
@@ -345,14 +367,21 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                     size: 104,
                     active: working,
                     float: working,
-                    child: BotAvatar(
-                      seed: c.avatarSeed ?? c.id,
-                      label: c.title,
-                      size: 104,
-                      isGroup: c.isGroup,
-                      imageUrl: c.avatarUrl,
-                      avatarMetaJson: c.botAvatarMeta,
-                    ),
+                    child: c.isGroup
+                        ? GroupAvatarStack.fromMembersJson(
+                            membersJson: c.groupMembersJson,
+                            faceByConvId: _botFaces,
+                            connIdByInstallId: _installIdToConn,
+                            fallbackTitle: c.title,
+                            size: 104,
+                          )
+                        : BotAvatar(
+                            seed: c.avatarSeed ?? c.id,
+                            label: c.title,
+                            size: 104,
+                            imageUrl: c.avatarUrl,
+                            avatarMetaJson: c.botAvatarMeta,
+                          ),
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -564,16 +593,21 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     return ListTile(
       // Densidad de la referencia: filas compactas (~64dp), no las altas
       // por defecto de ListTile.
-      visualDensity: VisualDensity.compact,
-      contentPadding: const EdgeInsets.symmetric(horizontal: Hp.s4),
-      leading: BotAvatar(
-        seed: c.avatarSeed ?? c.id,
-        label: c.title,
-        size: 42,
-        isGroup: c.isGroup,
-        imageUrl: c.avatarUrl,
-        avatarMetaJson: c.botAvatarMeta,
-      ),
+      leading: c.isGroup
+          ? GroupAvatarStack.fromMembersJson(
+              membersJson: c.groupMembersJson,
+              faceByConvId: _botFaces,
+              connIdByInstallId: _installIdToConn,
+              fallbackTitle: c.title,
+              size: 42,
+            )
+          : BotAvatar(
+              seed: c.avatarSeed ?? c.id,
+              label: c.title,
+              size: 42,
+              imageUrl: c.avatarUrl,
+              avatarMetaJson: c.botAvatarMeta,
+            ),
       title: Row(
         children: [
           Expanded(

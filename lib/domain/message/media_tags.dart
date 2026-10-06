@@ -156,6 +156,8 @@ String mediaKindOf(String path) {
   if (images.contains(ext)) return 'image';
   if (videos.contains(ext)) return 'video';
   if (audio.contains(ext)) return 'audio';
-  if (ext == 'pdf' || ext == 'md' || ext == 'markdown') return 'doc';
+  // PDF es visor propio; md/markdown siguen como doc (texto).
+  if (ext == 'pdf') return 'pdf';
+  if (ext == 'md' || ext == 'markdown') return 'doc';
   return 'file';
 }

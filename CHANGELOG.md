@@ -1,3 +1,29 @@
+## Release 0.1.47 (2026-10-06)
+
+### feat(chat): PDF y vídeo integrados, iconos de grupo con miembros, vida del bot completa
+
+- **PDF**: visor integrado (flutter_pdfview) — pasar páginas, contador, y
+  compartir/guardar desde la barra. Ya no depende de apps externas.
+- **Vídeo**: reproductor a pantalla completa con controles (play/pausa,
+  barra de progreso arrastrable, tiempos) + botón **compartir/guardar**
+  (hoja de compartir de Android: Drive, Archivos, mensajería).
+- **Iconos de grupo**: ahora muestran las CARAS REALES de los bots
+  miembros (hasta 3: una grande + dos pequeñas) y badge `+N` con el resto
+  — un grupo de 10 bots se identifica de un vistazo. En lista, fijados y
+  cabecera del chat.
+- **DM entre bots**: mientras un bot habla con otro (`message_agent`), el
+  chat muestra «Esperando a <bot>…» y el avatar mantiene aura + «…»
+  (la vida del bot va desde que arranca el turno hasta que termina,
+  incluidas las fases de contexto/skills/herramientas sin deltas).
+- **Cuadros de texto del chat**: campo de mensaje con caja y relleno
+  propios (el texto ya no choca contra el borde); burbujas con más margen
+  interior y separación del avatar.
+- **Screen en gateways viejos**: si el gateway no tiene Bot Screen
+  (métodos `display.*` ausentes, p. ej. 0.21.4), el panel lo dice claro
+  («sin Bot Screen») en vez de un error genérico.
+- **Login**: el fallo «sin cookie de sesión» ahora indica también cuántas
+  Set-Cookie envió el gateway (diagnóstico del caso 9113).
+
 ## Release 0.1.46 (2026-10-06)
 
 ### fix(conversations): aura y bocadillo «…» solo en los bots trabajando

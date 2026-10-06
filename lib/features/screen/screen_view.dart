@@ -307,6 +307,9 @@ class _ScreenViewState extends State<ScreenView> {
 
   String _messageFor(ScreenStatus s) => switch (s.state) {
     'stopped' => 'El escritorio del bot está parado.',
+    'unsupported' =>
+      'Este gateway no incorpora Bot Screen (versión anterior a 0.21.5): '
+          'actualiza el gateway para ver el escritorio del bot aquí.',
     'needsInstall' =>
       'Este host no tiene el escritorio instalado '
           '(falta TigerVNC/Xfce${s.error != null ? ': ${s.error}' : ''}). '
@@ -542,7 +545,9 @@ class _ScreenViewState extends State<ScreenView> {
                     ),
                   ),
                 ),
-                if (!running && st?.state != 'installing')
+                if (!running &&
+                    st?.state != 'installing' &&
+                    st?.unsupported != true)
                   Padding(
                     padding: const EdgeInsets.only(top: Hp.s4),
                     child: st?.needsInstall ?? false
@@ -656,6 +661,7 @@ class _ScreenStateBadgeState extends State<_ScreenStateBadge> {
       ),
       'stopped' => ('parado', cs.onSurfaceVariant),
       'needsInstall' => ('sin instalar', Colors.deepOrange),
+      'unsupported' => ('sin Bot Screen', cs.onSurfaceVariant),
       'starting' || 'installing' => ('arrancando', Colors.blueGrey),
       _ => ('error', Colors.red),
     };

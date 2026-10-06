@@ -73,7 +73,9 @@ void main() {
       expect(mediaKindOf('/a/b.PNG'), 'image');
       expect(mediaKindOf('/a/b.mp4'), 'video');
       expect(mediaKindOf('/a/b.mp3'), 'audio');
-      expect(mediaKindOf('/a/b.pdf'), 'doc');
+      // PDF: visor propio integrado (flutter_pdfview); md/markdown siguen
+      // como 'doc'. El kind decide la ruta de openBotMedia.
+      expect(mediaKindOf('/a/b.pdf'), 'pdf');
       expect(mediaKindOf('/a/b.zip'), 'file');
     });
   });

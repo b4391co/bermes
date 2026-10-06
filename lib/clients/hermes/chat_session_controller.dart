@@ -154,6 +154,9 @@ class ChatSessionController {
         // `message.start` sin `message.complete` previo (turno reabierto tras
         // un reconnect) no debe partir la respuesta en dos burbujas.
         if (_lastStreamingIndex() == null) _openStreamingSegment();
+        // Aura + bocadillo desde el PRIMER evento del turno: las fases de
+        // contexto/skills pueden tardar en emitir el primer delta.
+        TurnActivity.begin(path.storageId);
         break;
 
       case 'message.delta':
@@ -200,11 +203,13 @@ class ChatSessionController {
         _appendReasoning(e.payload['text'] as String? ?? '');
         break;
 
-      // ── herramientas ────────────────────────────────────────────────────
       case 'tool.start':
         // ToolStartPayload (:5710): {tool_id, name, args?, args_text?, preview?}
         final toolId = e.payload['tool_id'] as String?;
         if (toolId == null) break;
+        // Herramienta corriendo = bot trabajando aunque el texto tarde:
+        // context/skills ejecutan tools sin emitir deltas de momento.
+        TurnActivity.begin(path.storageId);
         _appendToolToLast(
           ToolActivity(
             toolId: toolId,
@@ -227,7 +232,10 @@ class ChatSessionController {
         // StatusUpdatePayload {kind, text}: línea transitoria (lifecycle,
         // compacting, goal, heartbeat…). No es contenido del turno: se expone
         // como mensaje de sistema sólo si trae texto, sin tocar el segmento.
+        // Un status durante el turno también enciende la vida del bot en la
+        // lista (fases context/skills sin deltas).
         final text = e.payload['text'] as String? ?? '';
+        TurnActivity.begin(path.storageId);
         if (text.isNotEmpty) _systemLine(text, failed: false);
         break;
 
@@ -236,11 +244,20 @@ class ChatSessionController {
         // posterior a este sessionId es inútil. Se cierra el segmento y la UI
         // re-resuelve la sesión (openBotCanonicalChat la reabre por título).
         _sealStreaming();
-        _systemLine(
-          'El gateway retiró esta sesión viva; reabriendo.',
-          failed: false,
-        );
+        _systemLine('El gateway retiró esta sesión viva; reabriendo.',
+            failed: false);
         onSessionReclaimed?.call();
+        break;
+
+      case 'notification.show':
+        // Mensajes de OTROS bots al runtime de este (bot→bot): el backend
+        // los anuncia como notification.show; se muestran como línea de
+        // sistema centrada con el texto y el origen. Sin `text` no hay nada
+        // que pintar (no inventamos contenido).
+        final text = (e.payload['text'] ?? e.payload['message']) as String?;
+        if (text != null && text.isNotEmpty) {
+          _systemLine(text, failed: false);
+        }
         break;
 
       case 'request.cancel':

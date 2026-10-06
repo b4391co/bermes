@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../../clients/hermes/connection_manager.dart';
+import '../../clients/hermes/rpc_types.dart';
 import '../../core/app_services.dart';
 import '../../data/database/app_database.dart';
 
@@ -27,6 +28,8 @@ class ScreenStatus {
 
   bool get running => state == 'running' || state == 'starting';
   bool get needsInstall => state == 'needsInstall';
+  /// Gateway sin Bot Screen (método -32601: < 0.21.5).
+  bool get unsupported => state == 'unsupported';
   bool get humanControls => hasLease && leaseHolder == 'human';
 
   factory ScreenStatus.fromRpc(Object? result) {
@@ -46,6 +49,7 @@ class ScreenStatus {
     // needsInstall (el panel ofrece display.install); `blocker` = razón por
     // la que start() se negaría (p. ej. memoria del host).
     String state;
+
     if (running) {
       state = 'running';
     } else if (!supported || !installed) {
@@ -125,10 +129,29 @@ class ScreenController {
   }
 
   Future<ScreenStatus> refresh() async {
-    final r = await runtime.gateway.rawCall(
-      'display.status',
-      params: {'profile': profile},
-    );
+    Object? r;
+    try {
+      r = await runtime.gateway.rawCall(
+        'display.status',
+        params: {'profile': profile},
+      );
+    } on JsonRpcError catch (e) {
+      // Gateway SIN Bot Screen (método -32601, p. ej. 0.21.4 donde
+      // tools/bot_desktop no existía): estado honesto, no error genérico.
+      if (e.code == -32601) {
+        _status = const ScreenStatus(
+          state: 'unsupported',
+          hasLease: false,
+          error:
+              'Este gateway no incorpora Bot Screen (versión anterior a '
+              '0.21.5). Actualiza el gateway para ver el escritorio.',
+          raw: {},
+        );
+        _changes.add(_status!);
+        return _status!;
+      }
+      rethrow;
+    }
     _status = ScreenStatus.fromRpc(r);
     _changes.add(_status!);
     return _status!;
