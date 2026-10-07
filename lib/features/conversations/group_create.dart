@@ -151,62 +151,54 @@ Future<GroupCreateOutcome> createGroup({
   //      ninguno expone groups.* (versión antigua), la sala queda como
   //      espejo de Desktop (sólo-lectura de turnos, como antes).
   var hosted = false;
+  String? hostSkipReason;
   for (final hostConnId in {
     members.first.connectionId,
     for (final m in members) m.connectionId,
   }) {
     final hostRuntime = runtimes[hostConnId];
     if (hostRuntime == null) continue;
-      // `RoomMemberInput` real (`groups_bot_relay.py:76-84` +
-      // `hosted_room_service.create_room` + `validate_roster`): la fila es
-      // `{profile, handle, display_name, target?}`. `target` es la RUTA al
-      // peer: `{connection_id, profile}` con el PERFIL DEL BOT. En 0.1.49
-      // se mandaba además `name` (clave desconocida → el validador del
-      // gateway rechazaba SIEMPRE la fila). Primero se intenta el shape
-      // completo; si el gateway lo rechaza, la fila MÍNIMA (`profile` +
-      // `handle` + `target`), que `validate_roster` también acepta.
-    List<Map<String, Object?>> descriptorFor(String host) => [
-      for (final m in members)
+    // Wire REAL verificado por sonda WS contra gateway 0.21.5 (2026-10-07):
+    // cada miembro exige `member_id` + `profile` + `handle`; los del gateway
+    // anfitrión van SIN `target` (el backend pone `kind:'local'`); los de
+    // OTROS gateways requieren `target:{kind:'peer', peer_id,
+    // installation_id, capability_digest, profile}` y ese par sólo se
+    // registra sobre HTTPS (5120 «target_url must use https outside the
+    // local machine»). Con gateways HTTP de LAN la sala hosted es por tanto
+    // intra-gateway: se usa el gateway que tenga ≥2 bots del grupo.
+    final locals = members.where((m) => m.connectionId == hostConnId).toList();
+    if (locals.length < 2) {
+      hostSkipReason = 'peer-cross-gateway';
+      continue;
+    }
+    final rows = [
+      for (final (i, m) in locals.indexed)
         {
+          'member_id': 'm$i-${roomId.substring(0, 8)}',
           'profile': m.conv.gatewayId,
           'handle': m.conv.gatewayId,
           'display_name': m.conv.title,
-          if (m.connectionId != host)
-            'target': {
-              'connection_id': m.installId ?? m.connectionId,
-              'profile': m.conv.gatewayId,
-            },
         },
     ];
-    for (final minimal in [false, true]) {
-      final rows = descriptorFor(hostConnId).map((r) {
-        if (!minimal) return r;
-        final t = r['target'] as Map<String, String>?;
-        return t == null
-            ? {'profile': r['profile'], 'handle': r['handle']}
-            : {
-                'profile': r['profile'],
-                'handle': r['handle'],
-                'target': {
-                  'connection_id': t['connection_id'],
-                  'profile': t['profile'],
-                },
-              };
-      }).toList();
-      try {
-        await RoomsClient(hostRuntime.gateway).create(
-          trimmed,
-          rows,
-          roomId: roomId,
-        );
-        hosted = true;
-        break;
-      } catch (_) {
-        // siguiente variante / siguiente gateway
-        if (!minimal) continue;
-      }
+    final invalid = validateRosterWire(
+      rows,
+      {for (final m in locals) m.conv.gatewayId},
+    );
+    if (invalid != null) {
+      hostSkipReason ??= '${invalid.code}: ${invalid.message}';
+      continue;
     }
-    if (hosted) break;
+    try {
+      await RoomsClient(hostRuntime.gateway).create(
+        trimmed,
+        rows,
+        roomId: roomId,
+      );
+      hosted = true;
+      break;
+    } catch (e) {
+      hostSkipReason ??= e.toString();
+    }
   }
   final membershipErrors = <String>[];
   for (final m in members) {
@@ -332,6 +324,18 @@ Future<GroupCreateOutcome> createGroup({
 
   if (!published) {
     return GroupCreateOutcome.failure(publishError ?? 'No se pudo publicar.');
+  }
+  if (!hosted) {
+    // El grupo existe como espejo (visible en Desktop), pero el gateway NO
+    // autorizó una sala hosted → los turnos no enrutan (4112). El motivo ya
+    // está clasificado por la sonda de membresía; que lo vea el usuario.
+    return GroupCreateOutcome.failure(
+      'El grupo se creó como espejo de Desktop, pero ningún gateway pudo '
+      'autorizar la sala para enviar mensajes'
+      '${hostSkipReason == null ? '' : ' ($hostSkipReason)'}. '
+      'Los bots de un mismo grupo deben estar en el MISMO gateway: el '
+      'enrutado entre gateways requiere pares registrados por HTTPS.',
+    );
   }
 
   // ── 4. Fila local (la presentación la rematerializa el sync, pero se

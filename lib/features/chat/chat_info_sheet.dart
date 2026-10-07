@@ -221,7 +221,7 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
                     duplicated && m.handle != null && m.handle != shown
                     ? '$shown · ${m.handle}'
                     : shown;
-                final origin = row?.gatewayLabel ?? m.target ?? profile;
+                final origin = row?.gatewayLabel ?? m.target?['profile']?.toString() ?? m.target?['kind']?.toString() ?? profile;
                 return ListTile(
                   leading: row == null
                       ? BotAvatar(seed: profile, label: shown, size: 40)

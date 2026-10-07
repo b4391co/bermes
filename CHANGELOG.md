@@ -1,3 +1,55 @@
+## Release 0.1.51 (2026-10-07)
+
+### fix(grupos): causa raíz de «no deja enviar» — `groups.create` exigía `member_id`
+
+Sonda WS directa contra los gateways reales (0.21.5) del contrato de
+`groups.create`: cada miembro debe incluir `member_id` + `profile` + `handle`
+(5111 «member N is missing fields: member_id»). 0.1.48–0.1.50 lo omitían
+(creían que era server-owned): **toda** sala hosted era rechazada, nunca
+existía en el backend, y `groups.send` respondía 4112 → «no deja enviar en
+grupos». E2E real verde: crear → `groups.state` → `groups.send` →
+`groups.log` con el mensaje visible.
+
+- `create` genera `member_id` estables por sala y manda sólo claves del wire.
+- Validador local reescrito sobre el contrato real (`roster_validator.dart`):
+  locales sin `target`; remotos con `target:{kind:'peer', peer_id,
+  installation_id, capability_digest, profile}`; 2..6 miembros.
+- `RoomMember.target` es objeto (el cast a String reventaba el parseo de
+  `groups.create`).
+- Cross-gateway: el registro de pares exige HTTPS (5120 «target_url must use
+  https outside the local machine») — en LAN http:// los miembros de otros
+  gateways no pueden entrar en la sala. `createGroup` elige un host con ≥2
+  bots y, si ninguno autoriza la sala, el usuario ve el motivo concreto
+  (espejo creado, turnos no enrutan) en vez de un fallo mudo.
+- Tests de roster reescritos contra la sonda real; `group_e2e_test.dart`
+  (tag `real`) cubre el ciclo completo contra gateways del usuario.
+
+## Release 0.1.50 (2026-10-07)
+
+### fix(grupos): claves de espejo sanitizadas en el wire, dueño de sala resuelto, hora en burbujas
+
+- **Enviar en grupos**: `RoomsClient.create` filtraba a las claves del wire
+  (`profile/handle/display_name/target`) y el reintento probaba gateway por
+  gateway y shape completo→mínimo. El validador local de esta versión además
+  RECHAZABA `member_id` («server-owned»): el contrato real lo exige — 0.1.51
+  corrige la causa raíz (ver arriba).
+- **Dueño de sala**: al abrir un chat grupal la app localiza el gateway que
+  autoriza la sala (`groups.state` en dueña + conexiones de los miembros) y
+  usa ése para log, eventos, menciones y `groups.send`.
+- **Menciones**: miembros del gateway dueño + handles del espejo, fusionados.
+- **Hora en cada mensaje** bajo la burbuja.
+- **Aura**: se apaga con cualquier evento terminal y con el eco `message.user`;
+  la lista de chats escucha `TurnActivity` global.
+
+## Release 0.1.49 (2026-10-07)
+
+### fix(grupos): shape real de roster, caras por identidad de conexión
+
+- `groups.create` con filas `{profile, handle, display_name, target}` (en
+  0.1.48 viajaba el perfil en `name` y `target` como string → rechazado).
+- Iconos de grupo resueltos por identidad (installId → conexión → perfil).
+- Login con cookies legacy.
+
 ## Release 0.1.48 (2026-10-07)
 
 ### fix: grupos funcionales (hosted rooms), iconos de grupo, vida del turno, gateways sin auth
