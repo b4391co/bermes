@@ -340,7 +340,19 @@ class RoomsClient {
       params: {
         'room_id': roomId ?? newRoomId(),
         'name': name,
-        'members': members,
+        // `_exact_fields` del backend: SOLO profile/handle/display_name/
+        // target. Los descriptores del espejo (name/installId/connectionId/
+        // connectionLabel) se Filtran aquí — en 0.1.49 se mandaban crudos y
+        // `groups.create` fallaba siempre (4112 → «no deja enviar»).
+        'members': [
+          for (final m in members)
+            {
+              'profile': m['profile'] ?? m['name'],
+              'handle': m['handle'] ?? m['name'],
+              if (m['display_name'] != null) 'display_name': m['display_name'],
+              if (m['target'] != null) 'target': m['target'],
+            },
+        ],
       },
     );
     final room = r is Map<String, Object?> ? r['room'] : null;
@@ -427,6 +439,19 @@ class RoomsClient {
   final profiles = <String>{};
   var hasLocal = false;
   for (final m in members) {
+    // `_exact_fields` del backend (extra="forbid"): cualquier clave NO
+    // admitida hace fallar `groups.create` ENTERO — en 0.1.49 se mandaba
+    // `name` (y campos de espejo) y la sala nunca quedaba hosted →
+    // `groups.send` 4112 → «no deja enviar». `RoomMemberInput` real:
+    // profile/handle/display_name/target (`groups_bot_relay.py:76-84`).
+    const allowed = {'profile', 'handle', 'display_name', 'target'};
+    final unknown = m.keys.toSet().difference(allowed);
+    if (unknown.isNotEmpty) {
+      return (
+        code: '4000',
+        message: 'unknown member field(s): ${unknown.join(', ')}',
+      );
+    }
     if (m.containsKey('member_id')) {
       return (code: '4000', message: 'member_id is server-owned');
     }

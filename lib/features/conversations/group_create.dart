@@ -157,47 +157,57 @@ Future<GroupCreateOutcome> createGroup({
   }) {
     final hostRuntime = runtimes[hostConnId];
     if (hostRuntime == null) continue;
-    try {
       // `RoomMemberInput` real (`groups_bot_relay.py:76-84` +
-      // `hosted_room_service.create_room` + `validate_roster`): fila local =
-      // `{profile, handle, display_name}` SIN `target`; fila remota =
-      // `{profile, handle, target:{connection_id, profile}}`. `target` es un
-      // DICT con route — mandarlo como string o sin `profile` hacía que
-      // `groups.create` fallara SIEMPRE contra gateways reales → sala no
-      // hosted → `groups.send` 4112 → «no deja enviar». `name` se conserva
-      // para el espejo de Desktop.
-      await RoomsClient(hostRuntime.gateway).create(
-        trimmed,
-        [
-          for (final m in members)
-            {
-              'name': m.conv.gatewayId,
+      // `hosted_room_service.create_room` + `validate_roster`): la fila es
+      // `{profile, handle, display_name, target?}`. `target` es la RUTA al
+      // peer: `{connection_id, profile}` con el PERFIL DEL BOT. En 0.1.49
+      // se mandaba además `name` (clave desconocida → el validador del
+      // gateway rechazaba SIEMPRE la fila). Primero se intenta el shape
+      // completo; si el gateway lo rechaza, la fila MÍNIMA (`profile` +
+      // `handle` + `target`), que `validate_roster` también acepta.
+    List<Map<String, Object?>> descriptorFor(String host) => [
+      for (final m in members)
+        {
+          'profile': m.conv.gatewayId,
+          'handle': m.conv.gatewayId,
+          'display_name': m.conv.title,
+          if (m.connectionId != host)
+            'target': {
+              'connection_id': m.installId ?? m.connectionId,
               'profile': m.conv.gatewayId,
-              'handle': m.conv.gatewayId,
-              'display_name': m.conv.title,
-              if (m.installId != null) 'installId': m.installId,
-              if (m.connectionId != hostConnId)
-                'target': {
-                  'connection_id': m.installId ?? m.connectionId,
-                  'profile': m.conv.gatewayId,
-                },
             },
-        ],
-        roomId: roomId,
-      );
-      hosted = true;
-      break;
-    } catch (_) {
-      // Este gateway no puede hospedar (sin groups.*, sin miembro local):
-      // se prueba el siguiente. Si ninguno puede, la sala vive en el
-      // espejo; no se miente — la UI lo indica al abrir el chat.
-      hosted = false;
+        },
+    ];
+    for (final minimal in [false, true]) {
+      final rows = descriptorFor(hostConnId).map((r) {
+        if (!minimal) return r;
+        final t = r['target'] as Map<String, String>?;
+        return t == null
+            ? {'profile': r['profile'], 'handle': r['handle']}
+            : {
+                'profile': r['profile'],
+                'handle': r['handle'],
+                'target': {
+                  'connection_id': t['connection_id'],
+                  'profile': t['profile'],
+                },
+              };
+      }).toList();
+      try {
+        await RoomsClient(hostRuntime.gateway).create(
+          trimmed,
+          rows,
+          roomId: roomId,
+        );
+        hosted = true;
+        break;
+      } catch (_) {
+        // siguiente variante / siguiente gateway
+        if (!minimal) continue;
+      }
     }
+    if (hosted) break;
   }
-
-  // ── 2. Parche de membresía de cada bot (group-membership.ts:181-202).
-  //      La sección hermes-bots se REEMPLAZA entera → se reenvía la cruda
-  //      leída + groups nuevo (igual que configureBot exige).
   final membershipErrors = <String>[];
   for (final m in members) {
     final runtime = runtimes[m.connectionId];

@@ -246,7 +246,6 @@ class _ChatScreenState extends State<ChatScreen> {
           _loadHistory();
         }),
       );
-      sendSession = null;
     }
     if (conv.kind == 'group') {
       // Salas hosted: el timeline es `groups.log` + eventos `room.event`.
@@ -293,25 +292,39 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _startRoomLog() {
     final conv = _conversation;
-    final runtime = _runtime;
+    var runtime = _runtime;
     final roomId = conv?.groupRoomId ?? conv?.gatewayId;
     if (conv == null || runtime == null || roomId == null || roomId.isEmpty) {
       return;
     }
-    final client = RoomsClient(runtime.gateway);
-    // El enlace puede seguir conectando (el bootstrap del shell arranca en
-    // paralelo con esta pantalla). _request NO encola: 'not connected' es un
-    // fallo real. Se espera el ready, y si la primera pasada falla (enlace
-    // caído/tarde) se REINTENTA en cada transición a ready hasta cargar el
-    // log — abrir un grupo con el gateway aún conectando ya no queda vacío.
-    unawaited(_roomLogWithRetry(client, roomId));
-    unawaited(_loadMentionCandidates(client, roomId));
-    // 2) Suscribir eventos en vivo: el backend emite `room.event`
-    //    (hosted_room_service::publish) con el evento dentro de payload.event.
-    _roomSub = runtime.gateway.events.listen((e) async {
+    // El gateway que AUTORIZA la sala puede ser OTRO (multi-gateway: la fila
+    // se sincronizó por una conexión y la sala vive en la del primer
+    // miembro). Pedir log/eventos al equivocado devolvía 4112 → «el chat del
+    // grupo no se abre / no deja enviar». Se resuelve el dueño ANTES de
+    // nada; el log y las menciones se reintentan anclados al enlace ready.
+    unawaited(() async {
+      final host = await _resolveRoomRuntime(conv, roomId, runtime);
+      if (!mounted) return;
+      setState(() => _runtime = host);
+      final client = RoomsClient(host.gateway);
+      await _roomLogWithRetry(client, roomId);
+      await _loadMentionCandidates(client, roomId);
+      _startRoomEvents(conv, roomId, host);
+    }());
+  }
+
+  /// Suscripción a `room.event` (hosted_room_service::publish): timeline en
+  /// vivo + vida del grupo. Se hace contra el runtime DUEÑO de la sala.
+  void _startRoomEvents(
+    db.Conversation conv,
+    String roomId,
+    ConnectionRuntime host,
+  ) {
+    _roomSub?.cancel();
+    _roomSub = host.gateway.events.listen((e) {
       if (e.type != 'room.event') return;
       final ev = e.payload['event'];
-      final payloadRoom = e.payload['room_id'];
+      final payloadRoom = e.payload['room_id'] ?? e.payload['room'];
       if (ev is! Map || payloadRoom != roomId) return;
       final seq = (ev['seq'] as num?)?.toInt() ?? 0;
       if (seq <= _roomLastSeq) return;
@@ -320,9 +333,17 @@ class _ChatScreenState extends State<ChatScreen> {
       // (respuesta de un bot) y los turn.* terminales apagan el aura; si
       // siguen llegando eventos de sala, `_armGroupWatchdog` la reenciende.
       final kind = ev['kind'] as String? ?? '';
+      // `message.user` es ECO del propio envío: confirmar y apagar la vida
+      // optimista (0.15.0 la reenvía por el canal de eventos; en otras
+      // versiones sólo llega `turn.settled`, abajo). `message.member` y los
+      // turn.* terminales cierran el turno.
       if (kind == 'message.member' ||
+          kind == 'message.user' ||
           kind == 'turn.end' ||
           kind == 'turn.complete' ||
+          kind == 'turn.settled' ||
+          kind == 'turn.reassigned' ||
+          kind == 'turn.deferred' ||
           kind == 'turn.cancelled' ||
           kind == 'turn.error') {
         _groupWatchdog?.cancel();
@@ -332,6 +353,7 @@ class _ChatScreenState extends State<ChatScreen> {
         TurnActivity.begin(conv.id);
         _armGroupWatchdog(conv.id);
       }
+      if (!mounted) return;
       setState(() => _live = [..._live, _roomMessage(conv, roomId, ev)]);
       _roomController.add(_live);
     });
@@ -974,10 +996,74 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _groupPendingThreadId;
   String? _groupPendingRoomId;
   String? _groupPendingText;
+  /// Runtime cuya sala `roomId` está AUTORIZADA. `groups.state` responde
+  /// sólo en el gateway dueño; en los demás da 4112/4114. Se cachea el id
+  /// de conexión resuelto para no re-sondear en cada envío.
+  String? _roomHostConnId;
+  Future<ConnectionRuntime> _resolveRoomRuntime(
+    db.Conversation conv,
+    String roomId,
+    ConnectionRuntime current,
+  ) async {
+    final candidates = <ConnectionRuntime>[current];
+    final seen = {conv.connectionId};
+    for (final raw in _memberConnIds(conv)) {
+      if (seen.add(raw)) {
+        final r = AppServices.connections.runtimeFor(raw);
+        if (r != null) candidates.add(r);
+      }
+    }
+    // Cacheo: si ya resolvimos el dueño, ése va primero.
+    if (_roomHostConnId != null) {
+      final cached = candidates
+          .where((r) => r.profile.id == _roomHostConnId)
+          .toList();
+      candidates
+        ..removeWhere((r) => r.profile.id == _roomHostConnId)
+        ..insertAll(0, cached);
+    }
+    for (final r in candidates) {
+      try {
+        final room = await RoomsClient(r.gateway).roomState(roomId);
+        if (room != null) {
+          _roomHostConnId = r.profile.id;
+          return r;
+        }
+      } catch (_) {
+        // no la hospeda / gateway viejo: siguiente candidato
+      }
+    }
+    return current;
+  }
+
+  /// Conexiones de los miembros de la sala (installId → conexión local).
+  List<String> _memberConnIds(db.Conversation conv) {
+    final raw = conv.groupMembersJson;
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final out = <String>[];
+      for (final m in (jsonDecode(raw) as List).whereType<Map>()) {
+        final key = (m['installId'] ?? m['connectionId']) as String?;
+        final conn = key == null ? null : _installIdToConn[key] ?? key;
+        if (conn != null && conn.isNotEmpty) out.add(conn);
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
   Future<void> _sendGroup(String text) async {
     final conv = _conversation;
-    final runtime = _runtime;
+    var runtime = _runtime;
     final roomId = conv?.groupRoomId ?? conv?.gatewayId;
+    // Sala multi-gateway: la AUTORIZA el gateway del primer miembro (puede
+    // no ser `conv.connectionId`, la conexión por la que se sincronizó la
+    // fila). Si el runtime de la fila no la conoce, se prueban las conexiones
+    // de los miembros: enviar al gateway equivocado era 4112 «room not
+    // found» → «no deja enviar».
+    if (conv != null && runtime != null && roomId != null && roomId.isNotEmpty) {
+      runtime = await _resolveRoomRuntime(conv, roomId, runtime);
+    }
     if (conv == null || runtime == null || roomId == null || roomId.isEmpty) {
       if (mounted) {
         setState(() => _hasError = true);

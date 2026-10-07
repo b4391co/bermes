@@ -1,4 +1,5 @@
 
+ import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 
@@ -147,8 +148,9 @@ class MessageBubble extends StatelessWidget {
       child: content,
     );
 
-    // El avatar del bot queda centrado con la burbuja (Grok), no pegado
-    return Row(
+    // Línea autor + burbuja; la HORA va debajo, alineada al borde libre de
+    // la burbuja (derecha para usuario, izquierda para bot), siempre visible.
+    final line = Row(
       mainAxisAlignment: _isUser
           ? MainAxisAlignment.end
           : MainAxisAlignment.start,
@@ -172,6 +174,29 @@ class MessageBubble extends StatelessWidget {
           child: body,
         ),
         if (_isUser) const SizedBox(width: Hp.s2),
+      ],
+    );
+    return Column(
+      crossAxisAlignment: _isUser
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      children: [
+        line,
+        if (!message.streaming && message.timestamp != null)
+          Padding(
+            padding: EdgeInsets.only(
+              top: 2,
+              left: _isUser ? 0 : 38,
+              right: _isUser ? 4 : 0,
+            ),
+            child: Text(
+              _formatTime(message.timestamp!),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: cs.onSurfaceVariant,
+                fontSize: 11,
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -211,6 +236,9 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
+
+  /// Hora corta y legible (12/24 según locale): «3:07 p. m.».
+  String _formatTime(DateTime t) => DateFormat.jm().format(t);
   TextStyle _metaStyle(BuildContext context, Color base) => Theme.of(
     context,
   ).textTheme.labelSmall!.copyWith(color: base.withValues(alpha: 0.7));

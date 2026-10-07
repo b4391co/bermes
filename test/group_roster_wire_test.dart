@@ -11,18 +11,30 @@ void main() {
 
   test('shape 0.1.48 (name/target-string) es rechazado por el backend', () {
     final bad = [
-      {'name': 'default', 'installId': 'i1', 'target': 'default'},
-      {'name': 'parker', 'installId': 'i2', 'target': 'parker'},
+      {'name': 'default', 'target': 'default'},
+      {'name': 'parker', 'target': 'parker'},
     ];
     final err = validateRosterWire(bad, local);
     expect(err, isNotNull, reason: 'target string → objeto inválido');
+    // El validador local es estricto (`_exact_fields`): `name` es clave
+    // desconocida y se reporta ANTES de mirar `target`.
+    expect(err!.message, contains('name'));
+  });
+
+  test('target string se rechaza aunque el resto del shape sea bueno', () {
+    final rows = [
+      {'profile': 'default', 'handle': 'default'},
+      {'profile': 'parker', 'handle': 'parker', 'target': 'parker'},
+    ];
+    final err = validateRosterWire(rows, local);
+    expect(err, isNotNull);
     expect(err!.message, 'target must be an object');
   });
 
   test('miembros locales pasan con profile/handle y sin target', () {
     final good = [
-      {'profile': 'default', 'handle': 'default', 'installId': 'i1'},
-      {'profile': 'parker', 'handle': 'parker', 'installId': 'i2'},
+      {'profile': 'default', 'handle': 'default'},
+      {'profile': 'parker', 'handle': 'parker'},
     ];
     expect(validateRosterWire(good, local), isNull);
   });
