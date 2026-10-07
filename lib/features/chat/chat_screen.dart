@@ -102,6 +102,16 @@ class _ChatScreenState extends State<ChatScreen> {
     // directorio antes de la primera página de historial.
     unawaited(MediaCache.warm());
     Notifier.visibleConversationId = widget.conversationId;
+    // Pulso del aura: `TurnActivity.begin` re-publica el set en CADA evento
+    // vivo del turno (delta/thinking/tool/status; grupos: `room.event` y el
+    // ACK de `groups.send`). Reconstruir aquí mantiene la burbuja
+    // «pensando…» continua de principio a fin — en 0.15.0, que no emite
+    // `message.start` hasta el primer delta, la fila sólo se pintaba en los
+    // extremos del turno (begin/end), no durante.
+    _auraPulse = () {
+      if (mounted) setState(() {});
+    };
+    TurnActivity.streaming.addListener(_auraPulse!);
     _loadConversation();
   }
 
@@ -115,6 +125,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _groupWatchdog?.cancel();
     _liveSub?.cancel();
     _roomSub?.cancel();
+    if (_auraPulse != null) TurnActivity.streaming.removeListener(_auraPulse!);
     // El controller se suscribe al gateway en attach(): sin dispose, cada
     // re-adjunto (sesión recién resuelta, reentrada al chat) dejaría un
     // listener vivo aplicando eventos sobre una página muerta.
@@ -261,6 +272,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
   int _roomLastSeq = 0;
   StreamSubscription<GatewayEvent>? _roomSub;
+  void Function()? _auraPulse;
   bool _roomLoading = false;
   bool _roomLogLoaded = false;
 
@@ -365,6 +377,12 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       return;
     }
+    // Sala hosted: `groups.state` da los miembros AUTORIZADOS por el
+    // gateway. Pero `room.members` llega SIN handle/display_name en salas
+    // creadas por Pocket (el backend normaliza a perfil), y el autocompletado
+    // `@` debe ofrecer lo que el driver escucha. Se FUSIONAN ambas fuentes:
+    // los miembros persistidos del espejo (handle de Desktop) + los del
+    // gateway (perfil/handle reales), dedup por nombre.
     for (var attempt = 0; attempt < 6; attempt++) {
       final gw = _runtime?.gateway;
       if (gw == null || !mounted) return;
@@ -372,14 +390,28 @@ class _ChatScreenState extends State<ChatScreen> {
         await gw.readyOrTimeout(const Duration(seconds: 30));
         final room = await client.roomState(roomId);
         if (room == null) return;
-        final bots = room.members.toList(growable: false);
-        // Avatar desde el roster sincronizado (misma clave que las burbujas).
+        final names = <String>{
+          for (final m in room.members) m.handle ?? m.profile ?? m.displayName ?? '',
+        }..remove('');
+        // Espejo persistido (handles con sufijo de origen) — no se descarta.
+        final raw = _conversation?.groupMembersJson;
+        if (raw != null && raw.isNotEmpty) {
+          try {
+            for (final m in (jsonDecode(raw) as List).whereType<Map>()) {
+              final h =
+                  m['handle'] ?? m['display_name'] ?? m['title'] ?? m['name'];
+              if (h is String && h.isNotEmpty) names.add(h);
+            }
+          } catch (_) {
+            // JSON corrupto: sólo los del gateway.
+          }
+        }
         out = [
-          for (final m in bots)
+          for (final name in names)
             MentionCandidate(
-              name: m.displayName ?? m.handle ?? m.profile!,
-              avatarMeta: _botAvatars[m.displayName ?? '']?.$1,
-              avatarUrl: _botAvatars[m.displayName ?? '']?.$2,
+              name: name,
+              avatarMeta: _botAvatars[name]?.$1,
+              avatarUrl: _botAvatars[name]?.$2,
             ),
         ];
         if (out.isNotEmpty) break;
@@ -391,7 +423,7 @@ class _ChatScreenState extends State<ChatScreen> {
       try {
         await gw.stateStream.firstWhere((s) => s == GatewayLinkState.ready);
       } catch (_) {
-        return;
+        break;
       }
     }
     if (!mounted) return;
@@ -1003,12 +1035,18 @@ class _ChatScreenState extends State<ChatScreen> {
       TurnActivity.begin(conv.id);
       _armGroupWatchdog(conv.id);
     } catch (e) {
-      // La pareja (event_id, thread_id) SEGURO pendiente: el reintento
-      // explícito del mismo texto la reenvía (idempotente).
+      // ¿Seguro-pendiente? Sólo si la sala NO pudo ser autorizada (no la
+      // hospeda este gateway / sin permisos): el backend no llegó a escribir
+      // nada y reenviar la MISMA pareja (event_id, thread_id) es correcto.
+      // Cualquier otro fallo (transporte, timeout) puede haber entrado ya en
+      // el log: NO se borra la pareja, el reintento es idempotente por
+      // event_id (misma clave + mismo texto = el mismo mensaje).
       _log.warning('group send failed', e);
-      // 4112 = el gateway NO hospeda esta sala (grupo del espejo de Desktop,
-      // o sala antigua creada antes de hosted-rooms). No es un fallo de red:
-      // queda registrado en el log y la UI muestra el error reintentable.
+      final unauthorized = e is JsonRpcError && (e.code == 4112 || e.code == 4114);
+      if (unauthorized) {
+        _groupPendingEventId = _groupPendingThreadId =
+            _groupPendingRoomId = _groupPendingText = null;
+      }
       if (mounted) {
         setState(() {
           _sending = false;

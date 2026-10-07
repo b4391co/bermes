@@ -19,6 +19,8 @@
 /// primero en el orden de conexiones gana.
 library;
 
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import '../../clients/hermes/bot_meta.dart';
@@ -123,44 +125,72 @@ Future<GroupCreateOutcome> createGroup({
   final roomKey = 'id:$roomId';
 
   // Descriptores de miembro portables (GroupMember, types.ts:130-147). El
-  // nombre visible NO es identidad: name = perfil del backend.
+  // nombre visible NO es identidad: name = perfil del backend. `connectionId`
+  // es la identidad durable del backend (installId cuando lo conocemos): sin
+  // ella, dos bots homónimos en gateways distintos se resolvían contra la
+  // PRIMERA conexión que tuviera ese perfil («los bots del grupo no quedan
+  // bien enlazados»). Se emite SIEMPRE.
   final memberDescriptors = <Map<String, Object?>>[
     for (final m in members)
       {
         'name': m.conv.gatewayId,
+        'connectionId': m.installId ?? m.connectionId,
         if (m.installId != null) 'installId': m.installId,
         'connectionLabel': m.connectionLabel,
         if (m.conv.subtitle != null) 'display_name': m.conv.title,
         'title': m.conv.title,
       },
   ];
-
   // ── 1b. HOSTED ROOM: el gateway authorities la sala (driver de turnos).
   //      Sin esto, `groups.send`/`groups.log` fallan con 4112 (room not
   //      found) y el grupo es una etiqueta vacía: los mensajes no enrutan
-  //      ningún turno. Se intenta en el gateway del PRIMER miembro; si el
-  //      gateway no expone groups.* (versión antigua), el grupo sigue
-  //      existiendo como sala de espejo (sólo-lectura, como en Desktop).
-  final hostRuntime = runtimes[members.first.connectionId];
-  bool hosted = false;
-  if (hostRuntime != null) {
+  //      ningún turno. La sala vive en un gateway pero sus MIEMBROS pueden
+  //      estar en varios: se intenta en el dueño y en cada gateway con
+  //      miembros, en orden del usuario (el primer `groups.create` que
+  //      pase autoriza la sala; el backend exige ≥1 miembro local). Si
+  //      ninguno expone groups.* (versión antigua), la sala queda como
+  //      espejo de Desktop (sólo-lectura de turnos, como antes).
+  var hosted = false;
+  for (final hostConnId in {
+    members.first.connectionId,
+    for (final m in members) m.connectionId,
+  }) {
+    final hostRuntime = runtimes[hostConnId];
+    if (hostRuntime == null) continue;
     try {
-      final created = await RoomsClient(hostRuntime.gateway).create(
+      // `RoomMemberInput` real (`groups_bot_relay.py:76-84` +
+      // `hosted_room_service.create_room` + `validate_roster`): fila local =
+      // `{profile, handle, display_name}` SIN `target`; fila remota =
+      // `{profile, handle, target:{connection_id, profile}}`. `target` es un
+      // DICT con route — mandarlo como string o sin `profile` hacía que
+      // `groups.create` fallara SIEMPRE contra gateways reales → sala no
+      // hosted → `groups.send` 4112 → «no deja enviar». `name` se conserva
+      // para el espejo de Desktop.
+      await RoomsClient(hostRuntime.gateway).create(
         trimmed,
         [
           for (final m in members)
             {
               'name': m.conv.gatewayId,
+              'profile': m.conv.gatewayId,
+              'handle': m.conv.gatewayId,
+              'display_name': m.conv.title,
               if (m.installId != null) 'installId': m.installId,
-              'target': m.conv.gatewayId,
+              if (m.connectionId != hostConnId)
+                'target': {
+                  'connection_id': m.installId ?? m.connectionId,
+                  'profile': m.conv.gatewayId,
+                },
             },
         ],
         roomId: roomId,
       );
-      hosted = created != null;
+      hosted = true;
+      break;
     } catch (_) {
-      // Gateway sin groups.* o sala ya existente con otro contenido: la sala
-      // vive en el espejo; no se miente — la UI lo indica al abrir el chat.
+      // Este gateway no puede hospedar (sin groups.*, sin miembro local):
+      // se prueba el siguiente. Si ninguno puede, la sala vive en el
+      // espejo; no se miente — la UI lo indica al abrir el chat.
       hosted = false;
     }
   }
@@ -229,6 +259,7 @@ Future<GroupCreateOutcome> createGroup({
           for (final d in memberDescriptors)
             GroupMember(
               name: d['name'] as String?,
+              connectionId: d['connectionId'] as String?,
               installId: d['installId'] as String?,
               connectionLabel: d['connectionLabel'] as String?,
               displayName: d['display_name'] as String?,
@@ -250,6 +281,7 @@ Future<GroupCreateOutcome> createGroup({
                 for (final m in e.value.members)
                   {
                     if (m.name != null) 'name': m.name,
+                    if (m.connectionId != null) 'connectionId': m.connectionId,
                     if (m.installId != null) 'installId': m.installId,
                     if (m.connectionLabel != null)
                       'connectionLabel': m.connectionLabel,
@@ -317,6 +349,10 @@ Future<GroupCreateOutcome> createGroup({
           groupSyncRevision: const Value(1),
           groupSyncName: Value(trimmed),
           groupHosted: Value(hosted),
+          // Miembros para la UI inmediata: sin esto la fila creada aquí se
+          // ve sin caras hasta que el sync la rematerializa, y si el sync
+          // llega ANTES y esta escritura no lleva miembros, los borra.
+          groupMembersJson: Value(jsonEncode(memberDescriptors)),
           lastActivity: Value(DateTime.now()),
         ),
       );

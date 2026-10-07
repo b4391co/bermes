@@ -383,10 +383,6 @@ class HermesGatewayClient {
   static const _longTimeoutMethods = {'prompt.submit'};
 
   Future<Object?> _request(String method, {Map<String, Object?>? params}) {
-    final ws = _ws;
-    if (ws == null || _state != GatewayLinkState.ready) {
-      return Future.error(JsonRpcError(-32000, 'not connected'));
-    }
     final id = _nextRequestId++;
     final completer = Completer<Object?>();
     _pending[id] = completer;

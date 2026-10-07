@@ -39,6 +39,7 @@ class ChatInfoSheet extends StatefulWidget {
 
 class _ChatInfoSheetState extends State<ChatInfoSheet> {
   late Future<_InfoData> _future;
+  Map<String, String> _installIdToConn = const {};
 
   @override
   void initState() {
@@ -57,16 +58,36 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
     if (!conv.isGroup) return const _InfoData();
     final runtime = widget.runtime;
     final roomId = conv.groupRoomId;
-    // Iconos por perfil del backend: la identidad del miembro es el nombre de
-    // perfil (`RoomMember.profile`), NO el display name — dos bots llamados
-    // igual en gateways distintos son bots distintos (encargo §5).
+    // Iconos indexados por las claves con las que un miembro puede nombrar
+    // su conexión: id local, installId del backend y etiqueta del gateway
+    // (la que Desktop usa en `connectionLabel`). Dos bots homónimos en
+    // gateways distintos NO comparten clave: el mapa viejo indexaba sólo
+    // por perfil y aplastaba la cara del segundo.
     final rows = await (AppServices.db.select(
       AppServices.db.conversations,
     )..where((c) => c.kind.equals('bot'))).get();
-    final avatars = <String, db.Conversation>{
-      for (final r in rows) r.gatewayId: r,
+    final conns = await AppServices.db.select(AppServices.db.connections).get();
+    final installIdToConn = {
+      for (final c in conns)
+        if (c.installId != null) c.installId!: c.id,
     };
-    // Miembros persistidos del espejo (groupMembersJson, de syncGroupMirrors):
+    _installIdToConn = installIdToConn;
+    final avatars = <String, db.Conversation>{
+      for (final r in rows) ...{
+        r.connectionId: r,
+        for (final iid in installIdToConn.entries
+            .where((e) => e.value == r.connectionId)
+            .map((e) => e.key))
+          iid: r,
+        if (r.gatewayLabel != null) r.gatewayLabel!: r,
+      },
+      // Fallback sin conexión conocida: sólo si el perfil es único.
+      for (final r in rows)
+        if (rows.where((o) => o.gatewayId == r.gatewayId).length == 1)
+          r.gatewayId: r,
+    };
+    // Miembros del espejo: `target` del RoomMember no existe en el mirror
+    // (es clave de roster); `connectionLabel` nombra el origen.
     // sirven para salas sin roomId Y para salas cuyo roomId no hospeda ESTE
     // gateway (groups.state → 4112: la autoridad vive en otro gateway o en
     // Desktop). Primero se intenta groups.state en vivo; si falla o no hay
@@ -74,15 +95,21 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
     List<RoomMember> fromJson() => [
       for (final m in (jsonDecode(conv.groupMembersJson ?? '[]') as List)
           .whereType<Map>())
-        // GroupMember.toJson usa `name` (perfil del backend); RoomMember
-        // lo llama `profile` — la identidad del avatar/etiqueta.
+        // GroupMember del espejo usa `name` (perfil) + `connectionId`/
+        // `installId` (identidad del backend); RoomMember del gateway llama
+        // `member_id` a esa identidad. `target` en el espejo nombra el
+        // gateway de origen (connectionLabel), no un dict.
         RoomMember.fromJson({
           ...m.cast<String, Object?>(),
           'profile': m['name'],
+          'member_id': m['connectionId'] ?? m['installId'],
+          'target': m['connectionLabel'],
           'display_name':
               m['display_name'] ?? m['title'] ?? m['connectionLabel'],
         }),
     ];
+    // El origen de caras por conexión necesita el mapa dentro del estado:
+    _installIdToConn = installIdToConn;
     if (roomId == null) return _InfoData(members: fromJson(), botRows: avatars);
     if (runtime != null) {
       try {
@@ -170,10 +197,20 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
               itemBuilder: (context, i) {
                 final m = members[i];
                 final profile = m.profile ?? m.handle ?? '?';
-                final row = snap.data?.botRows[profile];
-                // Homónimos entre gateways (default en Claudio y en Boneca): el
-                // handle los distingue (default-boneca / default-claudio) y el
-                // connectionLabel nombra el gateway de origen.
+                // La cara se resuelve POR CONEXIÓN: `member_id` del espejo
+                // lleva el installId del backend; `RoomMember.target` del
+                // gateway es el nombre de origen. Sin conexión clara y con
+                // homónimos, mejor el avatar genérico del perfil que la cara
+                // equivocada del otro gateway.
+                final connId = m.memberId == null
+                    ? null
+                    : _installIdToConn[m.memberId!];
+                final row = connId != null
+                    ? snap.data?.botRows['$connId/bot/$profile']
+                    : snap.data?.botRows[profile];
+                // Homónimos entre gateways (default en Claudio y en Boneca):
+                // el handle los distingue (default-boneca / default-claudio)
+                // y el connectionLabel nombra el gateway de origen.
                 final duplicated =
                     members
                         .where((o) => (o.profile ?? o.handle) == profile)
@@ -269,7 +306,14 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
       // existente del MISMO gateway (Desktop agrupa por
       // connectionId::profile — inventar una conexión rompería el merge).
       final twin = data.members.cast<RoomMember?>().firstWhere((m) {
-        final row = data.botRows[m?.profile ?? m?.handle ?? '?'];
+        final connId = m?.memberId == null
+            ? null
+            : _installIdToConn[m!.memberId!] ?? m.memberId;
+        final row = connId == null
+            ? null
+            : data.botRows.values
+                  .where((r) => r.connectionId == connId)
+                  .firstOrNull;
         return row?.gatewayLabel == picked.gatewayLabel;
       }, orElse: () => null);
       return [
@@ -277,11 +321,9 @@ class _ChatInfoSheetState extends State<ChatInfoSheet> {
         {
           'name': picked.gatewayId,
           'handle': picked.gatewayId,
-          if (twin != null) ...{
-            'connectionId': twin.memberId ?? twin.profile ?? twin.handle ?? '',
-            'connectionLabel': picked.gatewayLabel,
-            'sourceScoped': true,
-          },
+          'connectionId': twin?.memberId ?? picked.connectionId,
+          'connectionLabel': picked.gatewayLabel,
+          if (twin != null) 'sourceScoped': true,
         },
       ];
     });

@@ -409,3 +409,73 @@ class RoomsClient {
     return out;
   }
 }
+
+/// Validador local del shape que MANDA [RoomsClient.create] — espejo exacto
+/// de `hosted_room_discussion.validate_roster` + `_validate_target` del
+/// backend real: dos miembros, `profile` NO duplicado, `target` con
+/// `connection_id` O `gateway_id`, y al menos un miembro LOCAL (perfil
+/// conocido por el gateway). 4000 = params inválidos (`ValidationError`),
+/// 4115 = sin miembro local (`RoomLocalMemberRequired`).
+({String? code, String? message})? validateRosterWire(
+  List<Map<String, Object?>> members,
+  Set<String> localProfiles,
+) {
+  if (members.length < 2) {
+    return (code: '4000', message: 'at least two members are required');
+  }
+  final ids = <String>{};
+  final profiles = <String>{};
+  var hasLocal = false;
+  for (final m in members) {
+    if (m.containsKey('member_id')) {
+      return (code: '4000', message: 'member_id is server-owned');
+    }
+    for (final k in const ['profile', 'handle', 'display_name']) {
+      final v = m[k];
+      if (v != null && (v is! String || v.trim().isEmpty)) {
+        return (code: '4000', message: '$k must be a non-empty string');
+      }
+    }
+    final profile = m['profile'] as String?;
+    final isLocal = profile != null && localProfiles.contains(profile);
+    final target = m['target'];
+    if (target == null) {
+      if (!isLocal) {
+        return (code: '4000', message: 'local members omit target');
+      }
+      ids.add('local:$profile');
+      hasLocal = true;
+    } else if (target is! Map) {
+      return (code: '4000', message: 'target must be an object');
+    } else {
+      for (final k in const ['connection_id', 'gateway_id']) {
+        final v = target[k];
+        if (v != null && (v is! String || v.trim().isEmpty)) {
+          return (code: '4000', message: 'target.$k must be non-empty');
+        }
+      }
+      final cid = target['connection_id'] as String?;
+      final gid = target['gateway_id'] as String?;
+      if (cid == null && gid == null) {
+        return (
+          code: '4000',
+          message: 'target must set connection_id or gateway_id',
+        );
+      }
+      ids.add('remote:${profile ?? ''}:${cid ?? ''}:${gid ?? ''}');
+    }
+    if (profile != null) {
+      if (!profiles.add(profile)) {
+        return (code: '4000', message: 'duplicate profile $profile');
+      }
+      if (isLocal) hasLocal = true;
+    }
+  }
+  if (ids.length != members.length) {
+    return (code: '4000', message: 'duplicate member identity');
+  }
+  if (!hasLocal) {
+    return (code: '4115', message: 'no member profile is local');
+  }
+  return null;
+}

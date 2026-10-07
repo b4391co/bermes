@@ -31,9 +31,12 @@ class TurnActivity {
 
   static void begin(String conversationId) {
     _lastEventAt[conversationId] = DateTime.now();
-    if (streaming.value.add(conversationId)) {
-      streaming.value = Set.of(streaming.value);
-    }
+    // El pulso del aura: todo evento vivo de turno re-publica el set (nueva
+    // instancia) para que un oyente montado TARDÍAMENTE (chat abierto en
+    // plena respuesta) se reconstruya y arranque. Se propaga por IDENTIDAD
+    // (ValueNotifier no compara contenido): los listeners deben ser baratos
+    // y no releer nada pesado en onChanged.
+    streaming.value = Set.of(streaming.value)..add(conversationId);
   }
 
   static void end(String conversationId) {

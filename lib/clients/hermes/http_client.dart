@@ -418,21 +418,34 @@ class HermesHttpClient {
       // La señal de éxito es la cookie AT: routes.py:413-417 sólo emite
       // Set-Cookie cuando la sesión se completó; el body `{ok,next}` no trae
       // tokens (routes.py:110-115 es del flujo nativo).
-      final setCookieCount =
-          r.headers[HttpHeaders.setCookieHeader]?.length ?? 0;
-      if (observeCookies(r)) {
+      // Almacenar SIEMPRE (legibles para el fallback legacy) y decidir:
+      final stored = observeCookies(r);
+      if (stored) {
         _bearer = null; // la cookie manda; un bearer viejo no debe reaparecer
         _log.info('login ok por cookie (proveedor $name)');
         return const AuthResult.ok();
       }
       // Diagnóstico honesto: 2xx sin `hermes_session_at` en el tarro. El
-      // detalle dice si el gate envió Set-Cookie y cuántas: si envió y el
-      // tarro no la guardó, el prefijo/atributos lo delatan; si no envió,
-      // el gate decidió no abrir sesión (p. ej. flujo nativo del broker).
+      // detalle dice qué cookies mandó el gate (NOMBRES, nunca valores):
+      // si envió otras (p. ej. `hermes_session` de gateways antiguos o el
+      // provider del broker), la sesión se ACEPTA igualmente; si no envió
+      // la que entendemos, el usuario ve exactamente qué devolvió.
+      final names = (r.headers[HttpHeaders.setCookieHeader] ?? const <String>[])
+          .map((h) => h.split(';').first.split('=').first.trim())
+          .where((n) => n.isNotEmpty)
+          .join(', ');
+      // Gateways antiguos (p. ej. 0.15.0) emiten `hermes_session` sin el
+      // sufijo _at/_rt: si el jar tiene CUALQUIER cookie cuyo nombre menciona
+      // `hermes_session`/`session`, damos la sesión por abierta.
+      final sessionish = _cookies?.hasLegacySession() ?? false;
+      if (sessionish) {
+        _log.info('login ok por cookie legacy (proveedor $name)');
+        return const AuthResult.ok();
+      }
       return AuthResult.fail(
         code == 401 ? AuthFailureCause.badCredentials : _causeOf(code),
         'password-login sin cookie de sesión (HTTP $code, '
-        'set-cookie: $setCookieCount)',
+        'cookies: ${names.isEmpty ? 'ninguna' : names})',
       );
     } on dio.DioException catch (e) {
       return AuthResult.fail(_causeFrom(e), e.message);
@@ -1094,24 +1107,34 @@ class CookieJarForConnection {
     return null;
   }
 
+  /// Gateways antiguos: la sesión viaja en cookies cuyo nombre no es
+  /// `hermes_session_at` (p. ej. `hermes_session` de 0.15.0 u otras
+  /// variantes). Cualquier cookie viva que mencione `session` se acepta
+  /// como sesión — el gate ya validó credenciales al emitirla (las
+  /// caducadas por Max-Age=0 nunca entran al tarro).
+  bool hasLegacySession() => _cookies.keys.any(
+    (n) =>
+        n.toLowerCase().contains('session') &&
+        (_cookies[n]?.isNotEmpty ?? false),
+  );
+
   String? header() {
     if (_cookies.isEmpty) return null;
     return _cookies.entries.map((e) => '${e.key}=${e.value}').join('; ');
   }
 
-  void clear() => _cookies.clear();
-}
+  /// Gateways antiguos: la sesión viaja en cookies cuyo nombre no es
+  /// `hermes_session_at` (p. ej. `hermes_session` de 0.15.0 u otras
+  /// variantes). Cualquier cookie viva que mencione `session` se acepta
+  /// como sesión — el gate ya validó credenciales al emitirla (las
+  /// caducadas por Max-Age=0 nunca entran al tarro).
+  List<String> legacySessionNames() => _cookies.keys
+      .where(
+        (n) =>
+            n.toLowerCase().contains('session') &&
+            (_cookies[n]?.isNotEmpty ?? false),
+      )
+      .toList();
 
-/// Utilidad para parsear JSON NDJSON del WS.
-Stream<Map<String, Object?>> parseNdjson(Stream<String> lines) async* {
-  await for (final line in lines) {
-    final trimmed = line.trim();
-    if (trimmed.isEmpty) continue;
-    try {
-      final decoded = jsonDecode(trimmed);
-      if (decoded is Map<String, Object?>) yield decoded;
-    } on FormatException {
-      // Frame inválido: ignorar y seguir (el backend manda NDJSON estricto).
-    }
-  }
+  void clear() => _cookies.clear();
 }

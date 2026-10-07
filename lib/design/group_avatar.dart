@@ -1,6 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+
+export '../features/conversations/group_rooms.dart' show GroupMember;
+
 import '../data/database/app_database.dart';
 import '../features/app_shell.dart' show BotAvatar;
 import '../features/conversations/group_rooms.dart';
@@ -41,7 +44,7 @@ class GroupAvatarStack extends StatelessWidget {
         total = raw.length;
         for (final m in raw) {
           final member = GroupMember.fromJson(m.cast<String, Object?>());
-          final face = _faceOf(member, faceByConvId, connIdByInstallId);
+          final face = faceFor(member, faceByConvId, connIdByInstallId);
           if (face != null) faces.add(face);
         }
       } catch (_) {
@@ -65,27 +68,48 @@ class GroupAvatarStack extends StatelessWidget {
   /// `name` de perfil (con los nombres previos) → `handle`. El índice de
   /// caras se construye con todas esas claves, así que un miembro del espejo
   /// enlaza con su bot aunque Desktop lo referencie por otra clave.
-  static GroupFace? _faceOf(
+  ///
+  /// Público para los tests de identidad: dos miembros con el MISMO `name`
+  /// de perfil en gateways distintos NO pueden resolver contra la misma cara.
+  static GroupFace? faceFor(
     GroupMember m,
     Map<String, GroupFace> faceByConvId,
     Map<String, String> connIdByInstallId,
   ) {
-    final connId =
-        m.installId != null ? connIdByInstallId[m.installId!] : null;
+    // `connectionId` del espejo puede ser el installId del backend (Pocket)
+    // o una clave propia de Desktop: se prueban BOTH routes antes de caer a
+    // claves ambiguas.
+    final connIds = <String>{
+      if (m.installId != null) ?connIdByInstallId[m.installId!],
+      if (m.connectionId != null) ?connIdByInstallId[m.connectionId!],
+      if (m.connectionId != null) m.connectionId!,
+    };
     for (final key in <String?>[
-      if (connId != null && m.name != null) '$connId/bot/${m.name}',
-      if (m.connectionId != null && m.name != null)
-        '${m.connectionId}/bot/${m.name}',
+      for (final c in connIds)
+        if (m.name != null) '$c/bot/${m.name}',
       for (final prev in m.previousNames)
-        if (connId != null) '$connId/bot/$prev',
-      if (m.handle != null && connId != null) '$connId/bot/${m.handle}',
-      m.name,
+        for (final c in connIds) '$c/bot/$prev',
+      for (final c in connIds)
+        if (m.handle != null) '$c/bot/${m.handle}',
+      // Ambiguo entre homónimos sólo SI el nombre de perfil es único en el
+      // índice: se resuelve abajo, no a ciegas por clave.
+      m.handle,
       m.installId,
       m.connectionId,
     ]) {
       if (key == null) continue;
       final f = faceByConvId[key];
       if (f != null) return f;
+    }
+    // Fallback sin identidad de conexión: si el perfil del miembro es ÚNICO
+    // en el índice (`<algo>/bot/<perfil>` aparece una sola vez), esa cara es
+    // la suya — no es adivinar. Con homónimos en dos gateways queda null:
+    // la fila muestra iniciales honestas antes que una cara equivocada.
+    if (m.name != null) {
+      final hits = faceByConvId.entries
+          .where((e) => e.key.endsWith('/bot/${m.name}'))
+          .toList();
+      if (hits.length == 1) return hits.first.value;
     }
     return null;
   }
@@ -248,11 +272,18 @@ class GroupFaceIndex {
       );
       final connId = c.connectionId;
       final profileName = c.avatarSeed?.split('/').last;
+      // Clave principal: `${connId}/bot/${perfil}` — la que usan las caras
+      // del chat (`GroupFaceIndex` alimentado con el id de fila) y los
+      // miembros del espejo vía `installId → connId`. En 0.1.48 el id de
+      // fila para bots sincronizados era `${connId}/bot/${gatewayId}`… sólo
+      // SI `gatewayId` era el perfil; para bots de espejo era otra cosa y
+      // las caras no resolvían. Se indexa POR CONEXIÓN, siempre.
       for (final key in <String?>[
         c.id,
-        c.gatewayId,
+        '$connId/bot/${c.gatewayId}',
         if (profileName != null && profileName.isNotEmpty)
           '$connId/bot/$profileName',
+        c.gatewayId,
       ]) {
         if (key == null || key.isEmpty) continue;
         out.putIfAbsent(key, () => face);
