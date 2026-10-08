@@ -35,13 +35,16 @@ void main() {
     expect(find.textContaining('3:07'), findsOneWidget);
   });
 
-  testWidgets('en streaming no se pinta la hora (sólo escribiendo…)',
+  testWidgets('en streaming no se pinta la hora ni el meta duplicado',
       (tester) async {
+    // 0.1.53: «escribiendo…» al pie de la burbuja ELIMINADO — el bocadillo
+    // «…» del avatar ya señala el turno (dos indicadores = «dos veces los
+    // ...» reportado). El contrato: sin hora, sin texto.
     await pump(
       tester,
       MessageBubble(message: msg(MessageRole.assistant, streaming: true)),
     );
     expect(find.textContaining('3:07'), findsNothing);
-    expect(find.text('escribiendo…'), findsOneWidget);
+    expect(find.text('escribiendo…'), findsNothing);
   });
 }

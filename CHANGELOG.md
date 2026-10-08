@@ -1,3 +1,31 @@
+## Release 0.1.54 (2026-10-08)
+
+### fix: MENCIONES en grupos de Desktop, «...» duplicado y avatares aplastados
+
+- **MENCIONES (la de verdad)**: los grupos de Hermes Desktop NO son salas del
+  gateway — el espejo `ui_meta['hermes-bots-groups']` es storage de cliente y
+  la orquestación de turnos vive EN Desktop (verificado en el código fuente:
+  `group-rounds.ts`/`group-turns.ts`, 0 llamadores a `groups.*`). Por eso un
+  `@Aura` desde Pocket no hacía NUNCA nada: no había nadie escuchando. Ahora
+  Pocket implementa el motor de turnos compatible: parse de menciones idéntico
+  (perfil, handle, título Bot Mode, display_name, formas colapsadas,
+  `@everyone`/`@all`), `prompt.submit` a la sesión canónica "Bot Chat" de cada
+  bot mencionado en SU gateway, con el prompt de sala byte-por-byte el de
+  Desktop (`buildGroupChatTurnPrompt`), y la respuesta streameada al timeline
+  del grupo con el autor correcto. Los marcos de control de los miembros se
+  re-etiquetan como Desktop (`member-quoted`). Alcance honesto v1: un mensaje
+  → un turno por bot mencionado; el round-robin multi-ronda de Desktop sigue
+  viviendo en Desktop.
+- **«...» duplicado**: en streaming había DOS indicadores (bocadillo de puntos
+  del avatar + «escribiendo…» al pie de la burbuja). El texto repetido
+  eliminado; el bocadillo del avatar se queda solo.
+- **Avatares aplastados**: ListTile limita el leading a 56 de alto — el aura
+  orbital (81 px) quedaba aplastada a 23 px. `OverflowBox` le devuelve su caja
+  real (fila de la lista y banda de Fijados, cuyo tile además pasa de 168 a
+  176 px).
+- Tests: +9 (parse de menciones, formato del prompt, líneas de transcript,
+  re-etiquetado de marcos); suite 115 verdes.
+
 ## Release 0.1.53 (2026-10-08)
 
 ### fix: caras de grupo — las 3 causas restantes (sonda IconosProbe) + diseño de la referencia

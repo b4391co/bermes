@@ -366,8 +366,11 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   }
 
   Widget _pinnedTile(BuildContext context, Conversation c) {
+    // El LiveAvatar pide `size + 2*pad` (pad = 34% del size). Con avatar 104
+    // son ~175 px; el tile a 168 lo CONSTREÑÍA y el avatar salía aplastado
+    // (ancho 98 vs alto 104).
     return SizedBox(
-      width: 168,
+      width: 176,
       child: InkWell(
         borderRadius: BorderRadius.circular(Hp.rMd),
         onTap: () {
@@ -1689,17 +1692,28 @@ class _LiveDot extends StatelessWidget {
       valueListenable: TurnActivity.streaming,
       builder: (context, live, _) {
         final working = live.contains(convId);
-        return Stack(
-          clipBehavior: Clip.none,
-          children: [
-            LiveAvatar(size: 48, active: working, float: false, child: child),
-            if (working)
-              const Positioned(
-                right: -4,
-                bottom: -2,
-                child: TypingBubble(size: 16),
-              ),
-          ],
+        // ListTile limita el leading a 56 de ALTO: el LiveAvatar (48+2*16≈81)
+        // quedaba aplastado (23 px de alto para un avatar de 48). OverflowBox
+        // le da su caja real y la órbita pinta fuera del leading sin clip
+        // (ListTile no recorta).
+        return OverflowBox(
+          minWidth: 0,
+          maxWidth: 84,
+          minHeight: 0,
+          maxHeight: 84,
+          alignment: Alignment.center,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              LiveAvatar(size: 48, active: working, float: false, child: child),
+              if (working)
+                const Positioned(
+                  right: -4,
+                  bottom: -2,
+                  child: TypingBubble(size: 16),
+                ),
+            ],
+          ),
         );
       },
     );

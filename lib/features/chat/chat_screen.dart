@@ -16,6 +16,7 @@ import '../../clients/hermes/connection_manager.dart';
 import '../../clients/hermes/gateway_client.dart';
 import 'media_cache.dart';
 import 'mention_menu.dart';
+import '../../clients/hermes/group_turn_engine.dart';
 import 'voice_recorder.dart';
 import '../screen/screen_controller.dart';
 import '../screen/screen_view.dart';
@@ -1078,8 +1079,179 @@ class _ChatScreenState extends State<ChatScreen> {
       return const [];
     }
   }
+  /// Turnos de miembros en vuelo (grupos espejo): controller por bot
+  /// mencionado; sus eventos alimentan la línea viva del grupo.
+  final List<GroupMemberTurn> _memberTurns = [];
+  final Set<String> _memberTurnSubs = <String>{};
+
+  /// Envío en grupo ESPEJO (clave `name:`, sin room hospedado): motor de
+  /// turnos compatible con Desktop — parse de menciones + `prompt.submit` a
+  /// la sesión canónica de cada bot mencionado en SU gateway (ver
+  /// group_turn_engine.dart: Desktop orquesta los turnos en el cliente).
+  Future<void> _sendMirrorGroup(String text) async {
+    final conv = _conversation;
+    if (conv == null) return;
+    // Miembros del espejo → (perfil, título, conexión local resuelta).
+    final raw = conv.groupMembersJson;
+    final members = <({String profile, String title, String connectionId})>[];
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        for (final m in (jsonDecode(raw) as List).whereType<Map>()) {
+          final profile = (m['name'] ?? m['handle'] ?? '') as String;
+          if (profile.isEmpty) continue;
+          final title = ((m['title'] ?? m['display_name'] ?? profile) as String)
+              .trim();
+          // La conexión local: installId del gateway (traducida) o la
+          // connectionId del descriptor (Pocket la escribe local).
+          final install = m['installId'] as String?;
+          final connId = (install != null && _installIdToConn[install] != null)
+              ? _installIdToConn[install]!
+              : ((m['connectionId'] ?? '') as String);
+          if (connId.isEmpty) continue;
+          members.add((profile: profile, title: title, connectionId: connId));
+        }
+      } catch (_) {
+        // JSON corrupto: sin miembros no hay a quién entregar.
+      }
+    }
+    if (members.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _hasError = true;
+        });
+        _input.text = text;
+        _input.selection = TextSelection.collapsed(offset: text.length);
+      }
+      return;
+    }
+    setState(() {
+      _sending = true;
+      _hasError = false;
+    });
+    _input.clear();
+    _flushDraft();
+    // Fila del usuario YA en la línea viva (el turno es cliente-dirigido;
+    // no hay room que confirme).
+    final now = DateTime.now();
+    _live = [
+      ..._live,
+      ChatMessage(
+        id: 'mirror-${now.microsecondsSinceEpoch}',
+        path: EntityRefPath(
+          connectionId: conv.connectionId,
+          kind: EntityKind.group,
+          gatewayId: conv.gatewayId,
+        ),
+        role: MessageRole.user,
+        text: text,
+        sendState: SendState.sent,
+        origin: MessageOrigin.live,
+        timestamp: now,
+        authorName: 'Tú',
+      ),
+    ];
+    _roomController.add(_live);
+    // Delta para el prompt: la línea nueva del usuario + cola previa corta.
+    final delta = <String>[
+      for (final m in _live.take(6))
+        GroupTurnEngine.formatLine(
+          text: m.text,
+          author: m.authorName ?? conv.title,
+          isUser: m.role == MessageRole.user,
+          isSelf: false,
+        ),
+    ];
+    try {
+      final turns = await startMentionTurns(
+        groupName: conv.title,
+        userText: text,
+        members: members,
+        transcriptLines: delta,
+        connections: AppServices.connections,
+        onTurn: (turn) {
+          if (_memberTurnSubs.contains(turn.profile)) return;
+          _memberTurnSubs.add(turn.profile);
+          _memberTurns.add(turn);
+          turn.controller.stream.listen((msgs) {
+            if (!mounted) return;
+            // Añade a la línea viva SOLO los mensajes del miembro (excluye
+            // el prompt propio que el controller mete como user row).
+            for (final m in msgs) {
+              if (m.role != MessageRole.assistant) continue;
+              final exists = _live.any(
+                (x) => x.id == '${turn.connectionId}/${turn.profile}/${m.id}',
+              );
+              if (exists) continue;
+              _live = [
+                ..._live,
+                ChatMessage(
+                  id: '${turn.connectionId}/${turn.profile}/${m.id}',
+                  path: m.path,
+                  role: m.role,
+                  authorName: turn.title.isEmpty ? turn.profile : turn.title,
+                  authorConnectionId: turn.connectionId,
+                  text: m.text,
+                  reasoning: m.reasoning,
+                  timestamp: m.timestamp,
+                  sendState: m.sendState,
+                  origin: MessageOrigin.live,
+                  tools: m.tools,
+                  attachments: m.attachments,
+                  streaming: m.streaming,
+                ),
+              ];
+            }
+            _roomController.add(_live);
+          });
+        },
+      );
+      if (turns.isEmpty) {
+        // Nadie al que entregar (sin runtime): marca error honesto.
+        if (mounted) {
+          setState(() {
+            _sending = false;
+            _hasError = true;
+          });
+        }
+        return;
+      }
+      TurnActivity.begin(conv.id);
+      _armGroupWatchdog(conv.id);
+      if (mounted) setState(() => _sending = false);
+    } on GroupTurnException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message)),
+        );
+        setState(() {
+          _sending = false;
+          _hasError = true;
+        });
+        _input.text = text;
+        _input.selection = TextSelection.collapsed(offset: text.length);
+      }
+    } catch (e) {
+      _log.warning('mirror group send failed', e);
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _hasError = true;
+        });
+        _input.text = text;
+        _input.selection = TextSelection.collapsed(offset: text.length);
+      }
+    }
+  }
+
   Future<void> _sendGroup(String text) async {
     final conv = _conversation;
+    // Grupo espejo (clave `name:`, sin room hospedado): el gateway NO lo
+    // conoce (groups.send daría 4112 — verificado contra 0.21.5 real). El
+    // turno lo dirige este cliente, igual que hace Desktop.
+    if (conv != null && conv.kind == 'group' && (conv.groupRoomId == null || conv.groupRoomId!.isEmpty)) {
+      return _sendMirrorGroup(text);
+    }
     var runtime = _runtime;
     final roomId = conv?.groupRoomId ?? conv?.gatewayId;
     // Sala multi-gateway: la AUTORIZA el gateway del primer miembro (puede

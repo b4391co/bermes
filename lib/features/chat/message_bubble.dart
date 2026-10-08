@@ -206,15 +206,9 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _meta(BuildContext context, Color fg) {
-    if (message.streaming) {
-      return Padding(
-        padding: const EdgeInsets.only(top: Hp.s1),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [Text('escribiendo…', style: _metaStyle(context, fg))],
-        ),
-      );
-    }
+    // «escribiendo…» duplicado ELIMINADO (0.1.53): el bocadillo «…» del
+    // avatar (LiveAvatar active) ya señala el turno en vuelo; el texto
+    // repetido al pie de la burbuja leía como dos indicadores a la vez.
     final state = message.sendState;
     if (!_isUser || state == SendState.sent) return const SizedBox.shrink();
     final failed = state == SendState.failed;
