@@ -1,3 +1,18 @@
+## Release 0.1.55 (2026-10-08)
+
+### fix: el `@` ofrece bots en TODOS los chats y entrega turnos cruzados
+
+- **`@` en chat 1:1**: el autocompletado sólo cargaba candidatos en grupos —
+  en un chat con un bot, teclear `@` no mostraba NADA. Ahora el roster
+  completo de bots (todas las conexiones) está disponible como candidato en
+  cualquier chat; en grupos se fusionan miembros de la sala + roster sin
+  duplicar.
+- **Mencionar a OTRO bot en un chat 1:1 entrega el turno**: el mensaje sigue
+  llegando al bot del chat (su sesión es el transporte) y, además, cada bot
+  mencionado distinto recibe su turno por el mismo motor de grupos (prompt
+  de sala de Desktop) y su respuesta se streamea en este chat con su autor.
+- Suite: 115 verdes.
+
 ## Release 0.1.54 (2026-10-08)
 
 ### fix: MENCIONES en grupos de Desktop, «...» duplicado y avatares aplastados

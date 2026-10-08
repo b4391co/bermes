@@ -186,6 +186,7 @@ class _ChatScreenState extends State<ChatScreen> {
       // resolvían: el icono de la cabecera salía en iniciales.
       _groupFaces = GroupFaceIndex.of(botRows, installIdByConn);
       _installIdToConn = installIdByConn;
+      _loadRosterCandidates();
     });
     setState(() => _conversation = row);
     _connectRuntime();
@@ -287,8 +288,21 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  /// Miembros de la sala para el autocompletado `@` (sólo grupos).
+  /// Miembros de la sala para el autocompletado `@` (grupos) — los bots del
+  /// roster van aparte y están disponibles en TODOS los chats (el `@` de un
+  /// chat 1:1 también debe ofrecer bots; en grupos se fusionan ambas fuentes).
   List<MentionCandidate> _mentionCandidates = const [];
+
+  /// Bots del roster (todas las conexiones): candidatos `@` en cualquier
+  /// chat. Fuente: filas kind='bot' ya sincronizadas (título + avatar).
+  List<MentionCandidate> _rosterCandidates = const [];
+
+  void _loadRosterCandidates() {
+    _rosterCandidates = [
+      for (final e in _botAvatars.entries)
+        MentionCandidate(name: e.key, avatarMeta: e.value.$1, avatarUrl: e.value.$2),
+    ];
+  }
 
   void _startRoomLog() {
     final conv = _conversation;
@@ -947,6 +961,11 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       await controller.send(text, attachments: attachments);
       if (mounted) setState(() => _sending = false);
+      // `@` a OTRO bot dentro de un chat 1:1: el turno va al bot mencionado
+      // (misma entrega que en grupos — group_turn_engine) y su respuesta se
+      // streamea EN ESTE chat. El bot propio ya recibió el texto completo
+      // arriba (su sesión es el transporte 1:1).
+      await _startCrossBotMentions(text, chatConv: conv);
     } on TimeoutException {
       // El turno SIGUE VIVO: el timeout es del ACK (prompt.submit contesta al
       // cierre del turno, no en la aceptación). No es un envío perdido: no se
@@ -1083,6 +1102,105 @@ class _ChatScreenState extends State<ChatScreen> {
   /// mencionado; sus eventos alimentan la línea viva del grupo.
   final List<GroupMemberTurn> _memberTurns = [];
   final Set<String> _memberTurnSubs = <String>{};
+
+  /// Menciones a bots DISTINTOS del actual en un chat 1:1: entrega el turno
+  /// a cada bot mencionado vía group_turn_engine y pinta su respuesta aquí.
+  /// Sin runtime para el bot → silencio honesto (snackbar).
+  Future<void> _startCrossBotMentions(
+    String text, {
+    db.Conversation? chatConv,
+  }) async {
+    if (chatConv == null || chatConv.kind != 'bot') return;
+    if (_rosterCandidates.isEmpty) return;
+    final current = chatConv.title;
+    final parsed = GroupTurnEngine.parseMentions(text, [
+      for (final c in _rosterCandidates) (profile: c.name, titles: [c.name]),
+    ]);
+    if (parsed.mentioned.isEmpty && !parsed.everyone) return;
+    final others = [
+      for (final c in _rosterCandidates)
+        if (c.name != current) c,
+    ];
+    if (others.isEmpty) return;
+    // Resuelve (perfil, conexión) de cada bot del roster por su fila kind=bot
+    // (título → fila): profile = gatewayId, conexión = connectionId.
+    final db = AppServices.db;
+    final rows = await (db.select(
+      db.conversations,
+    )..where((c) => c.kind.equals('bot'))).get();
+    final byTitle = {for (final r in rows) r.title: r};
+    final members = <({String profile, String title, String connectionId})>[];
+    for (final c in others) {
+      final r = byTitle[c.name];
+      if (r == null) continue;
+      members.add((
+        profile: r.gatewayId,
+        title: r.title,
+        connectionId: r.connectionId,
+      ));
+    }
+    if (members.isEmpty) return;
+    final delta = <String>[
+      GroupTurnEngine.formatLine(
+        text: text,
+        author: 'Tú',
+        isUser: true,
+        isSelf: false,
+      ),
+    ];
+    try {
+      await startMentionTurns(
+        groupName: chatConv.title,
+        userText: text,
+        members: members,
+        transcriptLines: delta,
+        connections: AppServices.connections,
+        onTurn: (turn) {
+          if (_memberTurnSubs.contains('${turn.connectionId}/${turn.profile}')) {
+            return;
+          }
+          _memberTurnSubs.add('${turn.connectionId}/${turn.profile}');
+          _memberTurns.add(turn);
+          turn.controller.stream.listen((msgs) {
+            if (!mounted) return;
+            for (final m in msgs) {
+              if (m.role != MessageRole.assistant) continue;
+              final tag = '${turn.connectionId}/${turn.profile}/${m.id}';
+              if (_live.any((x) => x.id == tag)) continue;
+              _live = [
+                ..._live,
+                ChatMessage(
+                  id: tag,
+                  path: m.path,
+                  role: m.role,
+                  authorName: turn.title.isEmpty ? turn.profile : turn.title,
+                  authorConnectionId: turn.connectionId,
+                  text: m.text,
+                  reasoning: m.reasoning,
+                  timestamp: m.timestamp,
+                  sendState: m.sendState,
+                  origin: MessageOrigin.live,
+                  tools: m.tools,
+                  attachments: m.attachments,
+                  streaming: m.streaming,
+                ),
+              ];
+            }
+            _roomController.add(_live);
+          });
+        },
+      );
+      TurnActivity.begin(chatConv.id);
+    } on GroupTurnException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } catch (e) {
+      _log.warning('cross-bot mention failed', e);
+    }
+  }
 
   /// Envío en grupo ESPEJO (clave `name:`, sin room hospedado): motor de
   /// turnos compatible con Desktop — parse de menciones + `prompt.submit` a
@@ -2299,7 +2417,14 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     final query = _input.text.substring(start + 1, caret).toLowerCase();
-    final shown = _mentionCandidates
+    // Fusión sin duplicados: miembros de la sala primero, luego el resto del
+    // roster (mismo título = un candidato).
+    final seen = <String>{};
+    final all = [
+      ..._mentionCandidates,
+      ..._rosterCandidates,
+    ].where((m) => seen.add(m.name)).toList(growable: false);
+    final shown = all
         .where((m) => m.name.toLowerCase().contains(query))
         .toList(growable: false);
     if (shown.isEmpty) {
