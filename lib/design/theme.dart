@@ -116,9 +116,8 @@ ThemeData buildLightTheme() {
       style: FilledButton.styleFrom(
         backgroundColor: accent,
         foregroundColor: Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(Hp.rMd),
-        ),
+        // Pill (referencia Hermes-Mobile-App: radius 999px en primary).
+        shape: const StadiumBorder(),
         padding: const EdgeInsets.symmetric(horizontal: Hp.s5, vertical: Hp.s3),
         textStyle: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
       ),
@@ -272,9 +271,8 @@ ThemeData buildDarkTheme() {
       style: FilledButton.styleFrom(
         backgroundColor: ink,
         foregroundColor: const Color(0xFF141414),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(Hp.rMd),
-        ),
+        // Pill (referencia Hermes-Mobile-App: radius 999px en primary).
+        shape: const StadiumBorder(),
         padding: const EdgeInsets.symmetric(horizontal: Hp.s5, vertical: Hp.s3),
         textStyle: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
       ),

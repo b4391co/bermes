@@ -642,6 +642,15 @@ class HermesHttpClient {
     return data;
   }
 
+  /// Crea un perfil (bot) nuevo en el gateway: `POST /api/profiles`
+  /// (web_routers/profiles.py — verificado por sonda 2026-10-08: 200
+  /// `{ok, name, path}`; el borrado es `DELETE /api/profiles/{name}`).
+  /// El wizard de la lista usa esto; NUNCA toca perfiles existentes.
+  Future<Map<String, Object?>?> createProfile(String name) async {
+    final r = await postJson('/api/profiles', body: {'name': name});
+    return r is Map ? Map<String, Object?>.from(r) : null;
+  }
+
   /// PUT JSON autenticado. `PUT /api/profiles/{name}/model`
   /// (hermes_cli/web_routers/profiles.py:1040-1051, body {provider, model}).
   Future<dynamic> putJson(String path, {Map<String, Object?>? body}) async {

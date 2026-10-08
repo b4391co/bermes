@@ -82,6 +82,11 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       appBar: AppBar(
         title: const Text('Chats'),
         actions: [
+          // Dot de estado aggregate de los gateways (referencia
+          // Hermes-Mobile-App: dot con glow junto al título). Verde = todos
+          // ready; ámbar pulsante = alguno conectando/reconectando; rojo =
+          // alguno caído/expirado. Toca para abrir el editor de conexiones.
+          const _ConnectionDot(),
           IconButton(
             tooltip: 'Añadir conexión',
             icon: const Icon(Icons.add_rounded),
@@ -113,12 +118,24 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                       Navigator.of(sheetCtx).pop('group');
                     },
                   ),
+                  ListTile(
+                    leading: const Icon(Icons.smart_toy_outlined),
+                    title: const Text('Nuevo bot'),
+                    subtitle: const Text(
+                      'Crea un perfil nuevo en uno de tus gateways',
+                      maxLines: 1,
+                    ),
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop('bot');
+                    },
+                  ),
                 ],
               ),
             ),
           ).then((action) {
             if (action == 'chat') _newConversation();
             if (action == 'group') _newGroup();
+            if (action == 'bot') _newBot();
           });
         },
         child: const Icon(Icons.add_comment_outlined),
@@ -862,6 +879,51 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
   ///
   /// Si el bot ya existe en la DB reabre esa fila; si no, crea la fila del
   /// bot canónico (sesión con título exacto Bot Chat, según hermes-map §4).
+  /// Crea un perfil (bot) nuevo en un gateway (POST /api/profiles, verificado
+  /// por sonda contra 0.21.5: `{ok,name,path}`; DELETE limpia). El sync
+  /// rematerializa la fila; aquí sólo se abre cuando ya existe.
+  Future<void> _newBot() async {
+    final db = AppServices.db;
+    final connections = await (db.select(
+      db.connections,
+    )..where((c) => c.enabled.equals(true))).get();
+    if (!mounted) return;
+    if (connections.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Añade primero una conexión.')),
+      );
+      return;
+    }
+    final res = await showDialog<({String connId, String name})>(
+      context: context,
+      builder: (ctx) => _NewBotDialog(connections: connections),
+    );
+    if (res == null || !mounted) return;
+    final conn = connections.firstWhere((c) => c.id == res.connId);
+    try {
+      final runtime = AppServices.connections.runtimeFor(conn.id);
+      if (runtime == null) {
+        throw StateError(
+          'la conexión «${conn.name}» no está conectada ahora mismo',
+        );
+      }
+      final out = await runtime.http.createProfile(res.name);
+      if (out == null || out['ok'] != true) {
+        throw StateError('el gateway rechazó la creación (${out?['error'] ?? 'sin respuesta'})');
+      }
+      await AppServices.connections.resyncOne(conn.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Bot «${res.name}» creado en ${conn.name}.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo crear el bot: $e')),
+      );
+    }
+  }
+
   Future<void> _newConversation() async {
     final db = AppServices.db;
     final connections = await (db.select(
@@ -1293,6 +1355,236 @@ class _NewGroupSheetState extends State<_NewGroupSheet> {
   }
 }
 
+
+/// Diálogo minimalista de creación de bot (nombre del perfil + gateway
+/// destino). El nombre es la IDENTIDAD del backend: se valida el patrón que
+/// el gateway acepta (minúsculas/dígitos, guiones) y se avisa de homónimos.
+class _NewBotDialog extends StatefulWidget {
+  const _NewBotDialog({required this.connections});
+
+  final List<Connection> connections;
+
+  @override
+  State<_NewBotDialog> createState() => _NewBotDialogState();
+}
+
+class _NewBotDialogState extends State<_NewBotDialog> {
+  final _name = TextEditingController();
+  String? _error;
+
+  static final _re = RegExp(r'^[a-z0-9][a-z0-9_-]{0,62}$');
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: const Text('Nuevo bot'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          DropdownMenu<String>(
+            initialSelection: widget.connections.first.id,
+            label: const Text('Gateway'),
+            dropdownMenuEntries: [
+              for (final c in widget.connections)
+                DropdownMenuEntry(value: c.id, label: c.name),
+            ],
+            onSelected: (v) => setState(() => _gw = v),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _name,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: 'Nombre del perfil',
+              helperText: 'minúsculas, dígitos, - y _ (p. ej. traductor)',
+              errorText: _error,
+            ),
+            onChanged: (_) => setState(() => _error = null),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Se crea un perfil NUEVO en ese gateway (no toca los existentes).',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () async {
+            final n = _name.text.trim();
+            if (!_re.hasMatch(n)) {
+              setState(() => _error = 'nombre no válido');
+              return;
+            }
+            final connId = _gw ?? widget.connections.first.id;
+            // Homónimo conocido: avisar (dos bots "default" en el MISMO
+            // gateway son el mismo perfil para el backend).
+            final dup = AppServices.db
+                .select(AppServices.db.conversations)
+                ..where(
+                  (t) =>
+                      t.connectionId.equals(connId) &
+                      t.gatewayId.equals(n) &
+                      t.kind.equals('bot'),
+                );
+            if (!context.mounted) return;
+            if ((await dup.get()).isNotEmpty) {
+              setState(() => _error = 'ese gateway ya tiene un bot con ese nombre');
+              return;
+            }
+            Navigator.of(context).pop((connId: connId, name: n));
+          },
+          child: const Text('Crear'),
+        ),
+      ],
+    );
+  }
+
+  String? _gw;
+}
+
+/// Dot pulsante del estado global de gateways (AppBar). Escucha el stream de
+/// runtimes del [ConnectionManager] y el stateStream de cada gateway.
+class _ConnectionDot extends StatefulWidget {
+  const _ConnectionDot();
+
+  @override
+  State<_ConnectionDot> createState() => _ConnectionDotState();
+}
+
+class _ConnectionDotState extends State<_ConnectionDot> {
+  StreamSubscription<Map<String, dynamic>>? _sub;
+  final List<StreamSubscription<GatewayLinkState>> _gwSubs = [];
+  final Map<String, GatewayLinkState> _states = {};
+
+  @override
+  void initState() {
+    super.initState();
+    final mgr = AppServices.connections;
+    _bind(mgr.runtimes);
+    _sub = mgr.stream.listen((runtimes) {
+      _bind(runtimes);
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _bind(Map<String, dynamic> runtimes) {
+    for (final s in _gwSubs) {
+      s.cancel();
+    }
+    _gwSubs.clear();
+    _states.clear();
+    for (final entry in runtimes.entries) {
+      final gw = entry.value.gateway as dynamic;
+      _states[entry.key] = gw.state as GatewayLinkState;
+      _gwSubs.add(
+        (gw.stateStream as Stream<GatewayLinkState>).listen((st) {
+          _states[entry.key] = st;
+          if (mounted) setState(() {});
+        }),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    for (final s in _gwSubs) {
+      s.cancel();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final values = _states.values;
+    final (color, label, pulse) = switch (values) {
+      _ when values.isEmpty => (
+        cs.onSurfaceVariant,
+        'sin conexiones activas',
+        false,
+      ),
+      _ when values.any((s) => s == GatewayLinkState.authExpired) => (
+        Hp.error,
+        'sesión caducada en algún gateway',
+        false,
+      ),
+      _ when values.any((s) => s == GatewayLinkState.error) ||
+          values.any((s) => s == GatewayLinkState.disconnected) =>
+        (Hp.offline, 'algún gateway caído', false),
+      _ when values.any(
+            (s) =>
+                s == GatewayLinkState.connecting ||
+                s == GatewayLinkState.reconnecting,
+          ) =>
+        (const Color(0xFFE0A100), 'conectando…', true),
+      _ => (const Color(0xFF3ECF8E), 'todos los gateways conectados', false),
+    };
+    final dot = Container(
+      width: 9,
+      height: 9,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(color: color.withValues(alpha: 0.55), blurRadius: 6),
+        ],
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(right: Hp.s2),
+      child: Tooltip(
+        message: label,
+        child: pulse
+            ? _Pulse(child: dot)
+            : Center(child: dot),
+      ),
+    );
+  }
+}
+
+/// Opacidad 1→.35→1 continuo (el «glow pulsante» de la referencia).
+class _Pulse extends StatefulWidget {
+  const _Pulse({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_Pulse> createState() => _PulseState();
+}
+
+class _PulseState extends State<_Pulse> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(opacity: Tween(begin: 0.35, end: 1.0).animate(_c), child: widget.child);
+  }
+}
 
 /// Bocadillo «…» con los tres puntos parpadeando (los del chat de
 /// Hermes Desktop): diminuto, al lado del avatar en la fila de la lista.
