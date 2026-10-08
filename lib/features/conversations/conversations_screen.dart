@@ -365,6 +365,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                             connIdByInstallId: _installIdToConn,
                             fallbackTitle: c.title,
                             size: 104,
+                            preferredConnectionId: c.connectionId,
                           )
                         : BotAvatar(
                             seed: c.avatarSeed ?? c.id,
@@ -583,22 +584,39 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     final showGateway = _connectionCount > 1 && c.gatewayLabel != null;
     return ListTile(
       // Densidad de la referencia: filas compactas (~64dp), no las altas
-      // por defecto de ListTile.
-      leading: c.isGroup
-          ? GroupAvatarStack.fromMembersJson(
-              membersJson: c.groupMembersJson,
-              faceByConvId: _botFaces,
-              connIdByInstallId: _installIdToConn,
-              fallbackTitle: c.title,
-              size: 42,
-            )
-          : BotAvatar(
-              seed: c.avatarSeed ?? c.id,
-              label: c.title,
-              size: 42,
-              imageUrl: c.avatarUrl,
-              avatarMetaJson: c.botAvatarMeta,
-            ),
+      // por defecto de ListTile. Hermes-Mobile-App separa las filas con una
+      // hairline (border-bottom rgba blanca .055): mismo efecto en claro/
+      // oscuro con outlineVariant a media alpha.
+      tileColor: Colors.transparent,
+      shape: Border(
+        bottom: BorderSide(
+          color: cs.outlineVariant.withValues(alpha: 0.35),
+          width: 0.6,
+        ),
+      ),
+      // Aura + «…» TAMBIÉN en la fila normal (petición explícita: «todos
+      // los bots que estén funcionando tendrán el bocadillo y el aura...
+      // en la lista se mira»). En 0.1.51 sólo la banda de Fijados escuchaba
+      // TurnActivity. ValueListenable barato: la fila entera no se rellena
+      // con cada evento — sólo el avatar.
+      leading: _LiveDot(
+        convId: c.id,
+        child: c.isGroup
+            ? GroupAvatarStack.fromMembersJson(
+                membersJson: c.groupMembersJson,
+                faceByConvId: _botFaces,
+                connIdByInstallId: _installIdToConn,
+                fallbackTitle: c.title,
+                size: 48,
+              )
+            : BotAvatar(
+                seed: c.avatarSeed ?? c.id,
+                label: c.title,
+                size: 48,
+                imageUrl: c.avatarUrl,
+                avatarMetaJson: c.botAvatarMeta,
+              ),
+      ),
       title: Row(
         children: [
           Expanded(
@@ -1271,6 +1289,104 @@ class _NewGroupSheetState extends State<_NewGroupSheet> {
           ],
         ),
       ),
+    );
+  }
+}
+
+
+/// Bocadillo «…» con los tres puntos parpadeando (los del chat de
+/// Hermes Desktop): diminuto, al lado del avatar en la fila de la lista.
+class TypingBubble extends StatefulWidget {
+  const TypingBubble({super.key, this.size = 16});
+
+  final double size;
+
+  @override
+  State<TypingBubble> createState() => _TypingBubbleState();
+}
+
+class _TypingBubbleState extends State<TypingBubble>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: cs.outlineVariant, width: 0.6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < 3; i++)
+                Container(
+                  width: 2.6,
+                  height: 2.6,
+                  margin: EdgeInsets.only(left: i == 0 ? 0 : 1.6),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: cs.onSurfaceVariant.withValues(
+                      alpha: 0.35 + 0.65 * _pulse(_c.value, i),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Onda 0..1 escalonada por índice de punto.
+  static double _pulse(double t, int i) {
+    final x = (t * 2 + i * 0.25) % 1.0;
+    return x < 0.5 ? (x * 2) : (2 - x * 2);
+  }
+}
+
+/// Aura orbital + bocadillo «…» para la fila de la lista: escucha
+/// [TurnActivity.streaming] y sólo envuelve el avatar (no la fila).
+class _LiveDot extends StatelessWidget {
+  const _LiveDot({required this.convId, required this.child});
+
+  final String convId;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<Set<String>>(
+      valueListenable: TurnActivity.streaming,
+      builder: (context, live, _) {
+        final working = live.contains(convId);
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            LiveAvatar(size: 48, active: working, float: false, child: child),
+            if (working)
+              const Positioned(
+                right: -4,
+                bottom: -2,
+                child: TypingBubble(size: 16),
+              ),
+          ],
+        );
+      },
     );
   }
 }

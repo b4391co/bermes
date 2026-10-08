@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 /// Registro en memoria de conversaciones con turno EN VIVO (el bot está
@@ -29,8 +31,23 @@ class TurnActivity {
   static DateTime? lastEvent(String conversationId) =>
       _lastEventAt[conversationId];
 
+  /// Watchdog GLOBAL por conversación: si en 4 min no llega ningún evento
+  /// vivo (delta/thinking/tool/status/room.event) el turno se considera
+  /// terminado aunque el chat esté CERRADO. Vive aquí, no en el
+  /// ChatSessionController, porque su anterior dueño se destruye al salir
+  /// del chat y mataba el watchdog (y con él el aura «de inicio a fin»).
+  static final Map<String, Timer> _watchdogs = {};
+
+  static void _armWatchdog(String conversationId) {
+    _watchdogs[conversationId]?.cancel();
+    _watchdogs[conversationId] = Timer(const Duration(minutes: 4), () {
+      end(conversationId);
+    });
+  }
+
   static void begin(String conversationId) {
     _lastEventAt[conversationId] = DateTime.now();
+    _armWatchdog(conversationId);
     // El pulso del aura: todo evento vivo de turno re-publica el set (nueva
     // instancia) para que un oyente montado TARDÍAMENTE (chat abierto en
     // plena respuesta) se reconstruya y arranque. Se propaga por IDENTIDAD
@@ -40,6 +57,7 @@ class TurnActivity {
   }
 
   static void end(String conversationId) {
+    _watchdogs.remove(conversationId)?.cancel();
     _lastEventAt.remove(conversationId);
     if (streaming.value.remove(conversationId)) {
       streaming.value = Set.of(streaming.value);

@@ -1104,6 +1104,16 @@ class CookieJarForConnection {
       final value = _cookies['${variant}hermes_session_at'];
       if (value != null && value.isNotEmpty) return variant;
     }
+    // Despliegues con prefijo de nombre (p. ej. 9113 emite
+    // `hermes_richard_session_at/_rt/_provider`): la cookie de acceso es
+    // exactamente `<prefijo>hermes_session_at` — se acepta como sesión
+    // propia, no como legacy.
+    for (final name in _cookies.keys) {
+      if (name.endsWith('hermes_session_at') &&
+          (_cookies[name]?.isNotEmpty ?? false)) {
+        return name.substring(0, name.length - 'hermes_session_at'.length);
+      }
+    }
     return null;
   }
 

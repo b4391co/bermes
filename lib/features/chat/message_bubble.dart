@@ -191,9 +191,13 @@ class MessageBubble extends StatelessWidget {
             ),
             child: Text(
               _formatTime(message.timestamp!),
+              // Legibilidad primero: contraste pleno (onSurface con alpha
+              // moderado) y 12pt — «no veo bien la hora» venía de un gris
+              // demasiado claro a 11pt sobre el fondo del chat.
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: cs.onSurfaceVariant,
-                fontSize: 11,
+                color: cs.onSurface.withValues(alpha: 0.62),
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),

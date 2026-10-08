@@ -59,4 +59,24 @@ void main() {
       reason: 'dos bots "default": repartir el primero sería adivinar',
     );
   });
+
+  test('homónimos en 4 gateways: la conexión de la fila desambigua', () {
+    // `default` existe en todas las conexiones; el grupo vive en la c9119.
+    final faces = <String, GroupFace>{
+      for (final c in ['c9110', 'c9112', 'c9113', 'c9119'])
+        '$c/bot/default': GroupFace(seed: c, label: 'default'),
+    };
+    final m = const GroupMember(name: 'default', handle: 'default');
+    // Sin pista: null (honesto). Con la conexión de la fila: su cara.
+    expect(GroupAvatarStack.faceFor(m, faces, const {}), isNull);
+    expect(
+      GroupAvatarStack.faceFor(
+        m,
+        faces,
+        const {},
+        preferredConnectionId: 'c9119',
+      )?.seed,
+      'c9119',
+    );
+  });
 }

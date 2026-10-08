@@ -1,3 +1,35 @@
+## Release 0.1.52 (2026-10-08)
+
+### fix: lote de los reportes 0.1.50/0.1.51 — reparación de grupos, aura de inicio a fin, hora legible, caras de grupo
+
+- **Grupos zombis se reparan SOLOS**: al abrir un grupo que ningún gateway
+  hospeda (creados con 0.1.48–0.1.50, sin `member_id`), la app re-crea la
+  sala EN SITIO con el MISMO `room_id` y el roster correcto (sonda real:
+  `groups.create` es idempotente — misma sala; 4110 si el contenido
+  difiere). Ya no hay que borrar y recrear: abrir el chat basta. Si algún
+  gateway tiene ≥2 bots del grupo, ahí queda hosted; las menciones `@` y
+  `groups.send` pasan a funcionar con la misma fila.
+- **Aura y «…» de INICIO a FIN aunque salgas del chat**: el watchdog de
+  silencio vivía en el controller del chat, que se destruye al salir —
+  mataba el aura en la lista. Ahora es global por conversación
+  (`TurnActivity`), se rearma con cada evento vivo y cierra a los 4 min de
+  silencio real. Salir del chat NO la apaga; los eventos terminales
+  (`message.complete`/cancel/error) sí.
+- **Hora de los mensajes legible**: 12pt con contraste pleno (antes 11pt
+  gris muy claro). En grupos, el timestamp del log (`created_at`, epoch
+  seconds) ya se convertía bien — verificado con sonda.
+- **Iconos de grupo con caras reales**: homónimos (`default` en 4
+  gateways) caían a iniciales; ahora la conexión de la fila del grupo
+  desambigua. Widget test de pila (3 caras + badge +N) incluido.
+- **Screen**: en hosts sin TigerVNC/Xfce el botón «Iniciar» ya no se
+  muestra (siempre fallaba); se ofrece «Instalar» con la lista de paquetes
+  que faltan (verificado contra 9112/9113: `installed:false, missing:[7]`).
+  El flujo completo start→running verificado contra 9110.
+- **Cookies con prefijo de nombre** (9113 emite
+  `hermes_richard_session_at/_rt/_provider`): la sesión se reconoce como
+  propia y el flujo login→ticket→WS completo verificado por curl.
+- **Lista estilo Hermes-Mobile-App**: hairline entre filas, avatar 48.
+
 ## Release 0.1.51 (2026-10-07)
 
 ### fix(grupos): causa raíz de «no deja enviar» — `groups.create` exigía `member_id`

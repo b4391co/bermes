@@ -25,6 +25,7 @@ import '../../core/app_services.dart';
 import '../../core/logger.dart';
 import '../../data/database/app_database.dart' as db;
 import '../../design/tokens.dart';
+import '../conversations/group_repair.dart';
 import '../../domain/entity/entity_ref.dart';
 import '../../domain/message/chat_models.dart';
 import '../../design/live_avatar.dart';
@@ -281,9 +282,12 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _groupWatchdog;
 
   void _armGroupWatchdog(String convId) {
+    // Watchdog del chat grupal: sólo dispara UI local; el cierre REAL del
+    // turno (aunque salgas del chat) lo decide el watchdog global de
+    // TurnActivity, que `begin` rearma con cada evento vivo.
     _groupWatchdog?.cancel();
     _groupWatchdog = Timer(const Duration(minutes: 4), () {
-      TurnActivity.end(convId);
+      if (mounted) setState(() {});
     });
   }
 
@@ -506,9 +510,13 @@ class _ChatScreenState extends State<ChatScreen> {
       text: text,
       sendState: SendState.sent,
       origin: MessageOrigin.live,
-      timestamp: DateTime.fromMillisecondsSinceEpoch(
-        (((ev['created_at'] as num?)?.toDouble() ?? 0) * 1000).round(),
-      ),
+      // created_at=0/ausente (eventos de sistema) → epoch 1970: se pintaría
+      // «12:00 a. m.» — mejor sin hora.
+      timestamp: ((ev['created_at'] as num?)?.toDouble() ?? 0) > 0
+          ? DateTime.fromMillisecondsSinceEpoch(
+              ((ev['created_at'] as num?)!.toDouble() * 1000).round(),
+            )
+          : null,
       authorName: author,
     );
   }
@@ -1022,6 +1030,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ..removeWhere((r) => r.profile.id == _roomHostConnId)
         ..insertAll(0, cached);
     }
+    var repairTried = false;
     for (final r in candidates) {
       try {
         final room = await RoomsClient(r.gateway).roomState(roomId);
@@ -1031,6 +1040,28 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       } catch (_) {
         // no la hospeda / gateway viejo: siguiente candidato
+      }
+    }
+    // Zombi: la fila existe (espejo de 0.1.48–0.1.50) pero NINGÚN gateway
+    // la hospeda (faltaba member_id al crearla → 5111). Reparación EN SITIO
+    // por sonda verificada: `groups.create` con el MISMO room_id y roster
+    // correcto es idempotente (misma sala; 4110 si el contenido difiere) —
+    // no duplica ni borra nada. Tras reparar, el dueño queda resuelto.
+    if (!repairTried) {
+      repairTried = true;
+      final res = await repairGroupRoom(
+        database: AppServices.db,
+        runtimes: AppServices.connections.runtimes,
+        conv: conv,
+        roomId: roomId,
+        name: conv.groupSyncName ?? conv.title,
+      );
+      if (res.repaired && res.hostConnectionId != null) {
+        final r = AppServices.connections.runtimeFor(res.hostConnectionId!);
+        if (r != null) {
+          _roomHostConnId = res.hostConnectionId;
+          return r;
+        }
       }
     }
     return current;
@@ -1271,6 +1302,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     connIdByInstallId: _installIdToConn,
                     fallbackTitle: conv.title,
                     size: 26,
+                    preferredConnectionId: conv.connectionId,
                   )
                 : BotAvatar(
                     seed: conv.avatarSeed ?? conv.id,
@@ -1332,6 +1364,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         connIdByInstallId: _installIdToConn,
                         fallbackTitle: conv.title,
                         size: 32,
+                        preferredConnectionId: conv.connectionId,
                       )
                     : BotAvatar(
                         seed: conv.avatarSeed ?? conv.id,

@@ -443,7 +443,9 @@ class _ScreenViewState extends State<ScreenView> {
                 }),
           icon: const Icon(Icons.stop_circle_outlined),
         )
-      else
+      else if (!(st?.needsInstall ?? false) && !(st?.unsupported ?? false))
+        // Sin binarios (needsInstall) el start SIEMPRE falla con un error
+        // críptico: el CTA honesto es Instalar (abajo), no Iniciar.
         IconButton(
           tooltip: 'Iniciar escritorio',
           onPressed: _busy

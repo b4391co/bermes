@@ -854,10 +854,11 @@ class ChatSessionController {
     _disposed = true;
     _turnWatchdog?.cancel();
     _turnWatchdog = null;
-    // El chat se cierra: si había un turno en vivo, la banda de fijados
-    // deja de mostrarlo como trabajando (el turno sigue en el servidor,
-    // pero aquí ya no hay nadie observándolo).
-    TurnActivity.end(path.storageId);
+    // SALIR del chat NO apaga el aura: el turno sigue vivo en el servidor y
+    // la lista de chats debe seguir mostrándolo trabajando (petición
+    // explícita del usuario). El cierre lo deciden los eventos terminales
+    // (message.complete / cancel / error) o el watchdog global de
+    // TurnActivity (4 min de silencio), no el ciclo de vida del widget.
     for (final s in _subs) {
       s.cancel();
     }

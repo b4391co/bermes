@@ -35,6 +35,7 @@ class GroupAvatarStack extends StatelessWidget {
     required Map<String, String> connIdByInstallId,
     required String fallbackTitle,
     required double size,
+    String? preferredConnectionId,
   }) {
     final faces = <GroupFace>[];
     var total = 0;
@@ -44,7 +45,12 @@ class GroupAvatarStack extends StatelessWidget {
         total = raw.length;
         for (final m in raw) {
           final member = GroupMember.fromJson(m.cast<String, Object?>());
-          final face = faceFor(member, faceByConvId, connIdByInstallId);
+          final face = faceFor(
+            member,
+            faceByConvId,
+            connIdByInstallId,
+            preferredConnectionId: preferredConnectionId,
+          );
           if (face != null) faces.add(face);
         }
       } catch (_) {
@@ -74,8 +80,9 @@ class GroupAvatarStack extends StatelessWidget {
   static GroupFace? faceFor(
     GroupMember m,
     Map<String, GroupFace> faceByConvId,
-    Map<String, String> connIdByInstallId,
-  ) {
+    Map<String, String> connIdByInstallId, {
+    String? preferredConnectionId,
+  }) {
     // `connectionId` del espejo puede ser el installId del backend (Pocket)
     // o una clave propia de Desktop: se prueban BOTH routes antes de caer a
     // claves ambiguas.
@@ -102,14 +109,22 @@ class GroupAvatarStack extends StatelessWidget {
       if (f != null) return f;
     }
     // Fallback sin identidad de conexión: si el perfil del miembro es ÚNICO
-    // en el índice (`<algo>/bot/<perfil>` aparece una sola vez), esa cara es
-    // la suya — no es adivinar. Con homónimos en dos gateways queda null:
-    // la fila muestra iniciales honestas antes que una cara equivocada.
+    // en el índice, esa cara es la suya. Con homónimos (p. ej. `default` en
+    // 4 gateways) se DESAMBIGÚA con la conexión de la FILA del grupo: si
+    // exactamente un hit cuelga de esa conexión, es el suyo — el roster del
+    // grupo apunta a bots de esa conexión. Sólo queda null si ni aun así se
+    // distingue: iniciales honestas antes que una cara equivocada.
     if (m.name != null) {
       final hits = faceByConvId.entries
           .where((e) => e.key.endsWith('/bot/${m.name}'))
           .toList();
       if (hits.length == 1) return hits.first.value;
+      if (preferredConnectionId != null && hits.length > 1) {
+        final own = hits
+            .where((e) => e.key.startsWith('$preferredConnectionId/bot/'))
+            .toList();
+        if (own.length == 1) return own.first.value;
+      }
     }
     return null;
   }
