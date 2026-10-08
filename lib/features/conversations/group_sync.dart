@@ -331,6 +331,13 @@ Future<void> syncGroupMirrors({
                       {
                         'name': pair.profile,
                         'connectionId': pair.connId,
+                        // Título canónico del bot (bot_title > display_name
+                        // > name): el `@` del autocomplete inserta el nombre
+                        // visible (CLAUDIO, no 'default') y el motor de
+                        // menciones resuelve por título. Sin esto, mencionar
+                        // por nombre visible no resolvía al perfil.
+                        if (titlesByConn[pair.connId]?[pair.profile] != null)
+                          'title': titlesByConn[pair.connId]![pair.profile],
                       },
                   ]),
                 ),

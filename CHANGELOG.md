@@ -1,3 +1,12 @@
+## Release 0.1.56 (2026-10-08)
+
+### fix: el `@` resuelve el nombre VISIBLE del bot (título canónico)
+
+- Los miembros del canal legacy se persistían SIN su título — mencionar por
+  el nombre visible (CLAUDIO, Bernardino, Richard…) no resolvía al perfil.
+  Ahora el título canónico viaja en el JSON de miembros y el motor resuelve
+  tanto `@CLAUDIO` como `@default`.
+
 ## Release 0.1.55 (2026-10-08)
 
 ### fix: el `@` ofrece bots en TODOS los chats y entrega turnos cruzados
