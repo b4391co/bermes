@@ -1212,6 +1212,13 @@ class _ChatScreenState extends State<ChatScreen> {
     // Miembros del espejo → (perfil, título, conexión local resuelta).
     final raw = conv.groupMembersJson;
     final members = <({String profile, String title, String connectionId})>[];
+    final connRows = await AppServices.db
+        .select(AppServices.db.connections)
+        .get();
+    final connByName = {
+      for (final c in connRows) c.name.toLowerCase(): c.id,
+    };
+    final connIds = {for (final c in connRows) c.id};
     if (raw != null && raw.isNotEmpty) {
       try {
         for (final m in (jsonDecode(raw) as List).whereType<Map>()) {
@@ -1219,12 +1226,22 @@ class _ChatScreenState extends State<ChatScreen> {
           if (profile.isEmpty) continue;
           final title = ((m['title'] ?? m['display_name'] ?? profile) as String)
               .trim();
-          // La conexión local: installId del gateway (traducida) o la
-          // connectionId del descriptor (Pocket la escribe local).
+          // La conexión LOCAL del miembro, por orden de fiabilidad:
+          // 1) installId del gateway (identidad portable, traducida),
+          // 2) connectionId del descriptor si YA es una conexión local,
+          // 3) connectionLabel == nombre de la conexión,
+          // 4) la conexión de la propia fila (el perfil puede vivir ahí).
           final install = m['installId'] as String?;
+          final desc = (m['connectionId'] ?? '') as String;
+          final label = (m['connectionLabel'] ?? '') as String;
           final connId = (install != null && _installIdToConn[install] != null)
               ? _installIdToConn[install]!
-              : ((m['connectionId'] ?? '') as String);
+              : connIds.contains(desc)
+              ? desc
+              : connByName[label.toLowerCase()] ??
+                    (connIds.contains(conv.connectionId)
+                        ? conv.connectionId
+                        : '');
           if (connId.isEmpty) continue;
           members.add((profile: profile, title: title, connectionId: connId));
         }
@@ -1325,8 +1342,16 @@ class _ChatScreenState extends State<ChatScreen> {
         },
       );
       if (turns.isEmpty) {
-        // Nadie al que entregar (sin runtime): marca error honesto.
+        // Nadie al que entregar (sin runtime vivo): causa visible, no un
+        // error mudo.
         if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Ningún bot del grupo tiene conexión viva ahora mismo.',
+              ),
+            ),
+          );
           setState(() {
             _sending = false;
             _hasError = true;

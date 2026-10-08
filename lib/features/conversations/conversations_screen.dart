@@ -1692,28 +1692,16 @@ class _LiveDot extends StatelessWidget {
       valueListenable: TurnActivity.streaming,
       builder: (context, live, _) {
         final working = live.contains(convId);
-        // ListTile limita el leading a 56 de ALTO: el LiveAvatar (48+2*16≈81)
-        // quedaba aplastado (23 px de alto para un avatar de 48). OverflowBox
-        // le da su caja real y la órbita pinta fuera del leading sin clip
-        // (ListTile no recorta).
-        return OverflowBox(
-          minWidth: 0,
-          maxWidth: 84,
-          minHeight: 0,
-          maxHeight: 84,
-          alignment: Alignment.center,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              LiveAvatar(size: 48, active: working, float: false, child: child),
-              if (working)
-                const Positioned(
-                  right: -4,
-                  bottom: -2,
-                  child: TypingBubble(size: 16),
-                ),
-            ],
-          ),
+        // Modo fila: LiveAvatar compacto (aura ceñida, caja ≈56 ≤ el leading
+        // del ListTile) — la orbital ancha aplastaba el icono y desbordaba
+        // sobre el título. Alineado a la izquierda como la referencia; la
+        // orbital GRANDE queda para Fijados (tiles centrados) y cabeceras.
+        return LiveAvatar(
+          size: 48,
+          active: working,
+          float: false,
+          compact: true,
+          child: child,
         );
       },
     );

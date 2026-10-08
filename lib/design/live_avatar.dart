@@ -23,12 +23,18 @@ class LiveAvatar extends StatefulWidget {
   /// Balanceo vertical tipo «float».
   final bool float;
 
+  /// Modo fila (lista de chats): aura ceñida al avatar — la orbital ancha
+  /// (34% de margen) dentro del ListTile aplastaba el icono y desbordaba
+  /// sobre el título. La orbital GRANDE queda para Fijados/cabecera.
+  final bool compact;
+
   const LiveAvatar({
     super.key,
     required this.child,
     required this.size,
     this.active = true,
     this.float = false,
+    this.compact = false,
   });
 
   @override
@@ -94,7 +100,9 @@ class _LiveAvatarState extends State<LiveAvatar>
 
   @override
   Widget build(BuildContext context) {
-    final pad = widget.size * 0.34; // margen para que el aura respire
+    final pad = widget.compact
+        ? widget.size * 0.08 // fila: aura ceñida, caja ≈ size*1.16 ≤ 56
+        : widget.size * 0.34; // margen para que el aura respire
     Widget stack = Stack(
       clipBehavior: Clip.none,
       alignment: Alignment.center,
