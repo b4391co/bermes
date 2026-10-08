@@ -178,17 +178,12 @@ class _ChatScreenState extends State<ChatScreen> {
           if (r.title.isNotEmpty && r.botAvatarMeta != null)
             r.title: (r.botAvatarMeta, r.avatarUrl),
       };
-      // Caras para el icono de grupo de la cabecera (miembros reales):
-      _groupFaces = {
-        for (final r in botRows)
-          r.id: GroupFace.ofConversation(
-            connectionId: r.connectionId,
-            gatewayId: r.gatewayId,
-            title: r.title,
-            avatarUrl: r.avatarUrl,
-            botAvatarMeta: r.botAvatarMeta,
-          ),
-      };
+      // Caras para el icono de grupo de la cabecera (miembros reales). Se
+      // indexa con GroupFaceIndex (todas las claves de identidad: id de fila,
+      // `<conn>/bot/<perfil>`, perfil a secas) — antes sólo por `r.id`, y los
+      // miembros del espejo (que referencian por perfil/installId) no
+      // resolvían: el icono de la cabecera salía en iniciales.
+      _groupFaces = GroupFaceIndex.of(botRows, installIdByConn);
       _installIdToConn = installIdByConn;
     });
     setState(() => _conversation = row);

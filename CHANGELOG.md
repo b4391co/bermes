@@ -1,3 +1,20 @@
+## Release 0.1.53 (2026-10-08)
+
+### fix: caras de grupo — las 3 causas restantes (sonda IconosProbe) + diseño de la referencia
+
+- **Caras de grupo: 3 causas más tapadas** (sonda IconosProbe): (1) los
+  descriptores que publica Pocket omitían `handle`; (2) las filas del canal
+  legacy (`ui_meta.hermes-bots.groups`) NO guardaban miembros → icono SIEMPRE
+  en iniciales — ahora se persisten con identidad (regresión
+  `group_legacy_members_icon_test`); (3) el mapa installId→conexión se leía
+  una sola vez en initState y el gateway lo envía después → se refresca en
+  cada ciclo/stream. Y la cabecera del chat usa el índice de caras completo
+  (antes sólo por id de fila).
+- **Diseño bots según Hermes-Mobile-App** (repo analizado): dot de estado de
+  los gateways con glow/pulso en la cabecera, primarios en píldora, y
+  «Nuevo bot» (POST /api/profiles verificado por sonda, con validación de
+  nombre y aviso de homónimos).
+
 ## Release 0.1.52 (2026-10-08)
 
 ### fix: lote de los reportes 0.1.50/0.1.51 — reparación de grupos, aura de inicio a fin, hora legible, caras de grupo
@@ -29,6 +46,19 @@
   `hermes_richard_session_at/_rt/_provider`): la sesión se reconoce como
   propia y el flujo login→ticket→WS completo verificado por curl.
 - **Lista estilo Hermes-Mobile-App**: hairline entre filas, avatar 48.
+
+- **Caras de grupo: 3 causas más tapadas** (sonda IconosProbe): (1) los
+  descriptores que publica Pocket omitían `handle`; (2) las filas del canal
+  legacy (`ui_meta.hermes-bots.groups`) NO guardaban miembros → icono SIEMPRE
+  en iniciales — ahora se persisten con identidad (regresión
+  `group_legacy_members_icon_test`); (3) el mapa installId→conexión se leía
+  una sola vez en initState y el gateway lo envía después → se refresca en
+  cada ciclo/stream. Y la cabecera del chat usa el índice de caras completo
+  (antes sólo por id de fila).
+- **Diseño bots según Hermes-Mobile-App** (repo analizado): dot de estado de
+  los gateways con glow/pulso en la cabecera, primarios en píldora, y
+  «Nuevo bot» (POST /api/profiles verificado por sonda, con validación de
+  nombre y aviso de homónimos).
 
 ## Release 0.1.51 (2026-10-07)
 

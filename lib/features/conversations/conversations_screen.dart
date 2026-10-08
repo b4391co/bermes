@@ -36,6 +36,7 @@ class ConversationsScreen extends StatefulWidget {
 class _ConversationsScreenState extends State<ConversationsScreen> {
   final _search = TextEditingController();
   Timer? _tick;
+  StreamSubscription<Map<String, dynamic>>? _runtimeSub;
   int _connectionCount = 0;
   Map<String, String> _installIdToConn = const {};
   Map<String, GroupFace> _botFaces = const {};
@@ -47,22 +48,44 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     // Refresco de horas relativas cada minuto.
     _tick = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted) setState(() {});
+      _refreshInstallMap();
     });
-    // Chip de gateway solo cuando hay más de una conexión.
-    AppServices.db.select(AppServices.db.connections).get().then((rows) {
-      if (!mounted) return;
-      setState(() {
-        _connectionCount = rows.length;
-        _installIdToConn = {
-          for (final c in rows)
-            if (c.installId != null) c.installId!: c.id,
-        };
-      });
+    _runtimeSub = AppServices.connections.stream.listen((_) {
+      _refreshInstallMap();
+      if (mounted) setState(() {});
+    });
+    // Chip de gateway solo cuando hay más de una conexión. Se relanza en
+    // cada tick del timer y en cada cambio de runtimes: la `installId` del
+    // gateway LLEGA tras el alta (la escribe el sync), y la traducción
+    // installId→conexión que usan las caras de grupo quedaba vacía para
+    // siempre si sólo se leía en initState (causa 1 de IconosProbe).
+    _refreshInstallMap();
+  }
+
+  Map<String, String>? _lastInstallMap;
+
+  Future<void> _refreshInstallMap() async {
+    final rows = await AppServices.db.select(AppServices.db.connections).get();
+    if (!mounted) return;
+    final map = {
+      for (final c in rows)
+        if (c.installId != null) c.installId!: c.id,
+    };
+    if (map.length == _lastInstallMap?.length &&
+        map.entries.every((e) => _lastInstallMap?[e.key] == e.value) &&
+        rows.length == _connectionCount) {
+      return; // sin cambios: no re-render
+    }
+    _lastInstallMap = map;
+    setState(() {
+      _connectionCount = rows.length;
+      _installIdToConn = map;
     });
   }
 
   @override
   void dispose() {
+    _runtimeSub?.cancel();
     _tick?.cancel();
     _search.dispose();
     super.dispose();

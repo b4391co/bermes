@@ -134,6 +134,10 @@ Future<GroupCreateOutcome> createGroup({
     for (final m in members)
       {
         'name': m.conv.gatewayId,
+        // `handle` = perfil del backend: el identificador que el driver del
+        // grupo escucha y que faceFor usa para enlazar la cara (causa 1 de
+        // IconosProbe: sin handle, un homónimo caía a iniciales).
+        'handle': m.conv.gatewayId,
         'connectionId': m.installId ?? m.connectionId,
         if (m.installId != null) 'installId': m.installId,
         'connectionLabel': m.connectionLabel,

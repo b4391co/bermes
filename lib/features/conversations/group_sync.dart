@@ -321,6 +321,19 @@ Future<void> syncGroupMirrors({
                 pinnedGateway: Value(prefs.pinnedGateway),
                 sortOrder: Value(prefs.sortOrder),
                 groupSyncName: Value(g),
+                // Causa 2 (sonda IconosProbe 2026-10-08): esta fila NO
+                // recibía `groupMembersJson` → el icono de grupo caía SIEMPRE
+                // a iniciales. Los miembros con identidad real (par
+                // connId+perfil) se persisten aquí para la pila de caras.
+                groupMembersJson: Value(
+                  jsonEncode([
+                    for (final pair in memberPairs)
+                      {
+                        'name': pair.profile,
+                        'connectionId': pair.connId,
+                      },
+                  ]),
+                ),
               ),
             );
         legacyPlaced.add(g);
