@@ -1,3 +1,14 @@
+## Release 0.1.57 (2026-10-08)
+
+### fix: el menú del `@` ya abre en TODOS los chats (era un guard del guard)
+
+- El guard del autocompletado exigía candidatos de SALA (que sólo existen en
+  grupos): en un chat 1:1 el menú jamás abría aunque el roster estuviera
+  cargado. Ahora decide la lista FUSIONADA (miembros de la sala + roster).
+- Además, el roster excluía a los bots sin meta de avatar personalizado —
+  bots perfectamente mencionables quedaban fuera del menú. Ahora están todos.
+- Tests +2 sobre el token `@` (detección y sustitución). Suite 117 verdes.
+
 ## Release 0.1.56 (2026-10-08)
 
 ### fix: el `@` resuelve el nombre VISIBLE del bot (título canónico)

@@ -175,9 +175,11 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
     setState(() {
       _botAvatars = {
+        // TODOS los bots con título (no sólo los con meta de avatar): la
+        // fuente alimenta el menú `@` — un bot sin avatar personalizado
+        // también es mencionable.
         for (final r in botRows)
-          if (r.title.isNotEmpty && r.botAvatarMeta != null)
-            r.title: (r.botAvatarMeta, r.avatarUrl),
+          if (r.title.isNotEmpty) r.title: (r.botAvatarMeta, r.avatarUrl),
       };
       // Caras para el icono de grupo de la cabecera (miembros reales). Se
       // indexa con GroupFaceIndex (todas las claves de identidad: id de fila,
@@ -2436,19 +2438,20 @@ class _ChatScreenState extends State<ChatScreen> {
     final caret = _input.selection.isValid
         ? _input.selection.baseOffset
         : _input.text.length;
-    final start = MentionToken.mentionStart(_input.text, caret);
-    if (start == null || _mentionCandidates.isEmpty || !_focus.hasFocus) {
-      _setMention(open: false);
-      return;
-    }
-    final query = _input.text.substring(start + 1, caret).toLowerCase();
-    // Fusión sin duplicados: miembros de la sala primero, luego el resto del
-    // roster (mismo título = un candidato).
+    // ÉSTA era la causa del «no autocompleta»: el guard exigía candidatos de
+    // SALA (que sólo se cargan en grupos) — en un chat 1:1 el menú jamás
+    // abría. El roster completo va aparte: decide la lista FUSIONADA.
     final seen = <String>{};
     final all = [
       ..._mentionCandidates,
       ..._rosterCandidates,
     ].where((m) => seen.add(m.name)).toList(growable: false);
+    final start = MentionToken.mentionStart(_input.text, caret);
+    if (start == null || all.isEmpty || !_focus.hasFocus) {
+      _setMention(open: false);
+      return;
+    }
+    final query = _input.text.substring(start + 1, caret).toLowerCase();
     final shown = all
         .where((m) => m.name.toLowerCase().contains(query))
         .toList(growable: false);
