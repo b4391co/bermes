@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show SocketException;
 import 'dart:math';
-
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../core/logger.dart';
 import 'bot_meta.dart';
@@ -117,6 +117,10 @@ class HermesGatewayClient {
       return;
     }
     _manuallyClosed = false;
+    // Si hay un reintento programado, se cancela: connect() abre AHORA y
+    // evita dos _openSocket concurrentes (el timer no sabe de éste).
+    _reconnectTimer?.cancel();
+    _reconnectAttempts = 0;
     _setState(GatewayLinkState.connecting);
     await _openSocket();
   }
@@ -522,8 +526,29 @@ class HermesGatewayClient {
 
   // ── Métodos de alto nivel (tipados por los consumidores) ──────────────
 
-  Future<Object?> rawCall(String method, {Map<String, Object?>? params}) =>
-      _request(method, params: params);
+  /// RPC con auto-sanación del enlace: si el socket no está usable
+  /// (`_ws == null`, p. ej. el móvil despertó de doze y el WS murió en
+  /// silencio; el heartbeat tarda hasta 45 s en darse cuenta y el backoff
+  /// llega a 30 s), se despierta el enlace y se espera ready acotado ANTES
+  /// de enviar. Antes el RPC moría con 'socket closed' — el error exacto
+  /// que veía el usuario al abrir el panel Screen tras reanudar la app.
+  Future<Object?> rawCall(
+    String method, {
+    Map<String, Object?>? params,
+  }) async {
+    if (_ws == null || _state != GatewayLinkState.ready) {
+      if (_manuallyClosed) {
+        throw JsonRpcError(-32000, 'not connected');
+      }
+      try {
+        await connect();
+        await readyOrTimeout(const Duration(seconds: 12));
+      } catch (_) {
+        throw JsonRpcError(-32000, 'socket closed');
+      }
+    }
+    return _request(method, params: params);
+  }
 
   /// Roster de bots del gateway. FUENTE PRIMARIA: `profiles.list` por WS
   /// (methods_profiles.py:267-284) — es lo que consume Desktop y trae las
@@ -1097,6 +1122,19 @@ class HermesGatewayClient {
     await _ws?.sink.close();
     _ws = null;
     _setState(GatewayLinkState.disconnected);
+  }
+
+  /// Pruebas: mata el socket SIN programar reconexión (simula doze/OS que
+  /// corta la red en background). Queda `_ws == null`, estado `reconnecting`
+  /// con el timer ya vencido — exactamente lo que ve rawCall al despertar.
+  @visibleForTesting
+  void killSocketForTest() {
+    _reconnectTimer?.cancel();
+    _pingTimer?.cancel();
+    _wsSub?.cancel();
+    _ws?.sink.close();
+    _ws = null;
+    _setState(GatewayLinkState.reconnecting);
   }
 
   void dispose() {

@@ -1,3 +1,19 @@
+## Release 0.1.64 (2026-10-09)
+
+### fix: pantalla tras reanudar (socket closed), menú `@` con scroll, iconos de grupo con los bots de dentro
+
+- **Pantalla**: los RPC auto-sanaban mal — con el móvil recién despertado el
+  WS del gateway estaba muerto y `display.observe` moría con «socket closed».
+  Ahora `rawCall` despierta el enlace (connect + ready acotado 12 s) antes de
+  enviar; el panel Screen vuelve a abrir aunque la app venga de segundo plano.
+- **Menú `@`**: era un Column seco con tope de 220 px → con 17+ bots sólo se
+  veían ~5 (los miembros de la sala, todos del mismo gateway) y el resto
+  quedaba RECORTADO. Ahora es ListView con scroll: se ven TODOS los bots de
+  TODOS los gateways + «todos» arriba.
+- **Iconos de grupo**: un miembro del espejo sin cara resuelta se descartaba y
+  el icono caía al blob de iniciales. Ahora cada miembro pinta su avatar
+  propio (semilla/color de su nombre; letra correcta de cada bot si no hay
+  imagen).
 ## Release 0.1.63 (2026-10-09)
 
 ### fix: el menú `@` ofrece «todos» y el espejo hosted usa handles reales

@@ -51,8 +51,13 @@ class MentionMenu extends StatelessWidget {
       color: cs.surfaceContainerHigh,
       borderRadius: BorderRadius.circular(Hp.rMd),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: ListView(
+        // 0.1.64: SCROLL — antes Column seca dentro de maxHeight 220: con
+        // 17+ candidatos sólo se veían ~5 (los primeros, miembros de la
+        // sala) y el resto quedaba recortado e invisible («sólo salen 5
+        // menciones de un gateway»).
+        shrinkWrap: true,
+        padding: const EdgeInsets.symmetric(vertical: 4),
         children: [
           for (final c in candidates)
             ListTile(

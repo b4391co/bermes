@@ -51,7 +51,23 @@ class GroupAvatarStack extends StatelessWidget {
             connIdByInstallId,
             preferredConnectionId: preferredConnectionId,
           );
-          if (face != null) faces.add(face);
+          // 0.1.64: miembro SIN cara resuelta ya no se descarta — acababa en
+          // el blob de iniciales del grupo («se ven letras, no los bots de
+          // dentro»). Con identidad PROPIA (nombre visible/handle/perfil) se
+          // pinta su avatar individual: semilla/color del bot, y su letra si
+          // no hay imagen. Letra correcta de CADA bot mejor que una inicial
+          // suelta del grupo.
+          final ownName = member.title ??
+              member.displayName ??
+              member.handle ??
+              member.name;
+          faces.add(
+            face ??
+                GroupFace(
+                  seed: ownName ?? '?',
+                  label: ownName ?? '?',
+                ),
+          );
         }
       } catch (_) {
         // JSON corrupto: se cae al fallback de iniciales sin romper la fila.
