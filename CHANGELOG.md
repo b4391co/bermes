@@ -1,3 +1,19 @@
+## Release 0.1.60 (2026-10-08)
+
+### fix: al guardar/probar una conexión se sincronizaban CERO grupos
+
+`connectAndSync` leía la base de datos ANTES de que quedara registrada y, si
+aún no estaba (`_db == null`), salía en silencio: al guardar una conexión
+desde el editor no se materializaban ni bots ni salas espejo — los grupos
+quedaban vacíos/inexistentes y "no dejaban enviar". El editor ahora pasa su
+`db` explícita, y el gestor avisa por log si vuelve a ocurrir (nunca más
+no-op silencioso).
+
+Verificado con E2E real contra el gateway (9110): publicar sala espejo →
+`syncGroupMirrors` materializa DUO/IGL/propia → resolución de miembros por
+perfil/título → `@CParker` parsea → turno despachado y respondido en vivo.
+
+### prueba: motor de turnos y caras verificados de punta a punta
 ## Release 0.1.59 (2026-10-08)
 
 ### fix: caras reales en el logo del grupo, menciones a CUALQUIER gateway, flotar constante

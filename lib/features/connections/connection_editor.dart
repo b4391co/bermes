@@ -266,7 +266,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
             displayOrder: await _nextDisplayOrder(db),
             createdAt: DateTime.now(),
           );
-          await connections.connectAndSync(runtime, savedRow);
+          await connections.connectAndSync(runtime, savedRow, db: db);
         } catch (e) {
           _log.warning('post-save no-auth connect falló', e);
         }
@@ -291,7 +291,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
             displayOrder: await _nextDisplayOrder(db),
             createdAt: DateTime.now(),
           );
-          await connections.connectAndSync(runtime, savedRow);
+          await connections.connectAndSync(runtime, savedRow, db: db);
         } catch (e) {
           _log.warning('post-save token connect falló', e);
         }
@@ -322,7 +322,7 @@ class _ConnectionEditorState extends State<ConnectionEditor> {
               displayOrder: await _nextDisplayOrder(db),
               createdAt: DateTime.now(),
             );
-            await connections.connectAndSync(runtime, savedRow);
+            await connections.connectAndSync(runtime, savedRow, db: db);
           } else {
             // NO guardar en silencio una conexión imposible (caso 9119:
             // credenciales de otro gateway → "guardada" sin queja y el

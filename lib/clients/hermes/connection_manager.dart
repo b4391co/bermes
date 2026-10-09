@@ -480,17 +480,31 @@ class ConnectionManager {
   ///
   /// Lo usa el editor tras guardar: mantiene el único camino de conexión
   /// (ticket por conexión, routes.py:458-466) en el gestor y no en la UI.
-  Future<void> connectAndSync(ConnectionRuntime runtime, Connection row) async {
-    final db = _db;
+  Future<void> connectAndSync(
+    ConnectionRuntime runtime,
+    Connection row, {
+    AppDatabase? db,
+  }) async {
+    // El editor de conexiones conoce la DB y la pasa. Sin ella, `_db` puede
+    // estar aún sin registrar (conexión GUARDADA y probada antes de arrancar
+    // nunca) → el método salía en silencio sin materializar NADA: ni bots ni
+    // grupos espejo (caíz de "los grupos no funcionan" tras guardar una
+    // conexión nueva). Ahora se usa la DB explícita o se sale avisando.
+    final dbx = db ?? _db;
     await runtime.gateway.connect();
-    if (db == null) return;
-    registerRows([row], db);
-    await syncBots(row, runtime, db);
+    if (dbx == null) {
+      _log.warning(
+        'connectAndSync sin DB registrada: ${row.name}: sync pospuesto',
+      );
+      return;
+    }
+    registerRows([row], dbx);
+    await syncBots(row, runtime, dbx);
     // El espejo de salas se aplica con el roster de TODAS las conexiones: al
     // añadir la segunda, sus salas mixtas deben materializarse YA. Sin esto,
     // la sala del otro gateway no aparecía hasta una reconexión o un resync
     // manual (bug 0.1.24: «el grupo mezclado no aparece»).
-    await _syncGroupMirrors(db);
+    await _syncGroupMirrors(dbx);
   }
 
   /// Descubre los bots del gateway (hermes-map §4: profiles.list) y los
