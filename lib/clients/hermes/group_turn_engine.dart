@@ -37,7 +37,11 @@ class GroupTurnEngine {
     if (n.isEmpty) return const {};
     final slug = n.replaceAll(RegExp(r'[^a-z0-9_-]+'), '-');
     final collapsed = n.replaceAll(RegExp(r'[^a-z0-9_-]+'), '');
-    final reserved = {'all', 'everyone', 'user', 'default', 'hermes'};
+    // `default` y `hermes` NO son reservables como nombre-derivado: son
+    // nombres de PERFIL que viajan en el menú `@` de los grupos espejo
+    // (`handle: hermes-this-webapp`, perfil `default`). Si el título del bot
+    // los produce, se usan; si no, la reserva protege `@everyone`/`@user`.
+    final reserved = {'all', 'everyone', 'user'};
     return {
       for (final f in {slug, collapsed})
         if (f.isNotEmpty && RegExp(r'^[a-z0-9][a-z0-9_-]*$').hasMatch(f) && !reserved.contains(f)) f,
@@ -84,7 +88,9 @@ class GroupTurnEngine {
     final re = RegExp(r'@([a-z0-9][a-z0-9._-]*)', caseSensitive: false);
     for (final match in re.allMatches(source)) {
       final h = match.group(1)!.toLowerCase();
-      if (h == 'everyone' || h == 'all') {
+      // `@todos`/`@all`/`@everyone` (los dos primeros son español/inglés del
+      // usuario; Desktop sólo conoce everyone/all — se amplan sin romper).
+      if (h == 'everyone' || h == 'all' || h == 'todos') {
         everyone = true;
         continue;
       }

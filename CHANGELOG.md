@@ -1,3 +1,18 @@
+## Release 0.1.62 (2026-10-09)
+
+### fix: `@todos` en español, perfil `default` mencionable, handles de Desktop
+
+- `@todos` (y `@all`, `@everyone`) dispara a TODOS los bots del roster.
+- `default` y `hermes` dejan de ser palabras reservadas en `mentionForms`:
+  un bot cuyo título/perfil es `default` (el caso real de los espejos de
+  Desktop) ya es seleccionable en el menú `@` — antes su forma se descartaba
+  y «sólo claudio aparecía».
+- Verificado E2E contra tus gateways reales: en el chat del bot de boneca,
+  `@CLAUDIO` y `@CParker` (bots de CLAUDIO/9110) resuelven, despachan y
+  RESPONDER con la desambiguación por título→conexión correcta; `@todos`
+  cubre los 17 bots sincronizados. Sala fantasma reparada + respuesta del
+  turno hosted (`GHOST-OK`); RFB nativo contra 9119: `ready`, 1440x900,
+  frames fluyendo.
 ## Release 0.1.61 (2026-10-09)
 
 ### fix: Screen NATIVO (adiós noVNC), salas fantasma auto-reparadas, menciones cross-gateway

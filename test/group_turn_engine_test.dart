@@ -123,4 +123,29 @@ void main() {
     ]);
     expect(r.mentioned, {'default'});
   });
+
+  group('0.1.61 tokens de usuario', () {
+    test('@todos = todos los miembros (alias español)', () {
+      final r = GroupTurnEngine.parseMentions('@todos al agua', [
+        (profile: 'default', titles: ['Boneca'], handle: null),
+        (profile: 'parker', titles: ['CParker'], handle: null),
+      ]);
+      expect(r.everyone, isTrue);
+    });
+
+    test('un bot titulado "default" es mencionable por su perfil', () {
+      final r = GroupTurnEngine.parseMentions('@default hola', [
+        (profile: 'default', titles: ['default'], handle: 'hermes-x'),
+      ]);
+      expect(r.mentioned, {'default'});
+    });
+
+    test('handle de Desktop con sufijo de origen resuelve (multi-gateway)', () {
+      final r = GroupTurnEngine.parseMentions('@parker-01-casa turna', [
+        (profile: 'parker', titles: ['ParkerLocal'], handle: 'parker-01-casa'),
+        (profile: 'default', titles: ['CLAUDIO'], handle: 'hermes-claudio'),
+      ]);
+      expect(r.mentioned, {'parker'});
+    });
+  });
 }
