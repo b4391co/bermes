@@ -1,3 +1,21 @@
+## Release 0.1.59 (2026-10-08)
+
+### fix: caras reales en el logo del grupo, menciones a CUALQUIER gateway, flotar constante
+
+- **El logo del grupo salía en TEXTO**: los miembros proyectados desde
+  Desktop llegan sin perfil/handle local — sólo con su nombre visible. La
+  pila de caras no los resolvía y caía a iniciales. El índice de caras se
+  construye ahora TAMBIÉN por título (`title:…`), y la resolución de miembros
+  prueba esa ruta. Test de regresión.
+- **Menciones sólo al gateway principal**: en los grupos espejo, los miembros
+  sin conexión local (Desktop no publica installId) se descartaban. Ahora, si
+  la conexión no resuelve o está apagada, el miembro se empareja por PERFIL
+  contra las fichas de bot (con desempate por la conexión del grupo y por
+  conexión viva). El turno llega al bot en SU gateway.
+- **Menú `@` en grupos**: los candidatos muestran primero el nombre visible
+  (título/display_name) del bot, no el `default` crudo.
+- **Flotar constante**: en Fijados los avatares respiran siempre (la
+  referencia); aura y «…» siguen ligados al turno en vuelo.
 ## Release 0.1.58 (2026-10-08)
 
 ### fix: iconos reales en el menú `@` y mención a bots de CUALQUIER gateway

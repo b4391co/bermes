@@ -400,7 +400,10 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                   LiveAvatar(
                     size: 104,
                     active: working,
-                    float: working,
+                    // El «flotar» es CONSTANTE en Fijados (la referencia):
+                    // el avatar respira aunque el bot esté callado. El aura y
+                    // el bocadillo «…» siguen ligados al turno (working).
+                    float: true,
                     child: c.isGroup
                         ? GroupAvatarStack.fromMembersJson(
                             membersJson: c.groupMembersJson,

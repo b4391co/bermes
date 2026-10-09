@@ -396,9 +396,9 @@ class _ChatScreenState extends State<ChatScreen> {
           // El mencionable es lo que el gateway escucha: el handle
           // (`RelayAgentRow.handle`); con homónimos entre gateways el handle
           // lleva el sufijo del origen (default-boneca / default-claudio).
-          (m.cast<String, Object?>())['handle'] ??
+          (m.cast<String, Object?>())['title'] ??
               (m.cast<String, Object?>())['display_name'] ??
-              (m.cast<String, Object?>())['title'] ??
+              (m.cast<String, Object?>())['handle'] ??
               (m.cast<String, Object?>())['name'],
       ].whereType<String>().toList();
       if (mounted) {
@@ -1246,7 +1246,7 @@ class _ChatScreenState extends State<ChatScreen> {
           final install = m['installId'] as String?;
           final desc = (m['connectionId'] ?? '') as String;
           final label = (m['connectionLabel'] ?? '') as String;
-          final connId = (install != null && _installIdToConn[install] != null)
+          var connId = (install != null && _installIdToConn[install] != null)
               ? _installIdToConn[install]!
               : connIds.contains(desc)
               ? desc
@@ -1254,6 +1254,39 @@ class _ChatScreenState extends State<ChatScreen> {
                     (connIds.contains(conv.connectionId)
                         ? conv.connectionId
                         : '');
+          connId = connId.isEmpty ? '' : connId;
+          if (connId.isEmpty ||
+              AppServices.connections.runtimeFor(connId) == null) {
+            // Sin conexión local (miembros de Desktop sin installId) o la
+            // conexión está apagada: se prueba la ruta por PERFIL contra las
+            // filas de bot — el gateway del bot, no el del grupo. Así los
+            // bots de OTROS gateways también reciben el turno.
+            final hits = botRowById.values
+                .where((r) => r.gatewayId == profile)
+                .toList();
+            if (hits.length == 1) {
+              connId = hits.first.connectionId;
+            } else if (hits.length > 1) {
+              // Homónimos: la conexión de la fila del grupo gana si aporta
+              // el perfil; si no, la primera VIVA.
+              final own = hits.where(
+                (r) => r.connectionId == conv.connectionId,
+              );
+              connId = own.isNotEmpty
+                  ? own.first.connectionId
+                  : (hits
+                            .where(
+                              (r) =>
+                                  AppServices.connections.runtimeFor(
+                                    r.connectionId,
+                                  ) !=
+                                  null,
+                            )
+                            .firstOrNull ??
+                            hits.first)
+                        .connectionId;
+            }
+          }
           if (connId.isEmpty) continue;
           if (title.isEmpty) {
             title = botRowById['$connId/bot/$profile']?.title ?? profile;

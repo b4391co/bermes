@@ -103,6 +103,11 @@ class GroupAvatarStack extends StatelessWidget {
       m.handle,
       m.installId,
       m.connectionId,
+      // Espejos de Desktop sin perfil: el nombre visible (title/display_name)
+      // indexado como `title:` — única ruta para miembros proyectados sin
+      // identidad de conexión local.
+      if (m.title != null) 'title:${m.title}',
+      if (m.displayName != null) 'title:${m.displayName}',
     ]) {
       if (key == null) continue;
       final f = faceByConvId[key];
@@ -299,6 +304,11 @@ class GroupFaceIndex {
         if (profileName != null && profileName.isNotEmpty)
           '$connId/bot/$profileName',
         c.gatewayId,
+        // 0.1.59: los miembros del espejo de Desktop llegan a veces SÓLO con
+        // su nombre visible (`title`/`display_name`). Se indexa TAMBIÉN por
+        // título, con PUT_IF_ABSENT para que el perfil nunca pierda su clave.
+        if (c.title.isNotEmpty && c.title != c.gatewayId)
+          'title:${c.title}',
       ]) {
         if (key == null || key.isEmpty) continue;
         out.putIfAbsent(key, () => face);
