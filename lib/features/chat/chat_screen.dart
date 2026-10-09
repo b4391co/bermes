@@ -1214,6 +1214,17 @@ class _ChatScreenState extends State<ChatScreen> {
     // Miembros del espejo → (perfil, título, conexión local resuelta).
     final raw = conv.groupMembersJson;
     final members = <({String profile, String title, String connectionId})>[];
+    // Títulos canónicos por fila de bot ($connId/bot/$perfil): un miembro del
+    // espejo persistido SIN título (filas antiguas) sigue resolviéndose por
+    // su nombre visible — mencionar bots de CUALQUIER gateway, no sólo el
+    // principal.
+    final allRows = await AppServices.db.select(
+      AppServices.db.conversations,
+    ).get();
+    final botRowById = {
+      for (final r in allRows)
+        if (r.kind == 'bot') r.id: r,
+    };
     final connRows = await AppServices.db
         .select(AppServices.db.connections)
         .get();
@@ -1226,8 +1237,7 @@ class _ChatScreenState extends State<ChatScreen> {
         for (final m in (jsonDecode(raw) as List).whereType<Map>()) {
           final profile = (m['name'] ?? m['handle'] ?? '') as String;
           if (profile.isEmpty) continue;
-          final title = ((m['title'] ?? m['display_name'] ?? profile) as String)
-              .trim();
+          var title = ((m['title'] ?? m['display_name'] ?? '') as String).trim();
           // La conexión LOCAL del miembro, por orden de fiabilidad:
           // 1) installId del gateway (identidad portable, traducida),
           // 2) connectionId del descriptor si YA es una conexión local,
@@ -1245,6 +1255,9 @@ class _ChatScreenState extends State<ChatScreen> {
                         ? conv.connectionId
                         : '');
           if (connId.isEmpty) continue;
+          if (title.isEmpty) {
+            title = botRowById['$connId/bot/$profile']?.title ?? profile;
+          }
           members.add((profile: profile, title: title, connectionId: connId));
         }
       } catch (_) {

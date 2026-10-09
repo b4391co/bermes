@@ -1,3 +1,15 @@
+## Release 0.1.58 (2026-10-08)
+
+### fix: iconos reales en el menú `@` y mención a bots de CUALQUIER gateway
+
+- **Menú `@` con el icono del bot**: el menú pintaba la primera letra en un
+  círculo genérico. Ahora usa el avatar real (el del bot: Desktop/blob/imagen)
+  igual que la lista y el chat.
+- **Mencionar bots de otros gateways**: los miembros del espejo persistidos
+  por el canal antiguo no llevaban título (o lo llevaban vacío) y sus turnos
+  sólo resolvían en la conexión principal. El título canónico ahora se toma
+  de la fila del bot por (conexión, perfil) — `@Bernardino` (Boneca) o
+  `@Richard` (Fixer) entregan su turno en SU gateway.
 ## Release 0.1.57 (2026-10-08)
 
 ### fix: el menú del `@` ya abre en TODOS los chats (era un guard del guard)

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../design/tokens.dart';
+import '../app_shell.dart' show BotAvatar;
 
 /// Mención de un miembro en el autocompletado `@` del grupo.
 class MentionCandidate {
@@ -43,20 +44,15 @@ class MentionMenu extends StatelessWidget {
             ListTile(
               dense: true,
               visualDensity: const VisualDensity(vertical: -1),
-              leading: CircleAvatar(
-                radius: 14,
-                backgroundColor: cs.primaryContainer,
-                foregroundImage: c.avatarUrl == null
-                    ? null
-                    : NetworkImage(c.avatarUrl!),
-                child: Text(
-                  c.name.characters.take(1).toString().toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: cs.onPrimaryContainer,
-                  ),
-                ),
+              // El icono REAL del bot (avatar de Hermes Desktop / blob /
+              // imagen), no la inicial suelta: mismo BotAvatar que en la
+              // lista y el chat.
+              leading: BotAvatar(
+                seed: c.name,
+                label: c.name,
+                size: 28,
+                imageUrl: c.avatarUrl,
+                avatarMetaJson: c.avatarMeta,
               ),
               title: Text('@${c.name}'),
               onTap: () => onPick(c),
