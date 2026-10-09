@@ -1,3 +1,12 @@
+## Release 0.1.63 (2026-10-09)
+
+### fix: el menú `@` ofrece «todos» y el espejo hosted usa handles reales
+
+- «@todos» como PRIMER candidato del autocompletado (además del alias del
+  motor de 0.1.62).
+- Confirmado en vivo: `@everyone`/`@all` en salas hosted los expande el
+  PROPIO gateway (IGL contestaron default Y parker) — sin fan-out local,
+  para no duplicar turnos.
 ## Release 0.1.62 (2026-10-09)
 
 ### fix: `@todos` en español, perfil `default` mencionable, handles de Desktop

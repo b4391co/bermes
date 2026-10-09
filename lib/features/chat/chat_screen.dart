@@ -1679,6 +1679,10 @@ class _ChatScreenState extends State<ChatScreen> {
       _groupPendingThreadId = threadId;
       _groupPendingRoomId = roomId;
       _groupPendingText = text;
+      // `@todos`/`@everyone`/`@all` en sala hosted: el backend del gateway
+      // SÍ lo expande (verificado en vivo: `@everyone` en IGL hizo responder
+      // a default Y a parker; `driver_started=true`). Nada de fan-out local
+      // — duplicaría cada turno del bot.
       final r = await client.send(
         roomId,
         text,
@@ -2699,7 +2703,14 @@ class _ChatScreenState extends State<ChatScreen> {
     // ÉSTA era la causa del «no autocompleta»: el guard exigía candidatos de
     // SALA (que sólo se cargan en grupos) — en un chat 1:1 el menú jamás
     // abría. El roster completo va aparte: decide la lista FUSIONADA.
-    final all = [..._mentionCandidates, ..._rosterCandidates];
+    final all = [
+      // «@todos» siempre disponible: dispara a todos los bots (y a los
+      // miembros de la sala hosted por el gateway).
+      if (_rosterCandidates.isNotEmpty || _mentionCandidates.isNotEmpty)
+        const MentionCandidate(name: 'todos', label: 'todos'),
+      ..._mentionCandidates,
+      ..._rosterCandidates,
+    ];
     final start = MentionToken.mentionStart(_input.text, caret);
     if (start == null || all.isEmpty || !_focus.hasFocus) {
       _setMention(open: false);
