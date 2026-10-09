@@ -89,10 +89,35 @@ Future<GroupRepairResult> repairGroupRoom({
       lastError = 'gateway ${runtime.profile.name}: $e';
       continue;
     }
-    final locals = [
-      for (final m in members)
-        if (m['name'] != null && localProfiles.contains(m['name'])) m,
-    ];
+    // Locales = miembros cuyo descriptor apunta a ESTE gateway (o no apunta a
+    // ninguno → legacies del mismo host). El mismo PERFIL puede aparecer
+    // varias veces en el espejo (`default` en This Webapp y en
+    // Z03_Bernardino): la sala hosted sólo admite un miembro por perfil del
+    // anfitrión (5111 «member profiles must be unique»), así que se DEDUPEA
+    // por perfil — el descriptor de este gateway manda; sin dedupe, la
+    // reparación fallaba siempre y el grupo fantasma quedaba muerto
+    // («no deja escribir»).
+    final connIsLocal = connId == conv.connectionId;
+    final localsByProfile = <String, Map<String, Object?>>{};
+    for (final m in members) {
+      final profile = m['name'] as String?;
+      if (profile == null || !localProfiles.contains(profile)) continue;
+      final desc = ((m['connectionId'] ?? m['connectionLabel'] ?? '') as String)
+          .toLowerCase();
+      final own = desc.isEmpty ||
+          desc == connId.toLowerCase() ||
+          desc == 'local' ||
+          desc == runtime.profile.name.toLowerCase() ||
+          (connIsLocal && (desc == 'local' || desc.isEmpty));
+      final prior = localsByProfile[profile];
+      if (own || prior == null) {
+        // preferir el propio de este gateway: si ya había uno propio y llega
+        // un ajeno, no se pisa.
+        if (prior != null && !own) continue;
+        localsByProfile[profile] = m;
+      }
+    }
+    final locals = localsByProfile.values.toList();
     if (locals.length < 2) continue;
 
     final rows = [

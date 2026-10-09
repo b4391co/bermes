@@ -49,11 +49,12 @@ class GroupTurnEngine {
   /// display_name y sus formas colapsadas; `@everyone`/`@all` = todos;
   /// `@user` se ignora (es el humano).
   ///
-  /// [members] = lista de (profile, títulos visibles). Devuelve perfiles
-  /// mencionados (vacío ⇒ el llamador decide: todos o nadie).
+  /// [members] = lista de (profile, títulos visibles) + [handles] opcionales
+  /// (el `handle`/portable del espejo: `hermes-this-webapp`). Devuelve
+  /// perfiles mencionados (vacío ⇒ el llamador decide: todos o nadie).
   static ({Set<String> mentioned, bool everyone}) parseMentions(
     String text,
-    List<({String profile, List<String> titles})> members,
+    List<({String profile, List<String> titles, String? handle})> members,
   ) {
     final source = text.toLowerCase();
     final mentioned = <String>{};
@@ -68,6 +69,14 @@ class GroupTurnEngine {
         final first = t.trim().toLowerCase().split(RegExp(r'\s+')).first;
         if (first.isNotEmpty) forms.add(first);
       }
+      // 0.1.61: en grupos espejo multi-gateway el usuario escribe el NOMBRE
+      // visible (`@CLAUDIO`, `@Boneca`) — y ése es, de hecho, el `handle`
+      // canónico de Desktop (`RelayAgentRow.handle`, el que el motor de
+      // turnos de sala hosted enruta). Se registran SUS formas: sin esto el
+      // `@` de la UI no coincidía con nada y "las menciones sólo van en
+      // claudio" (donde el título bate con el nombre de gateway por suerte).
+      final h = m.handle?.trim() ?? '';
+      if (h.isNotEmpty) forms.addAll(mentionForms(h));
       for (final f in forms) {
         if (f.isNotEmpty) handles[f] = m.profile;
       }
@@ -157,7 +166,10 @@ class GroupMemberTurn {
 Future<List<GroupMemberTurn>> startMentionTurns({
   required String groupName,
   required String userText,
-  required List<({String profile, String title, String connectionId})> members,
+  required List<
+    ({String profile, String title, String connectionId, String? handle})
+  >
+  members,
   required List<String> transcriptLines, // ya formateadas
   required ConnectionManager connections,
   required void Function(GroupMemberTurn turn) onTurn,
@@ -165,7 +177,10 @@ Future<List<GroupMemberTurn>> startMentionTurns({
   final engine = GroupTurnEngine();
   final parsed = GroupTurnEngine.parseMentions(
     userText,
-    [for (final m in members) (profile: m.profile, titles: [m.title])],
+    [
+      for (final m in members)
+        (profile: m.profile, titles: [m.title], handle: m.handle),
+    ],
   );
   final targets = parsed.everyone || parsed.mentioned.isEmpty
       ? members

@@ -1,15 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:shelf/shelf.dart' as shelf;
-import 'package:shelf/shelf_io.dart' as shelf_io;
-import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_flutter_android/webview_flutter_android.dart';
 
+import '../../clients/hermes/rfb_client.dart';
 import '../../design/tokens.dart';
 import 'screen_controller.dart';
+import 'screen_viewer.dart';
 
 import '../../clients/hermes/rpc_types.dart';
 
@@ -23,8 +19,16 @@ String buildDisplayWsUrl(String httpBaseUrl, String path, String ticket) {
   return '$base$path?display_ticket=${Uri.encodeQueryComponent(ticket)}';
 }
 
-/// Visor Screen del bot: RFB (VNC) sobre el WebSocket del gateway, con los
-/// controles de lease de Hermes Desktop (Observar / Tomar control / Devolver).
+/// Visor Screen del bot: RFB (VNC) NATIVO sobre el WebSocket del gateway
+/// (`HermesRfbClient`), con los controles de lease de Hermes Desktop
+/// (Observar / Tomar control / Devolver).
+///
+/// 0.1.61 — adiós al WebView+noVNC. El pipeline viejo (WebView → servercito
+/// shelf de loopback → bundle JS de noVNC → bridge) nunca llegaba a conectar
+/// en el móvil — «el modo escritorio no va» repetido del usuario. El cliente
+/// RFB nativo está PROBADO contra el gateway real (handshake 3.8 →
+/// SecurityNone → SetPixelFormat/Encodings → FramebufferUpdate; 1440x900 con
+/// frames y control por lease). `assets/screen/*` queda fuera de la ruta.
 class ScreenView extends StatefulWidget {
   final ScreenController controller;
   final String botTitle;
@@ -56,17 +60,18 @@ class ScreenView extends StatefulWidget {
 enum ScreenViewMode { full, pane }
 
 class _ScreenViewState extends State<ScreenView> {
-  late final WebViewController _web;
   final _statusKey = GlobalKey<_ScreenStateBadgeState>();
 
   StreamSubscription<ScreenStatus>? _statusSub;
-  StreamSubscription<Map<String, Object?>>? _eventSub;
   StreamSubscription<GatewayEvent>? _installLogSub;
   StreamSubscription<ServerRequest>? _sudoSub;
   final List<String> _installLog = <String>[];
   bool _installing = false;
   String _message = 'Preparando escritorio…';
-  bool _viewerReady = false;
+
+  /// Cliente RFB nativo + su suscripción de estados (4000 → re-observar).
+  HermesRfbClient? _rfb;
+  StreamSubscription<RfbState>? _rfbSub;
 
   /// El visor controla (lease humano) → teclado/ratón vivos; si no, view-only.
   bool _controlling = false;
@@ -75,41 +80,20 @@ class _ScreenViewState extends State<ScreenView> {
   @override
   void initState() {
     super.initState();
-    _web = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel(
-        'ScreenBridge',
-        onMessageReceived: (m) =>
-            widget.controller.handleViewerEvent(m.message),
-      )
-      ..setBackgroundColor(Colors.black)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onProgress: (p) {
-            if (p >= 100) setState(() => _viewerReady = true);
-          },
-          onWebResourceError: (e) {
-            if (!mounted) return;
-            setState(() => _message = 'Error del visor: ${e.description}');
-          },
-        ),
-      );
-    // Android: sin gestos nativos (el canvas de noVNC se los come) y zoom
-    // desactivado; el resto de plataformas usa los defaults.
-    final platform = _web.platform;
-    if (platform is AndroidWebViewController) {
-      platform.setMediaPlaybackRequiresUserGesture(false);
-    }
-    unawaited(_loadViewer());
+    unawaited(_boot());
 
     _statusSub = widget.controller.changes.listen((s) {
       if (!mounted) return;
-      setState(() {});
-      if (!s.running) {
-        setState(() => _message = _messageFor(s));
-      }
+      // El lease puede haber cambiado fuera (takeover por el bot, expiración,
+      // otro cliente): el modo de input del visor SIGUE al gateway, no a un
+      // toggle local que se quedaba desincronizado (el «Tomar control» vieja
+      // escuela: badge verde sin lease real → toques ignorados).
+      final human = s.humanControls;
+      setState(() {
+        _controlling = human;
+        if (!s.running) _message = _messageFor(s);
+      });
     });
-    _eventSub = widget.controller.viewerEvents.listen(_onViewerEvent);
     // Eventos globales de instalación (display.install.log/done) + el
     // server-request de sudo que el gateway dirige a ESTA conexión.
     _installLogSub = widget.controller.runtime.gateway.events.listen((ev) {
@@ -144,7 +128,7 @@ class _ScreenViewState extends State<ScreenView> {
       if (sr.method != 'display.install.sudo') return;
       _askSudoPassword(sr);
     });
-    unawaited(_boot());
+    unawaited(_startViewer());
   }
 
   Future<void> _askSudoPassword(ServerRequest sr) async {
@@ -170,8 +154,21 @@ class _ScreenViewState extends State<ScreenView> {
       if (!mounted) return;
       setState(() => _message = _messageFor(st));
       if (st.state == 'stopped' || st.state == 'error') {
-        // No se arranca el escritorio por sorpresa: el usuario decide
-        // (recursos del host). El botón Iniciar está en la barra.
+        // 0.1.61: ABRIR el panel Screen es una orden clara de ver el
+        // escritorio. Antes Pocket se quedaba pasmado en «El escritorio del
+        // bot está parado» hasta que el usuario pulsaba Iniciar — y no
+        // arrancaba («el modo escritorio no va»). Ahora se arranca SOLO (el
+        // gateway decide recursos; needsInstall sigue con su flujo de
+        // instalación explícito) y se espera a `running` con progreso.
+        if (st.state == 'stopped' && !st.needsInstall && !st.unsupported) {
+          if (mounted) setState(() => _message = 'Iniciando el escritorio…');
+          try {
+            await widget.controller.start();
+          } catch (_) {}
+          if (!mounted) return;
+          if (await _awaitRunning()) await _startViewer();
+          return;
+        }
         return;
       }
       if (st.needsInstall) return;
@@ -181,67 +178,23 @@ class _ScreenViewState extends State<ScreenView> {
     }
   }
 
-  /// Servir el visor por http local: `index.html` importa
-  /// `novnc.bundle.js` como módulo ES y Chromium bloquea los módulos
-  /// cargados por `file://` (CORS: origin 'null'). Se levanta un servidor
-  /// shelf en un puerto libre de loopback, se sirve la carpeta de assets y
-  /// se carga desde ahí. El WS del gateway se abre igual (origen http ≠
-  /// origen file: los gateways reales ya lo manejan — noVNC nunca negoció
-  /// subprotocolos, ver hermes-map §6).
-  HttpServer? _viewerServer;
-  final Map<String, Uint8List> _viewerCache = {};
-
-  Future<Uint8List?> _viewerAsset(String key) async {
-    return _viewerCache[key] ??= (await rootBundle.load(
-      key,
-    )).buffer.asUint8List();
-  }
-
-  Future<void> _loadViewer() async {
-    try {
-      _viewerServer ??= await shelf_io.serve(
-        (shelf.Request req) async {
-          final seg = req.url.pathSegments.last;
-          final body =
-              await _viewerAsset('assets/screen/$seg') ??
-              await _viewerAsset('assets/screen/index.html');
-          if (body == null) return shelf.Response.notFound('no viewer');
-          return shelf.Response.ok(
-            body,
-            headers: {
-              'Content-Type': seg.endsWith('.js')
-                  ? 'text/javascript'
-                  : 'text/html',
-            },
-          );
-        },
-        InternetAddress.loopbackIPv4,
-        0,
-      );
-      final port = _viewerServer!.port;
-      await _web.loadRequest(Uri.parse('http://127.0.0.1:$port/index.html'));
-    } catch (e) {
-      if (mounted) {
-        setState(() => _message = 'No se pudo preparar el visor: $e');
-      }
-    }
-  }
-
-  /// Pedir ticket fresco y abrir la RFB. El ticket es single-use 30 s: se
-  /// observa → se conecta de inmediato.
+  /// Pedir ticket fresco y abrir la RFB NATIVA. El ticket es single-use 30 s:
+  /// se observa → se conecta de inmediato. Cada arranque reemplaza al cliente
+  /// anterior (un takeover cambia de lease → conviene sesión RFB nueva).
   Future<void> _startViewer() async {
     try {
       setState(() => _message = 'Conectando con el escritorio…');
       final obs = await widget.controller.observe();
-      final url = buildDisplayWsUrl(
-        // base HTTP del perfil: el mismo que usa el cliente (sin credenciales).
-        widget.controller.runtime.profile.baseUrl,
-        obs.path,
-        obs.ticket,
-      );
-      await _web.runJavaScript(
-        "window.connectScreen && window.connectScreen(${_json({'wsUrl': url, 'viewOnly': !(widget.controller.status?.humanControls ?? false) && !_controlling})});",
-      );
+      await _teardownRfb();
+      final rfb = HermesRfbClient();
+      _rfb = rfb;
+      _rfbSub = rfb.states.listen(_onRfbState);
+      // buildDisplayWsUrl deja la URL SIN ticket (el cliente lo añade al
+      // conectar; pasar la URL con query duplicaría `display_ticket`).
+      final base = widget.controller.runtime.profile.baseUrl
+          .replaceFirst(RegExp(r'^https'), 'wss')
+          .replaceFirst(RegExp(r'^http'), 'ws');
+      await rfb.connect(wsUrl: '$base${obs.path}', ticket: obs.ticket);
     } on JsonRpcError catch (e) {
       // Gateway sin Bot Screen (display.* no existe: -32601 o «not found»,
       // p. ej. 0.15.0/0.21.4). Decirlo claro; no dejar el visor en blanco.
@@ -261,31 +214,17 @@ class _ScreenViewState extends State<ScreenView> {
     }
   }
 
-  static String _jsonEscape(String s) =>
-      '"${s.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
-
-  static String _json(Map<String, Object?> m) {
-    final parts = m.entries.map((x) {
-      final v = x.value;
-      final encoded = v is String
-          ? _jsonEscape(v)
-          : (v is bool ? v.toString() : 'null');
-      return '"${x.key}": $encoded';
-    });
-    return '{${parts.join(',')}}';
-  }
-
-  void _onViewerEvent(Map<String, Object?> m) {
+  /// Estado del cliente RFB nativo. 4000 = otro cliente tomó el lease
+  /// (display.py): volver a observar sin control. 4001 = el escritorio del
+  /// bot murió. Cualquier corte inesperado ofrece recargar.
+  void _onRfbState(RfbState st) {
     if (!mounted) return;
-    switch (m['event']) {
-      case 'connected':
+    switch (st) {
+      case RfbState.ready:
         setState(() => _message = '');
-      case 'disconnected':
-        final code = m['code'];
-        final reason = m['reason'];
-        if (code == 4000 || reason == 'control-taken') {
-          // El último takeover gana (web_routers/display.py:74-105): volver a
-          // observar con ticket fresco y sin control.
+      case RfbState.disconnected:
+        final code = _rfb?.lastCloseCode;
+        if (code == 4000) {
           setState(() {
             _controlling = false;
             _message = 'Otro cliente tomó el control. Volviendo a observar…';
@@ -301,20 +240,43 @@ class _ScreenViewState extends State<ScreenView> {
             _message = 'El escritorio del bot se detuvo.';
           });
         } else {
-          // Caída de transporte (el close de noVNC no siempre trae code/reason).
-          final why = reason is String && reason.isNotEmpty
-              ? reason
-              : (code is int ? '$code' : 'red');
+          final why = code != null ? '$code' : 'red';
           setState(() {
             _controlling = false;
-            _message = 'Conexión con el escritorio perdida ($why). '
+            _message =
+                'Conexión con el escritorio perdida ($why). '
                 'Pulsa Recargar visor.';
           });
         }
-      case 'credentialsrequired':
-        // El RFB del bot-desktop no pide password (el ticket es la auth).
-        setState(() => _message = 'El visor pidió credenciales inesperadas.');
+      case RfbState.unauthorized:
+        setState(
+          () => _message =
+              'El gateway rechazó el ticket de observación (sesión caducada '
+              'o sin sesión (4401/4403)). Recarga el visor.',
+        );
+      case RfbState.unsupported:
+        setState(
+          () => _message =
+              'El escritorio del bot usa un encoding RFB que Pocket no '
+              'soporta todavía.',
+        );
+      case RfbState.error:
+        setState(
+          () => _message =
+              'Fallo de transporte con el escritorio. Pulsa Recargar visor.',
+        );
+      case RfbState.connecting:
+      case RfbState.handshaking:
+        break;
     }
+  }
+
+  Future<void> _teardownRfb() async {
+    await _rfbSub?.cancel();
+    _rfbSub = null;
+    final r = _rfb;
+    _rfb = null;
+    if (r != null) await r.dispose();
   }
 
   String _messageFor(ScreenStatus s) => switch (s.state) {
@@ -338,21 +300,13 @@ class _ScreenViewState extends State<ScreenView> {
   @override
   void dispose() {
     _statusSub?.cancel();
-    _eventSub?.cancel();
     _installLogSub?.cancel();
     _sudoSub?.cancel();
     // Ocultar el panel NO destruye el escritorio del bot: aquí solo se corta
-    // el WebSocket del visor y se libera el ticket/lease local. Si no se
-    // cierra, la RFB queda abierta y el lease del observador vivo puede
-    // bloquear el takeover del control hasta su expiración.
-    unawaited(
-      _web
-          .runJavaScript(
-            "try { window.disconnectScreen && window.disconnectScreen(); } catch (e) {}",
-          )
-          .catchError((_) {}),
-    );
-    unawaited(_viewerServer?.close(force: true) ?? Future.value());
+    // el WebSocket RFB del visor. Si no se cierra, la sesión queda abierta y
+    // el lease del observador vivo puede bloquear el takeover del control
+    // hasta su expiración.
+    unawaited(_teardownRfb());
     super.dispose();
   }
 
@@ -418,7 +372,14 @@ class _ScreenViewState extends State<ScreenView> {
                   } else {
                     await widget.controller.acquireLease();
                     if (!mounted) return;
-                    setState(() => _controlling = true);
+                    setState(() {
+                      _controlling = true;
+                      _message = '';
+                    });
+                    // El gateway RECHAZA el input sin lease (RfbClientFilter
+                    // → close 4000 si no lo tienes): la sesión RFB vieja es
+                    // view-only en el servidor. Se reconecta con ticket
+                    // fresco para que el control sea REAL.
                     await _startViewer();
                   }
                 }),
@@ -518,7 +479,19 @@ class _ScreenViewState extends State<ScreenView> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        WebViewWidget(controller: _web),
+        if (_rfb != null)
+          ScreenViewer(
+            key: ValueKey(_rfb),
+            client: _rfb!,
+            showBar: false,
+            controlling: humanControls,
+            onBackToWatch: () {
+              // 4000 (control-taken): el padre decide — volver a observar.
+              setState(() => _controlling = false);
+              unawaited(_startViewer());
+            },
+          ),
+        if (_rfb == null) const ColoredBox(color: Colors.black),
         if (_message.isNotEmpty && running && humanControls)
           Align(
             alignment: Alignment.topCenter,
@@ -538,7 +511,7 @@ class _ScreenViewState extends State<ScreenView> {
               ),
             ),
           ),
-        if (_message.isNotEmpty && (!running || !_viewerReady))
+        if (_message.isNotEmpty && !running)
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,

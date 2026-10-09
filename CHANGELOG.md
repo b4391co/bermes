@@ -1,3 +1,37 @@
+## Release 0.1.61 (2026-10-09)
+
+### fix: Screen NATIVO (adiós noVNC), salas fantasma auto-reparadas, menciones cross-gateway
+
+- **Modo escritorio**: el visor WebView+shelf+noVNC nunca conectaba en el
+  móvil. Sustituido por el cliente RFB NATIVO (`HermesRfbClient`), probado
+  end-to-end contra el gateway real: observe→ticket→handshake 3.8→frames
+  1440x900→frames incremental. `assets/screen/` y `shelf` eliminados. Abrir
+  el panel Screen ahora ARRANCA el escritorio si está parado (antes se
+  quedaba en «parado» esperando un botón). El «Tomar control» reconecta la
+  sesión RFB (el gateway ignora el input sin lease real → antes tocabas y no
+  pasaba nada) y el estado sigue al gateway (`display.lease.*`). Close 4000 =
+  otro cliente tomó el control → re-observa solo.
+- **Salas fantasma (IGL/DUO)**: el espejo de Desktop guardaba `room_id` que
+  NINGÚN gateway hospedaba ya (`groups.state/log/send` → 4112/4114 en los 4
+  gateways) → el grupo no listaba miembros y no dejaba escribir. Ahora: (a)
+  al ABRIR, `repairGroupRoom` reconstruye la sala con el MISMO `room_id`
+  (idempotente, verificado: revivió y el bot respondió al turno); (b) si el
+  send devuelve 4112/4114, se repara UNA vez y se reenvía; (c) el dedupe por
+  perfil arreglado — antes «duplicate profile default» mataba la reparación
+  en salas multi-espejo; (d) mientras la sala no resucita, el menú `@` cae
+  honestamente a los handles del espejo.
+- **Menciones cross-gateway**: `GroupTurnEngine.parseMentions` entiende ahora
+  los HANDLES de Desktop (`hermes-z03-bernardino`, `parker-01-casa`) además
+  de títulos/perfiles — antes un miembro cuyo perfil no coincidía con su
+  título era inmencionable. El roster `@` se construye POR FILA DE BOT (dos
+  bots homónimos en gateways distintos = dos candidatos, token propio,
+  desempate por la conexión del chat) y el menú muestra NOMBRE VISIBLE +
+  token cuando difieren (hosted enruta por `@handle`). En chats 1:1, `@X`
+  despacha sólo a los mencionados (Y ya no contesta por reflejo).
+
+Verificado E2E contra 9110/9119 reales: sync multi-conexión → 17 bots →
+mención por handle/título → turno hosted con respuesta «PONG/GHOST-OK» y
+turno espejo cross-gateway con respuesta. 122 tests + analyzer limpio.
 ## Release 0.1.60 (2026-10-08)
 
 ### fix: al guardar/probar una conexión se sincronizaban CERO grupos

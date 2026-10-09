@@ -33,6 +33,13 @@ class HermesRfbClient {
   final _frame = StreamController<RfbFrame>.broadcast();
   final _state = StreamController<RfbState>.broadcast();
 
+  /// Close code del WS cuando el servidor corta la sesión RFB: 4000 =
+  /// control-taken (otro cliente tomó el lease), 4001 = desktop gone, 4401 =
+  /// ticket inválido, 4403 = permiso. La UI lo traduce y decide
+  /// (reobservar / avisar). null = cierre normal.
+  int? lastCloseCode;
+  String? lastCloseReason;
+
   int get width => _width;
   int get height => _height;
   String get name => _name;
@@ -63,6 +70,10 @@ class HermesRfbClient {
       },
       onDone: () {
         _connected = false;
+        try {
+          lastCloseCode = _ws?.closeCode;
+          lastCloseReason = _ws?.closeReason;
+        } catch (_) {}
         _state.add(RfbState.disconnected);
       },
     );

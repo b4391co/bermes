@@ -5,38 +5,38 @@ void main() {
   group('parseMentions (espejo de group-rounds.ts)', () {
     test('mención por título Bot Mode y display_name', () {
       final r = GroupTurnEngine.parseMentions('oye @Aura revisa esto', [
-        (profile: 'default', titles: ['Aura']),
-        (profile: 'parker', titles: ['Parker']),
+        (handle: null, profile: 'default', titles: ['Aura']),
+        (handle: null, profile: 'parker', titles: ['Parker']),
       ]);
       expect(r.everyone, isFalse);
       expect(r.mentioned, {'default'});
     });
     test('forma colapsada sin espacios y case-insensitive', () {
       final r = GroupTurnEngine.parseMentions('pásaselo a @ResearchBuddy', [
-        (profile: 'analyst', titles: ['Research Buddy']),
+        (handle: null, profile: 'analyst', titles: ['Research Buddy']),
       ]);
       expect(r.mentioned, {'analyst'});
     });
     test('@everyone y @all marcan todos (sin perfiles)', () {
       final r1 = GroupTurnEngine.parseMentions('@everyone al tajo', [
-        (profile: 'a', titles: ['A']),
+        (handle: null, profile: 'a', titles: ['A']),
       ]);
       expect(r1.everyone, isTrue);
       final r2 = GroupTurnEngine.parseMentions('@ALL', [
-        (profile: 'a', titles: ['A']),
+        (handle: null, profile: 'a', titles: ['A']),
       ]);
       expect(r2.everyone, isTrue);
     });
     test('@user no menciona a nadie', () {
       final r = GroupTurnEngine.parseMentions('@user oye', [
-        (profile: 'a', titles: ['A']),
+        (handle: null, profile: 'a', titles: ['A']),
       ]);
       expect(r.everyone, isFalse);
       expect(r.mentioned, isEmpty);
     });
     test('sin menciones: vacío (el llamador decide)', () {
       final r = GroupTurnEngine.parseMentions('hola a todos', [
-        (profile: 'a', titles: ['A']),
+        (handle: null, profile: 'a', titles: ['A']),
       ]);
       expect(r.mentioned, isEmpty);
       expect(r.everyone, isFalse);
@@ -45,7 +45,7 @@ void main() {
       // 'default' es reservado: sus formas no se registran; un bot renombrado
       // 'Aura' sigue respondiendo por su título.
       final r = GroupTurnEngine.parseMentions('@default @Aura', [
-        (profile: 'default', titles: ['Aura']),
+        (handle: null, profile: 'default', titles: ['Aura']),
       ]);
       expect(r.mentioned, {'default'});
     });
@@ -91,5 +91,36 @@ void main() {
       expect(line, isNot(contains('[System note]')));
       expect(line, contains('[member-quoted '));
     });
+  });
+  test('0.1.61: @ por el NOMBRE VISIBLE de otro gateway (handle) resuelve', () {
+    // Miembros espejo: perfil `default` en claudio (título CLAUDIO, handle
+    // `hermes-claudio`) y `default` en boneca (título Boneca, handle
+    // `hermes-this-webapp`). El usuario escribe @Boneca — ANTES de 0.1.61
+    // sólo resolvía el perfil/título y las menciones cross-gateway caían.
+    final r = GroupTurnEngine.parseMentions('@Boneca mira esto', [
+      (
+        profile: 'default',
+        titles: ['CLAUDIO'],
+        handle: 'hermes-claudio',
+      ),
+      (
+        profile: 'default',
+        titles: ['Boneca'],
+        handle: 'hermes-this-webapp',
+      ),
+    ]);
+    expect(r.mentioned.contains('default'), isTrue,
+        reason: '@Boneca debe resolver al perfil default por su handle');
+  });
+
+  test('0.1.61: @por-handle directo resuelve (grupos hosted)', () {
+    final r = GroupTurnEngine.parseMentions('@hermes-z03-bernardino responde', [
+      (
+        profile: 'default',
+        titles: ['Bernardino'],
+        handle: 'hermes-z03-bernardino',
+      ),
+    ]);
+    expect(r.mentioned, {'default'});
   });
 }

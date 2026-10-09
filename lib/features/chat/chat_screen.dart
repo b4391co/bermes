@@ -174,6 +174,7 @@ class _ChatScreenState extends State<ChatScreen> {
     };
     if (!mounted) return;
     setState(() {
+      _allBotRows = botRows;
       _botAvatars = {
         // TODOS los bots con título (no sólo los con meta de avatar): la
         // fuente alimenta el menú `@` — un bot sin avatar personalizado
@@ -300,9 +301,20 @@ class _ChatScreenState extends State<ChatScreen> {
   List<MentionCandidate> _rosterCandidates = const [];
 
   void _loadRosterCandidates() {
+    // Una entrada por FILA DE BOT (todas las conexiones): dos bots con el
+    // MISMO nombre visible en gateways distintos son candidatos DISTINTOS —
+    // el menú los distingue por su token (perfil/handle) y el motor resuelve
+    // la conexión al despachar (preferencia por la del chat abierto).
+    final seen = <String>{};
     _rosterCandidates = [
-      for (final e in _botAvatars.entries)
-        MentionCandidate(name: e.key, avatarMeta: e.value.$1, avatarUrl: e.value.$2),
+      for (final r in _allBotRows)
+        if (r.title.isNotEmpty && seen.add('${r.connectionId}/${r.gatewayId}'))
+          MentionCandidate(
+            name: r.gatewayId,
+            label: r.title,
+            avatarMeta: r.botAvatarMeta,
+            avatarUrl: r.avatarUrl,
+          ),
     ];
   }
 
@@ -389,29 +401,9 @@ class _ChatScreenState extends State<ChatScreen> {
       // Sala sin roomId (clave `name:` del espejo): el gateway NO la hospeda
       // (groups.state → 4112) — los miembros vienen del espejo, persistidos
       // por syncGroupMirrors en groupMembersJson.
-      final raw = _conversation?.groupMembersJson;
-      if (raw == null || raw.isEmpty) return;
-      final bots = [
-        for (final m in (jsonDecode(raw) as List).whereType<Map>())
-          // El mencionable es lo que el gateway escucha: el handle
-          // (`RelayAgentRow.handle`); con homónimos entre gateways el handle
-          // lleva el sufijo del origen (default-boneca / default-claudio).
-          (m.cast<String, Object?>())['title'] ??
-              (m.cast<String, Object?>())['display_name'] ??
-              (m.cast<String, Object?>())['handle'] ??
-              (m.cast<String, Object?>())['name'],
-      ].whereType<String>().toList();
-      if (mounted) {
-        setState(() {
-          _mentionCandidates = [
-            for (final name in bots)
-              MentionCandidate(
-                name: name,
-                avatarMeta: _botAvatars[name]?.$1,
-                avatarUrl: _botAvatars[name]?.$2,
-              ),
-          ];
-        });
+      final out2 = _mirrorCandidatesFromJson(_conversation?.groupMembersJson);
+      if (mounted && out2.isNotEmpty) {
+        setState(() => _mentionCandidates = out2);
       }
       return;
     }
@@ -428,31 +420,67 @@ class _ChatScreenState extends State<ChatScreen> {
         await gw.readyOrTimeout(const Duration(seconds: 30));
         final room = await client.roomState(roomId);
         if (room == null) return;
-        final names = <String>{
-          for (final m in room.members) m.handle ?? m.profile ?? m.displayName ?? '',
-        }..remove('');
-        // Espejo persistido (handles con sufijo de origen) — no se descarta.
+        // Token que enruta el gateway + nombre VISIBLE del bot. `room.members`
+        // del hosted trae handle/profile/display_name crudos (p. ej.
+        // `hermes-this-webapp`, `default`): se inserta ése y se pinta el
+        // título de la fila del bot si lo hay (Boneca, CLAUDIO…).
+        final candByName = <String, MentionCandidate>{};
+        MentionCandidate cand(String token, {String? guessTitle}) {
+          final row = _botRowFor(token);
+          final label =
+              (row?.title.isNotEmpty ?? false) ? row!.title : (guessTitle ?? token);
+          return MentionCandidate(
+            name: token,
+            label: label,
+            avatarMeta: row != null ? row.botAvatarMeta : _botAvatars[label]?.$1,
+            avatarUrl: row != null ? row.avatarUrl : _botAvatars[label]?.$2,
+          );
+        }
+        for (final m in room.members) {
+          final token = m.handle ?? m.profile ?? m.displayName ?? '';
+          if (token.isEmpty) continue;
+          candByName[token] = cand(token, guessTitle: m.displayName);
+        }
+        // Espejo persistido (handles con sufijo de origen) — no se descarta:
+        // un miembro cross-gateway puede no estar en roomState del dueño.
         final raw = _conversation?.groupMembersJson;
         if (raw != null && raw.isNotEmpty) {
           try {
             for (final m in (jsonDecode(raw) as List).whereType<Map>()) {
-              final h =
+              final token =
                   m['handle'] ?? m['display_name'] ?? m['title'] ?? m['name'];
-              if (h is String && h.isNotEmpty) names.add(h);
+              if (token is String && token.isNotEmpty) {
+                candByName.putIfAbsent(
+                  token,
+                  () => cand(token, guessTitle: m['display_name'] as String?),
+                );
+              }
             }
           } catch (_) {
             // JSON corrupto: sólo los del gateway.
           }
         }
-        out = [
-          for (final name in names)
-            MentionCandidate(
-              name: name,
-              avatarMeta: _botAvatars[name]?.$1,
-              avatarUrl: _botAvatars[name]?.$2,
-            ),
-        ];
+        out = candByName.values.toList();
         if (out.isNotEmpty) break;
+      } on JsonRpcError catch (e) {
+        // 0.1.61 SALA FANTASMA: roomId en el espejo pero NINGÚN gateway la
+        // hospeda ya (grupos.state/log → 4112/4114, verificado contra los 4
+        // gateways reales: IGL/DUO tienen room_id muerta). Reintentar es
+        // inútil y el menú `@` de la sala quedaba VACÍO («no me lista a los
+        // miembros»). Se cae al espejo persistido — con el NOMBRE VISIBLE en
+        // primera posición: los handles del espejo (`hermes-this-webapp`,
+        // `parker-01-casa`) no son lo que Pocket inserta al elegir.
+        if (e.code == 4112 || e.code == 4114) {
+          // Los candidatos del espejo son perfiles (`default`, `parker`) que
+          // en un sala multi-gateway NO desambiguan. Se reconvierten a los
+          // TOKENS de handle del espejo (`hermes-this-webapp`) con etiqueta
+          // amigable — los que el motor de turnos y el gateway entienden.
+          final tokens = _mirrorHandleCandidates(_conversation);
+          if (!mounted) return;
+          setState(() => _mentionCandidates = tokens);
+          return;
+        }
+        // Otro error RPC: reintentar en la próxima transición a ready.
       } catch (_) {
         // enlace no ready / gateway sin groups.*: reintentar en la próxima
         // transición a ready; si nunca llega, sin autocompletado (el texto
@@ -466,6 +494,114 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     if (!mounted) return;
     setState(() => _mentionCandidates = out);
+  }
+
+  /// Candidatos `@` desde el espejo persistido de una sala (miembros crudos
+  /// de Desktop/Pocket). PRIORIZA EL NOMBRE VISIBLE — `title`/`display_name`
+  /// — que es lo que `GroupTurnEngine.parseMentions` entiende y lo que el
+  /// usuario ve en la lista de bots; `handle`/`name` sólo de relleno si no
+  /// hay título (un `default` a secas no desambigua entre gateways, pero es
+  /// mejor que nada y el motor lo resuelve por su fila).
+  List<MentionCandidate> _mirrorCandidatesFromJson(String? raw) {
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final names = <String>{
+        for (final m in (jsonDecode(raw) as List).whereType<Map>())
+          for (final k in <String?>[
+            m['title'],
+            m['display_name'],
+            m['handle'],
+            m['name'],
+          ])
+            if (k is String && k.isNotEmpty) k,
+      };
+      names.remove('');
+      return [
+        for (final name in names)
+          MentionCandidate(
+            name: name,
+            avatarMeta: _botAvatars[name]?.$1,
+            avatarUrl: _botAvatars[name]?.$2,
+          ),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Fila de bot para un token de mención (handle `default-boneca`, perfil
+  /// `default`, o título visible). Homónimos entre gateways: el handle con
+  /// sufijo manda; si no, título único; si nada encaja, null (el llamador
+  /// pinta el token crudo — nunca una cara equivocada).
+  db.Conversation? _botRowFor(String token) {
+    final lower = token.toLowerCase();
+    for (final r in _allBotRows) {
+      final h = r.gatewayId.toLowerCase();
+      if (h == lower || r.title.toLowerCase() == lower) return r;
+      final seed = r.avatarSeed?.toLowerCase();
+      if (seed != null && seed.endsWith('/$lower')) return r;
+    }
+    return null;
+  }
+
+  List<db.Conversation> _allBotRows = const [];
+
+  /// Candidatos para una sala que su gateway ya no hospeda: los MIEMBROS del
+  /// espejo, pero en la forma que responde — el handle/portable del miembro
+  /// (`hermes-this-webapp`) o su perfil, y como etiqueta el nombre visible.
+  /// Devuelve también las caras (meta/avatar) cuando la fila del bot bate.
+  List<MentionCandidate> _mirrorHandleCandidates(db.Conversation? conv) {
+    final raw = conv?.groupMembersJson;
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final out = <MentionCandidate>[];
+      for (final m in (jsonDecode(raw) as List).whereType<Map>()) {
+        final profile = ((m['name'] ?? m['handle'] ?? '') as String).trim();
+        if (profile.isEmpty) continue;
+        final handle = ((m['handle'] ?? '') as String).trim();
+        final token = handle.isNotEmpty ? handle : profile;
+        // Etiqueta: título del bot en SU conexión (fila kind=bot cuyo
+        // gatewayId = perfil y que el descriptor apunta por
+        // connectionId/label) o el título del miembro; nunca `default` seco.
+        String label = ((m['title'] ?? m['display_name'] ?? '') as String).trim();
+        db.Conversation? row;
+        for (final r in _allBotRows) {
+          if (r.gatewayId != profile) continue;
+          final cid = (m['connectionId'] ?? '') as String;
+          final inst = (m['installId'] ?? '') as String;
+          if (cid.isNotEmpty && (cid == r.connectionId || cid == r.gatewayLabel)) {
+            row = r;
+            break;
+          }
+          if (inst.isNotEmpty && _installIdToConn[inst] == r.connectionId) {
+            row = r;
+            break;
+          }
+          if (label.isEmpty || label == profile) row ??= r;
+        }
+        if (row != null) {
+          if (label.isEmpty) label = row.title;
+          out.add(
+            MentionCandidate(
+              name: token,
+              label: label.isEmpty ? token : label,
+              avatarMeta: row.botAvatarMeta,
+              avatarUrl: row.avatarUrl,
+            ),
+          );
+        } else {
+          out.add(
+            MentionCandidate(
+              name: token,
+              label: label.isEmpty ? token : label,
+            ),
+          );
+        }
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
   }
 
   /// Carga `groups.log` con reintentos anclados a las transiciones del
@@ -1017,6 +1153,7 @@ class _ChatScreenState extends State<ChatScreen> {
   /// server-side (hosted_rooms: mismo event_id + mismo contenido = mismo
   /// evento). Si el usuario reescribe el texto, la clave cambia y es un
   /// mensaje nuevo.
+  bool _ghostRepairTried = false;
   String? _groupPendingEventId;
   String? _groupPendingThreadId;
   String? _groupPendingRoomId;
@@ -1114,31 +1251,66 @@ class _ChatScreenState extends State<ChatScreen> {
   }) async {
     if (chatConv == null || chatConv.kind != 'bot') return;
     if (_rosterCandidates.isEmpty) return;
-    final current = chatConv.title;
     final parsed = GroupTurnEngine.parseMentions(text, [
-      for (final c in _rosterCandidates) (profile: c.name, titles: [c.name]),
+      for (final c in _rosterCandidates) (profile: c.name, titles: [c.display], handle: c.name == c.display ? null : c.name),
     ]);
     if (parsed.mentioned.isEmpty && !parsed.everyone) return;
-    final others = [
-      for (final c in _rosterCandidates)
-        if (c.name != current) c,
-    ];
-    if (others.isEmpty) return;
+    // Los MENCIONADOS (o todos con `@todos`), no el roster entero: antes se
+    // despachaba a todos los bots por igual y un `@X` en el chat de Y hacía
+    // que Y contestara también (ruido). El chat actual SÍ entra si el usuario
+    // lo nombra.
+    final targets = parsed.everyone
+        ? _rosterCandidates
+        : [
+            for (final c in _rosterCandidates)
+              if (parsed.mentioned.contains(c.name)) c,
+          ];
+    if (targets.isEmpty) return;
     // Resuelve (perfil, conexión) de cada bot del roster por su fila kind=bot
     // (título → fila): profile = gatewayId, conexión = connectionId.
-    final db = AppServices.db;
-    final rows = await (db.select(
-      db.conversations,
+    final dbb = AppServices.db;
+    final rows = await (dbb.select(
+      dbb.conversations,
     )..where((c) => c.kind.equals('bot'))).get();
-    final byTitle = {for (final r in rows) r.title: r};
-    final members = <({String profile, String title, String connectionId})>[];
-    for (final c in others) {
-      final r = byTitle[c.name];
+    // Índice por TÍTULO visible. Homónimos exactos (dos bots llamados igual
+    // en gateways distintos — p. ej. `default` sin título en varios): se
+    // guardan TODOS y la resolución elige por orden de fiabilidad: la
+    // conexión del chat actual primero, luego cualquier otra VIVA.
+    final byTitle = <String, List<db.Conversation>>{};
+    for (final r in rows) {
+      byTitle.putIfAbsent(r.title, () => []).add(r);
+    }
+    db.Conversation? resolveRow(String title, {String? preferConnId}) {
+      final cands = byTitle[title];
+      if (cands == null || cands.isEmpty) return null;
+      if (cands.length == 1) return cands.first;
+      final own = preferConnId == null
+          ? const <db.Conversation>[]
+          : cands.where((r) => r.connectionId == preferConnId).toList();
+      if (own.isNotEmpty) return own.first;
+      final live = cands
+          .where(
+            (r) => AppServices.connections.runtimeFor(r.connectionId) != null,
+          )
+          .toList();
+      return live.isNotEmpty ? live.first : cands.first;
+    }
+    final members = <({
+      String profile,
+      String title,
+      String connectionId,
+      String? handle,
+    })>[];
+    for (final c in targets) {
+      final r =
+          resolveRow(c.display, preferConnId: chatConv.connectionId) ??
+          resolveRow(c.name, preferConnId: chatConv.connectionId);
       if (r == null) continue;
       members.add((
         profile: r.gatewayId,
         title: r.title,
         connectionId: r.connectionId,
+        handle: null,
       ));
     }
     if (members.isEmpty) return;
@@ -1213,7 +1385,12 @@ class _ChatScreenState extends State<ChatScreen> {
     if (conv == null) return;
     // Miembros del espejo → (perfil, título, conexión local resuelta).
     final raw = conv.groupMembersJson;
-    final members = <({String profile, String title, String connectionId})>[];
+    final members = <({
+      String profile,
+      String title,
+      String connectionId,
+      String? handle,
+    })>[];
     // Títulos canónicos por fila de bot ($connId/bot/$perfil): un miembro del
     // espejo persistido SIN título (filas antiguas) sigue resolviéndose por
     // su nombre visible — mencionar bots de CUALQUIER gateway, no sólo el
@@ -1291,7 +1468,17 @@ class _ChatScreenState extends State<ChatScreen> {
           if (title.isEmpty) {
             title = botRowById['$connId/bot/$profile']?.title ?? profile;
           }
-          members.add((profile: profile, title: title, connectionId: connId));
+          members.add((
+            profile: profile,
+            title: title,
+            connectionId: connId,
+            // El handle del espejo (`default-claudio`, `hermes-z03-bernardino`
+            // — lo que Desktop enruta) es la forma canónica del miembro: se
+            // registra para el parse de menciones.
+            handle: ((m['handle'] ?? '') as String).trim().isEmpty
+                ? null
+                : (m['handle'] as String).trim(),
+          ));
         }
       } catch (_) {
         // JSON corrupto: sin miembros no hay a quién entregar.
@@ -1518,6 +1705,31 @@ class _ChatScreenState extends State<ChatScreen> {
       // event_id (misma clave + mismo texto = el mismo mensaje).
       _log.warning('group send failed', e);
       final unauthorized = e is JsonRpcError && (e.code == 4112 || e.code == 4114);
+      // 0.1.61 SALA FANTASMA AUTO-REPARADA: room_id en el espejo que ningún
+      // gateway hospeda ya (verificado: IGL/DUO daban 4114/4112 en los 4
+      // gateways → «no deja escribir»). `groups.create` con el MISMO room_id
+      // y el roster local es idempotente (reparación verificada en vivo: la
+      // sala revivió y el turno del bot respondió). Se repara UNA vez y se
+      // reenvía el MISMO mensaje con la MISMA pareja idempotente.
+      if (unauthorized && !_ghostRepairTried) {
+        _ghostRepairTried = true;
+        _groupPendingEventId = _groupPendingThreadId =
+            _groupPendingRoomId = _groupPendingText = null;
+        final room = conv.groupRoomId ?? conv.gatewayId;
+        if (room.isNotEmpty) {
+          final res = await repairGroupRoom(
+            database: AppServices.db,
+            runtimes: AppServices.connections.runtimes,
+            conv: conv,
+            roomId: room,
+            name: conv.groupSyncName ?? conv.title,
+          );
+          if (res.repaired && mounted) {
+            await _sendGroup(text);
+            return;
+          }
+        }
+      }
       if (unauthorized) {
         _groupPendingEventId = _groupPendingThreadId =
             _groupPendingRoomId = _groupPendingText = null;
@@ -2487,11 +2699,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // ÉSTA era la causa del «no autocompleta»: el guard exigía candidatos de
     // SALA (que sólo se cargan en grupos) — en un chat 1:1 el menú jamás
     // abría. El roster completo va aparte: decide la lista FUSIONADA.
-    final seen = <String>{};
-    final all = [
-      ..._mentionCandidates,
-      ..._rosterCandidates,
-    ].where((m) => seen.add(m.name)).toList(growable: false);
+    final all = [..._mentionCandidates, ..._rosterCandidates];
     final start = MentionToken.mentionStart(_input.text, caret);
     if (start == null || all.isEmpty || !_focus.hasFocus) {
       _setMention(open: false);
@@ -2499,7 +2707,11 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     final query = _input.text.substring(start + 1, caret).toLowerCase();
     final shown = all
-        .where((m) => m.name.toLowerCase().contains(query))
+        .where(
+          (m) =>
+              m.display.toLowerCase().contains(query) ||
+              m.name.toLowerCase().contains(query),
+        )
         .toList(growable: false);
     if (shown.isEmpty) {
       _setMention(open: false);

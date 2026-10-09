@@ -19,10 +19,21 @@ class ScreenViewer extends StatefulWidget {
   final HermesRfbClient client;
   final VoidCallback onBackToWatch;
 
+  /// 0.1.61: modo embebido — el padre (ScreenView) gestiona el lease real
+  /// (`display.lease.acquire/release`) y su propia barra de controles. Con
+  /// [showBar] = false el visor SOLO pinta el lienzo y recibe el estado de
+  /// control por [controlling]; el botón local desaparece (antes era una
+  /// farsa: cambiaba un bool sin tocar el lease → el servidor ignoraba cada
+  /// toque y el usuario veía un escritorio inerte).
+  final bool showBar;
+  final bool controlling;
+
   const ScreenViewer({
     super.key,
     required this.client,
     required this.onBackToWatch,
+    this.showBar = true,
+    this.controlling = false,
   });
 
   @override
@@ -34,6 +45,14 @@ class _ScreenViewerState extends State<ScreenViewer> {
   final FramebufferCanvas _canvas = FramebufferCanvas();
   RfbState _state = RfbState.connecting;
   bool _controlling = false;
+
+  @override
+  void didUpdateWidget(covariant ScreenViewer old) {
+    super.didUpdateWidget(old);
+    if (!widget.showBar && _controlling != widget.controlling) {
+      _controlling = widget.controlling;
+    }
+  }
   int? _lastImageHash;
 
   @override
@@ -135,7 +154,7 @@ class _ScreenViewerState extends State<ScreenViewer> {
       },
       child: Column(
         children: [
-          _statusBar(context, cs),
+          if (widget.showBar) _statusBar(context, cs),
           Expanded(
             child: Stack(
               children: [

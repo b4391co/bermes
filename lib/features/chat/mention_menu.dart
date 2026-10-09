@@ -9,7 +9,21 @@ class MentionCandidate {
   final String? avatarUrl;
   final String? avatarMeta; // JSON hermes-bots.avatar (color/icon)
 
-  const MentionCandidate({required this.name, this.avatarUrl, this.avatarMeta});
+  /// 0.1.61: en salas HOSTED el gateway enruta el turno por el token
+  /// `@<handle>` (`hermes-this-webapp`), no por el título visible. El menú
+  /// debe mostar NOMBRE AMIGABLE e insertar el token que funciona: [label]
+  /// es lo que se pinta; [name] es lo que se inserta. Iguales en espejos
+  /// (ahí el motor de turnos entiende el título).
+  final String label;
+
+  const MentionCandidate({
+    required this.name,
+    this.label = '',
+    this.avatarUrl,
+    this.avatarMeta,
+  });
+
+  String get display => label.isEmpty ? name : label;
 }
 
 /// Menú flotante de menciones: se muestra sobre el composer, anclado a la
@@ -48,13 +62,13 @@ class MentionMenu extends StatelessWidget {
               // imagen), no la inicial suelta: mismo BotAvatar que en la
               // lista y el chat.
               leading: BotAvatar(
-                seed: c.name,
-                label: c.name,
+                seed: c.display,
+                label: c.display,
                 size: 28,
                 imageUrl: c.avatarUrl,
                 avatarMetaJson: c.avatarMeta,
               ),
-              title: Text('@${c.name}'),
+              title: Text(c.name == c.display ? '@${c.display}' : '@${c.display} · ${c.name}'),
               onTap: () => onPick(c),
             ),
         ],
