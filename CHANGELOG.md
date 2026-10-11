@@ -1,3 +1,19 @@
+## Release 0.1.66 (2026-10-11)
+
+### fix: modo escritorio — píxeles visibles, frames en vivo, lease y maximizar
+
+- **Pintar**: el visor nunca llamaba a `rasterize()` → frames RFB llegaban
+  pero la UI se quedaba en «Recibiendo pantalla…» con pantalla negra.
+- **Frames en vivo**: tras cada `FramebufferUpdate` se pide el siguiente
+  incremental (como noVNC); sin eso TigerVNC congelaba el primer frame.
+- **Pseudo-encodings**: Cursor/DesktopSize se consumen bien (antes
+  desincronizaban el stream).
+- **Lease**: «Devolver control» vuelve a ser alcanzable; ocultar el panel
+  suelta el lease (no lo deja colgado).
+- **Observe único**: se elimina el doble `_startViewer` al abrir (ticket
+  single-use invalidado → negro).
+- **Maximizar**: un solo `ScreenView` estable; ya no remonta el RFB.
+
 ## Release 0.1.65 (2026-10-11)
 
 ### fix: menciones (overlay vivo, dedupe, acentos), iconos de grupo tipo Grok, UI/animación

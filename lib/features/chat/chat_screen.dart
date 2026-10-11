@@ -1827,11 +1827,15 @@ class _ChatScreenState extends State<ChatScreen> {
     final conv = _conversation;
     if (conv == null) return;
     if (_screen != null) {
+      // 0.1.66: al OCULTAR el panel hay que soltar el lease (igual que al
+      // salir del chat). Antes sólo dispose → el observation lease seguía
+      // vivo y bloqueaba el takeover hasta expirar (regresión de 0.1.25).
+      final screen = _screen!;
       setState(() {
-        _screen?.dispose();
         _screen = null;
         _screenMaximized = false;
       });
+      unawaited(screen.releaseLease().whenComplete(screen.dispose));
       return;
     }
     final target = screenTarget(conv);
@@ -2022,31 +2026,24 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: Column(
         children: [
-          if (_screen != null && _screenMaximized)
+          // 0.1.66: UN solo ScreenView con key estable — maximizar/restaurar
+          // sólo cambia layout. Antes había DOS instancias (if/else) y al
+          // maximizar se destruía el RFB + re-observe (pantalla negra).
+          if (_screen != null) ...[
             Expanded(
               child: ScreenView(
+                key: const ValueKey('chat-screen-pane'),
                 controller: _screen!,
                 botTitle: _titleOverride ?? conv.title,
                 mode: ScreenViewMode.pane,
-                maximized: true,
+                maximized: _screenMaximized,
                 onToggleMaximize: () =>
-                    setState(() => _screenMaximized = false),
+                    setState(() => _screenMaximized = !_screenMaximized),
               ),
-            )
-          else ...[
-            if (_screen != null) ...[
-              // Mitad y mitad: escritorio arriba, conversación abajo.
-              Expanded(
-                child: ScreenView(
-                  controller: _screen!,
-                  botTitle: _titleOverride ?? conv.title,
-                  mode: ScreenViewMode.pane,
-                  onToggleMaximize: () =>
-                      setState(() => _screenMaximized = true),
-                ),
-              ),
-              const Divider(height: 1),
-            ],
+            ),
+            if (!_screenMaximized) const Divider(height: 1),
+          ],
+          if (!_screenMaximized)
             Expanded(
               child: Stack(
                 children: [
@@ -2144,7 +2141,6 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
             ),
-          ],
           StreamBuilder<List<ApprovalRequest>>(
             stream: _controller?.approvalStream,
             initialData: _controller?.approvals,

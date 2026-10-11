@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
@@ -46,22 +47,38 @@ class _ScreenViewerState extends State<ScreenViewer> {
   RfbState _state = RfbState.connecting;
   bool _controlling = false;
 
+  StreamSubscription<RfbState>? _stateSub;
+  StreamSubscription<RfbFrame>? _frameSub;
+
+  bool _frameDirty = false;
+  bool _rasterScheduled = false;
+  DateTime _lastRaster = DateTime.fromMillisecondsSinceEpoch(0);
+
   @override
   void didUpdateWidget(covariant ScreenViewer old) {
     super.didUpdateWidget(old);
     if (!widget.showBar && _controlling != widget.controlling) {
       _controlling = widget.controlling;
     }
+    if (old.client != widget.client) {
+      _stateSub?.cancel();
+      _frameSub?.cancel();
+      _bindClient();
+    }
   }
-  int? _lastImageHash;
 
   @override
   void initState() {
     super.initState();
-    widget.client.states.listen(_onState);
-    widget.client.frames.listen((frame) {
+    _controlling = widget.controlling;
+    _bindClient();
+  }
+
+  void _bindClient() {
+    _stateSub = widget.client.states.listen(_onState);
+    _frameSub = widget.client.frames.listen((frame) {
       _applyFrame(frame);
-      _onFrame();
+      _scheduleRaster();
     });
   }
 
@@ -73,20 +90,6 @@ class _ScreenViewerState extends State<ScreenViewer> {
     });
   }
 
-  DateTime _lastRaster = DateTime.now();
-
-  Future<void> _onFrame() async {
-    // Presupuesto de recursos: rasterizar máx ~12 fps aunque lleguen más frames.
-    final now = DateTime.now();
-    if (now.difference(_lastRaster).inMilliseconds < 80) return;
-    _lastRaster = now;
-    _canvas.ensureSize(widget.client.width, widget.client.height);
-    final hash = _canvas.width * 1000003 + _canvas.height;
-    if (hash == _lastImageHash) return;
-    _lastImageHash = hash;
-    if (mounted) setState(() {});
-  }
-
   void _applyFrame(RfbFrame frame) {
     _canvas.ensureSize(frame.width, frame.height);
     for (final r in frame.rects) {
@@ -96,23 +99,60 @@ class _ScreenViewerState extends State<ScreenViewer> {
         _canvas.applyCopy(r.x, r.y, r.w, r.h, r.srcX!, r.srcY!);
       }
     }
+    _frameDirty = true;
+  }
+
+  /// 0.1.66: ANTES no se llamaba a `rasterize()` — el hash era sólo
+  /// width×height, así que tras el primer tamaño `setState` no volvía a
+  /// pintar y `_canvas.image` quedaba null → spinner «Recibiendo pantalla…»
+  /// eterno aunque el RFB estuviera ready con frames.
+  void _scheduleRaster() {
+    if (_rasterScheduled) return;
+    _rasterScheduled = true;
+    // ~15 fps: suficiente para el escritorio, barato en el móvil.
+    final wait = math.max(
+      0,
+      66 - DateTime.now().difference(_lastRaster).inMilliseconds,
+    );
+    Future<void>.delayed(Duration(milliseconds: wait), () async {
+      _rasterScheduled = false;
+      if (!_frameDirty || !mounted) return;
+      _frameDirty = false;
+      _lastRaster = DateTime.now();
+      _canvas.ensureSize(widget.client.width, widget.client.height);
+      await _canvas.rasterize();
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    _stateSub?.cancel();
+    _frameSub?.cancel();
     _transform.dispose();
     super.dispose();
   }
 
   // ── Input helpers (solo con control) ──────────────────────────────────
 
+  /// Coord local → framebuffer, respetando el zoom/pan de InteractiveViewer.
   Offset _toFramebuffer(Offset local, Size viewSize, Size fbSize) {
-    final sx = fbSize.width / viewSize.width;
-    final sy = fbSize.height / viewSize.height;
-    return Offset(
-      (local.dx * sx).round().toDouble(),
-      (local.dy * sy).round().toDouble(),
+    final inv = Matrix4.tryInvert(_transform.value);
+    final scene = inv == null
+        ? local
+        : MatrixUtils.transformPoint(inv, local);
+    // El RawImage usa BoxFit.contain: letterbox dentro del LayoutBuilder.
+    final scale = math.min(
+      viewSize.width / math.max(1, fbSize.width),
+      viewSize.height / math.max(1, fbSize.height),
     );
+    final drawnW = fbSize.width * scale;
+    final drawnH = fbSize.height * scale;
+    final ox = (viewSize.width - drawnW) / 2;
+    final oy = (viewSize.height - drawnH) / 2;
+    final fx = ((scene.dx - ox) / scale).clamp(0.0, fbSize.width - 1);
+    final fy = ((scene.dy - oy) / scale).clamp(0.0, fbSize.height - 1);
+    return Offset(fx.roundToDouble(), fy.roundToDouble());
   }
 
   void _pointer(KeyEvent event) {
@@ -169,6 +209,10 @@ class _ScreenViewerState extends State<ScreenViewer> {
                           constraints.maxWidth,
                           constraints.maxHeight,
                         );
+                        final fbSize = Size(
+                          _canvas.width.toDouble(),
+                          _canvas.height.toDouble(),
+                        );
                         return Listener(
                           behavior: HitTestBehavior.opaque,
                           onPointerSignal: _controlling
@@ -177,10 +221,7 @@ class _ScreenViewerState extends State<ScreenViewer> {
                                     final fb = _toFramebuffer(
                                       event.localPosition,
                                       viewSize,
-                                      Size(
-                                        _canvas.width.toDouble(),
-                                        _canvas.height.toDouble(),
-                                      ),
+                                      fbSize,
                                     );
                                     final mask = event.scrollDelta.dy < 0
                                         ? 8
@@ -204,10 +245,7 @@ class _ScreenViewerState extends State<ScreenViewer> {
                                     final fb = _toFramebuffer(
                                       d.localPosition,
                                       viewSize,
-                                      Size(
-                                        _canvas.width.toDouble(),
-                                        _canvas.height.toDouble(),
-                                      ),
+                                      fbSize,
                                     );
                                     widget.client.sendPointer(
                                       fb.dx.toInt(),
@@ -225,10 +263,7 @@ class _ScreenViewerState extends State<ScreenViewer> {
                                     final fb = _toFramebuffer(
                                       d.localPosition,
                                       viewSize,
-                                      Size(
-                                        _canvas.width.toDouble(),
-                                        _canvas.height.toDouble(),
-                                      ),
+                                      fbSize,
                                     );
                                     widget.client.sendPointer(
                                       fb.dx.toInt(),
@@ -244,17 +279,8 @@ class _ScreenViewerState extends State<ScreenViewer> {
                             child: RawImage(
                               image: img,
                               fit: BoxFit.contain,
-                              width: math.min(
-                                viewSize.width,
-                                _canvas.width.toDouble(),
-                              ),
-                              height:
-                                  _canvas.height *
-                                  math.min(
-                                    viewSize.width,
-                                    _canvas.width.toDouble(),
-                                  ) /
-                                  math.max(1, _canvas.width),
+                              width: viewSize.width,
+                              height: viewSize.height,
                             ),
                           ),
                         );
