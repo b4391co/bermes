@@ -6,12 +6,14 @@ import 'tokens.dart';
 /// Fondo claro predominante, texto oscuro, burbujas de usuario oscuras,
 /// respuestas sobre superficie suave. Sombra contenida, densidad buena.
 ThemeData buildLightTheme() {
-  const bg = Color(0xFFF7F7F8); // casi blanco, neutro cálido
+  // Grok Bot light: canvas ligeramente frío, superficies blancas, tinta
+  // casi negra. Evita el crema cálido / púrpura de plantillas genéricas.
+  const bg = Color(0xFFF4F5F7);
   const surface = Color(0xFFFFFFFF);
-  const surfaceSoft = Color(0xFFF0F0F3); // burbujas del bot
-  const ink = Color(0xFF16181D); // texto principal
-  const inkSoft = Color(0xFF5A6072); // secundario
-  const accent = Color(0xFF16181D); // acción primaria = tinta (estilo Grok)
+  const surfaceSoft = Color(0xFFEBEDF0); // burbujas del bot
+  const ink = Color(0xFF0F1115); // texto principal
+  const inkSoft = Color(0xFF5C6370); // secundario
+  const accent = Color(0xFF0F1115); // acción primaria = tinta (estilo Grok)
   // Burbuja del usuario (oscura): la consume features/chat vía Hp tokens.
 
   final base = ThemeData(

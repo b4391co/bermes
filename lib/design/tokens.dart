@@ -19,10 +19,13 @@ abstract final class Hp {
   static const double rSm = 10;
   static const double rMd = 16;
   static const double rLg = 22;
-  static const double rBubble = 20;
+  static const double rBubble = 22;
 
   // ── Tipografía ────────────────────────────────────────────────────────
-  static const String fontFallback = 'Roboto';
+  // JetBrains Mono Nerd = terminal; UI usa la tipografía del tema (Material
+  // 3) con tracking negativo — evita stacks genéricos Inter/Roboto en
+  // pantallas de marca. El fallback del sistema sólo entra si falta glyph.
+  static const String fontFallback = 'sans-serif';
 
   // ── Avatares: paleta con personalidad (determinista por semilla) ─────
   static const avatarPalette = <Color>[

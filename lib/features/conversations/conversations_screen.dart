@@ -10,6 +10,7 @@ import '../../core/turn_activity.dart';
 import '../../data/database/app_database.dart';
 import '../../design/group_avatar.dart';
 import '../../design/live_avatar.dart';
+import '../../design/page_transitions.dart';
 import '../app_shell.dart' show BotAvatar;
 import '../../design/tokens.dart';
 import 'bot_editor_sheet.dart';
@@ -378,7 +379,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
             setState(() => _openId = c.id);
           } else {
             Navigator.of(context).push(
-              MaterialPageRoute<void>(
+              hermesSlideRoute<void>(
                 builder: (_) => ChatScreen(conversationId: c.id),
               ),
             );
@@ -654,6 +655,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                 connIdByInstallId: _installIdToConn,
                 fallbackTitle: c.title,
                 size: 48,
+                preferredConnectionId: c.connectionId,
               )
             : BotAvatar(
                 seed: c.avatarSeed ?? c.id,
@@ -741,7 +743,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           setState(() => _openId = c.id);
         } else {
           Navigator.of(context).push(
-            MaterialPageRoute<void>(
+            hermesSlideRoute<void>(
               builder: (_) => ChatScreen(conversationId: c.id),
             ),
           );
@@ -989,7 +991,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
 
     if (picked.existingId != null) {
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(
+        hermesSlideRoute<void>(
           builder: (_) => ChatScreen(conversationId: picked.existingId!),
         ),
       );
@@ -1015,7 +1017,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
     }
     if (!mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(
+      hermesSlideRoute<void>(
         builder: (_) => ChatScreen(
           conversationId: '${picked.connectionId}/bot/${picked.gatewayId}',
         ),
@@ -1105,7 +1107,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       context,
     ).showSnackBar(SnackBar(content: Text('Grupo "${picked.name}" creado.')));
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(
+      hermesSlideRoute<void>(
         builder: (_) => ChatScreen(conversationId: outcome.conversationId!),
       ),
     );

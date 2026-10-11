@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -9,9 +10,8 @@ import '../features/app_shell.dart' show BotAvatar;
 import '../features/conversations/group_rooms.dart';
 
 /// Icono de grupo = las caras de los bots dentro (máx. 3) + badge «+N» si
-/// hay más miembros. Los miembros se resuelven contra los bots reales del
-/// gateway (`GroupMember` del espejo → perfil+installId → avatar meta del
-/// bot), no contra iniciales inventadas.
+/// hay más miembros. Estilo mensajería (Grok Bot / iMessage): círculos
+/// solapados con anillo de superficie, no iniciales sueltas del grupo.
 class GroupAvatarStack extends StatelessWidget {
   /// Cara de cada miembro a dibujar (orden del espejo; se muestran las 3
   /// primeras).
@@ -161,9 +161,9 @@ class GroupAvatarStack extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           switch (shown.length) {
-            >= 3 => _layout3(shown),
-            2 => _layout2(shown),
-            _ => _layout1(shown.first),
+            >= 3 => _layout3(context, shown),
+            2 => _layout2(context, shown),
+            _ => _layout1(context, shown.first),
           },
           if (extra > 0)
             Positioned(
@@ -173,18 +173,25 @@ class GroupAvatarStack extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  shape: BoxShape.rectangle,
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
                     color: Theme.of(context).colorScheme.surface,
                     width: 1.5,
                   ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.14),
+                      blurRadius: 3,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
                 ),
                 child: Text(
                   '+$extra',
                   style: TextStyle(
-                    fontSize: size * 0.20,
+                    fontSize: math.max(9, size * 0.20),
                     fontWeight: FontWeight.w700,
+                    height: 1.1,
                     color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
@@ -195,67 +202,92 @@ class GroupAvatarStack extends StatelessWidget {
     );
   }
 
-  Widget _layout1(GroupFace f) => BotAvatar(
-    seed: f.seed,
-    label: f.label,
-    size: size,
-    imageUrl: f.imageUrl,
-    avatarMetaJson: f.avatarMetaJson,
-  );
-
-  Widget _layout2(List<GroupFace> fs) => Row(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      for (final f in fs)
-        BotAvatar(
+  /// Cara en círculo con anillo: lee como icono de grupo de mensajería,
+  /// no como iniciales sueltas sobre el fondo de la fila.
+  Widget _framedFace(BuildContext context, GroupFace f, double faceSize) {
+    final cs = Theme.of(context).colorScheme;
+    final ring = math.max(1.5, size * 0.035);
+    return Container(
+      width: faceSize,
+      height: faceSize,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: cs.surfaceContainerHighest,
+        border: Border.all(color: cs.surface, width: ring),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.10),
+            blurRadius: 2.5,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Center(
+        child: BotAvatar(
           seed: f.seed,
           label: f.label,
-          size: size * 0.52,
+          size: faceSize * 0.88,
           imageUrl: f.imageUrl,
           avatarMetaJson: f.avatarMetaJson,
         ),
-    ],
-  );
+      ),
+    );
+  }
 
-  // 1 grande arriba-izquierda + 2 pequeñas abajo (esquina derecha).
-  Widget _layout3(List<GroupFace> fs) => Stack(
-    clipBehavior: Clip.none,
-    children: [
-      Positioned(
-        left: 0,
-        top: 0,
-        child: BotAvatar(
-          seed: fs[0].seed,
-          label: fs[0].label,
-          size: size * 0.68,
-          imageUrl: fs[0].imageUrl,
-          avatarMetaJson: fs[0].avatarMetaJson,
+  Widget _layout1(BuildContext context, GroupFace f) =>
+      _framedFace(context, f, size);
+
+  /// Dos caras solapadas (~32 %), como Grok Bot / WhatsApp.
+  Widget _layout2(BuildContext context, List<GroupFace> fs) {
+    final face = size * 0.72;
+    final overlap = face * 0.32;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned(
+          left: 0,
+          top: (size - face) / 2,
+          child: _framedFace(context, fs[0], face),
         ),
-      ),
-      Positioned(
-        right: 0,
-        bottom: 0,
-        child: BotAvatar(
-          seed: fs[1].seed,
-          label: fs[1].label,
-          size: size * 0.44,
-          imageUrl: fs[1].imageUrl,
-          avatarMetaJson: fs[1].avatarMetaJson,
+        Positioned(
+          left: face - overlap,
+          top: (size - face) / 2,
+          child: _framedFace(context, fs[1], face),
         ),
-      ),
-      Positioned(
-        right: size * 0.10,
-        top: 0,
-        child: BotAvatar(
-          seed: fs[2].seed,
-          label: fs[2].label,
-          size: size * 0.34,
-          imageUrl: fs[2].imageUrl,
-          avatarMetaJson: fs[2].avatarMetaJson,
+      ],
+    );
+  }
+
+  /// Tres caras en racimo: dos arriba solapadas + una abajo centrada.
+  Widget _layout3(BuildContext context, List<GroupFace> fs) {
+    final face = size * 0.58;
+    final topY = size * 0.02;
+    final bottomY = size - face - size * 0.02;
+    final leftX = size * 0.02;
+    final rightX = size - face - size * 0.02;
+    final midX = (size - face) / 2;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned(
+          left: leftX,
+          top: topY,
+          child: _framedFace(context, fs[0], face),
         ),
-      ),
-    ],
-  );
+        Positioned(
+          left: rightX,
+          top: topY,
+          child: _framedFace(context, fs[1], face),
+        ),
+        Positioned(
+          left: midX,
+          top: bottomY,
+          child: _framedFace(context, fs[2], face),
+        ),
+      ],
+    );
+  }
 }
 
 /// Datos de cara de un bot (avatar real del roster).
