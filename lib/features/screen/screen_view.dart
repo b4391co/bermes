@@ -77,9 +77,16 @@ class _ScreenViewState extends State<ScreenView> {
   bool _controlling = false;
   bool _busy = false;
 
+  /// Generación del observe/connect: invalida arranques concurrentes (el
+  /// ticket es single-use 30 s; dos `_startViewer` a la vez → 4401 / negro).
+  int _viewerGen = 0;
+
   @override
   void initState() {
     super.initState();
+    // 0.1.66: SOLO `_boot` abre el visor. Antes initState lanzaba
+    // `_startViewer` EN PARALELO con `_boot` → dos observe, el ticket del
+    // primero se invalidaba y el escritorio quedaba en negro.
     unawaited(_boot());
 
     _statusSub = widget.controller.changes.listen((s) {
@@ -128,7 +135,6 @@ class _ScreenViewState extends State<ScreenView> {
       if (sr.method != 'display.install.sudo') return;
       _askSudoPassword(sr);
     });
-    unawaited(_startViewer());
   }
 
   Future<void> _askSudoPassword(ServerRequest sr) async {
@@ -181,11 +187,17 @@ class _ScreenViewState extends State<ScreenView> {
   /// Pedir ticket fresco y abrir la RFB NATIVA. El ticket es single-use 30 s:
   /// se observa → se conecta de inmediato. Cada arranque reemplaza al cliente
   /// anterior (un takeover cambia de lease → conviene sesión RFB nueva).
+  /// Serializado por [_viewerGen]: un observe concurrente invalida al previo.
   Future<void> _startViewer() async {
+    final gen = ++_viewerGen;
     try {
-      setState(() => _message = 'Conectando con el escritorio…');
+      if (mounted) {
+        setState(() => _message = 'Conectando con el escritorio…');
+      }
       final obs = await widget.controller.observe();
+      if (!mounted || gen != _viewerGen) return;
       await _teardownRfb();
+      if (!mounted || gen != _viewerGen) return;
       final rfb = HermesRfbClient();
       _rfb = rfb;
       _rfbSub = rfb.states.listen(_onRfbState);
@@ -195,7 +207,12 @@ class _ScreenViewState extends State<ScreenView> {
           .replaceFirst(RegExp(r'^https'), 'wss')
           .replaceFirst(RegExp(r'^http'), 'ws');
       await rfb.connect(wsUrl: '$base${obs.path}', ticket: obs.ticket);
+      if (!mounted || gen != _viewerGen) {
+        await rfb.dispose();
+        if (_rfb == rfb) _rfb = null;
+      }
     } on JsonRpcError catch (e) {
+      if (gen != _viewerGen) return;
       // Gateway sin Bot Screen (display.* no existe: -32601 o «not found»,
       // p. ej. 0.15.0/0.21.4). Decirlo claro; no dejar el visor en blanco.
       final missing =
@@ -208,6 +225,7 @@ class _ScreenViewState extends State<ScreenView> {
         );
       }
     } catch (e) {
+      if (gen != _viewerGen) return;
       if (mounted) {
         setState(() => _message = 'No se pudo abrir la pantalla: $e');
       }
@@ -358,33 +376,39 @@ class _ScreenViewState extends State<ScreenView> {
     final running = st?.running ?? false;
     final humanControls = _controlling || (st?.humanControls ?? false);
     return [
-      if (running && !humanControls)
+      // 0.1.66: el botón vivía tras `!humanControls` → «Devolver control»
+      // era INALCANZABLE (sólo se mostraba Tomar). Ahora aparece siempre
+      // que el escritorio corre: toma O suelta según el lease.
+      if (running)
         IconButton(
-          tooltip: _controlling ? 'Devolver control' : 'Tomar control',
+          tooltip: humanControls ? 'Devolver control' : 'Tomar control',
           onPressed: _busy
               ? null
-              : () => _run('Tomar control', () async {
-                  if (_controlling) {
-                    await widget.controller.releaseLease();
-                    if (!mounted) return;
-                    setState(() => _controlling = false);
-                    await _startViewer();
-                  } else {
-                    await widget.controller.acquireLease();
-                    if (!mounted) return;
-                    setState(() {
-                      _controlling = true;
-                      _message = '';
-                    });
-                    // El gateway RECHAZA el input sin lease (RfbClientFilter
-                    // → close 4000 si no lo tienes): la sesión RFB vieja es
-                    // view-only en el servidor. Se reconecta con ticket
-                    // fresco para que el control sea REAL.
-                    await _startViewer();
-                  }
-                }),
+              : () => _run(
+                  humanControls ? 'Devolver control' : 'Tomar control',
+                  () async {
+                    if (humanControls) {
+                      await widget.controller.releaseLease();
+                      if (!mounted) return;
+                      setState(() => _controlling = false);
+                      await _startViewer();
+                    } else {
+                      await widget.controller.acquireLease();
+                      if (!mounted) return;
+                      setState(() {
+                        _controlling = true;
+                        _message = '';
+                      });
+                      // El gateway RECHAZA el input sin lease (RfbClientFilter
+                      // → close 4000 si no lo tienes): la sesión RFB vieja es
+                      // view-only en el servidor. Se reconecta con ticket
+                      // fresco para que el control sea REAL.
+                      await _startViewer();
+                    }
+                  },
+                ),
           icon: Icon(
-            _controlling ? Icons.mouse_rounded : Icons.touch_app_rounded,
+            humanControls ? Icons.mouse_rounded : Icons.touch_app_rounded,
           ),
         ),
       IconButton(

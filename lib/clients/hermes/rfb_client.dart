@@ -204,8 +204,27 @@ class HermesRfbClient {
           final encoding = bd.getInt32(8);
           offset += 12;
 
-          if (encoding == -1) {
-            // pseudo-encoding cursor: tamaño variable, se ignora (no dibujamos cursor).
+          // Pseudo-encodings: hay que CONSUMIR el payload o el stream se
+          // desincroniza (el «continue» a ciegas de encoding==-1 era un
+          // desfase silencioso → pantalla negra / freeze).
+          if (encoding == -223) {
+            // DesktopSize: w/h del header son el nuevo tamaño; sin payload.
+            if (w > 0 && h > 0 && (w != _width || h != _height)) {
+              _width = w;
+              _height = h;
+            }
+            continue;
+          }
+          if (encoding == -239) {
+            // Cursor: w*h*bpp + bitmask ((w+7)/8)*h — no lo dibujamos.
+            final pixels = w * h * 4;
+            final mask = ((w + 7) ~/ 8) * h;
+            final need = pixels + mask;
+            if (_acc.length < offset + need) {
+              ok = false;
+              break;
+            }
+            offset += need;
             continue;
           }
           if (encoding == 0) {
@@ -258,6 +277,12 @@ class HermesRfbClient {
         if (!ok) return; // esperar más datos
         _acc = _acc.sublist(offset);
         _frame.add(RfbFrame(rects: rects, width: _width, height: _height));
+        // TigerVNC / noVNC: tras CADA FramebufferUpdate hay que pedir el
+        // siguiente (incremental). Sin esto el servidor deja de enviar y el
+        // escritorio se congela en el primer frame.
+        if (_connected && _width > 0 && _height > 0) {
+          _sendFramebufferRequest(incremental: true);
+        }
       } else if (msgType == 1) {
         // SetColourMapEntries — ignorar (true-color).
         if (_acc.length < 6) return;
