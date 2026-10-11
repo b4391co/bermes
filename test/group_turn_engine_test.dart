@@ -147,5 +147,12 @@ void main() {
       ]);
       expect(r.mentioned, {'parker'});
     });
+
+    test('título con acento: @Jose resuelve a José', () {
+      final r = GroupTurnEngine.parseMentions('@Jose revisa', [
+        (profile: 'analyst', titles: ['José'], handle: null),
+      ]);
+      expect(r.mentioned, {'analyst'});
+    });
   });
 }

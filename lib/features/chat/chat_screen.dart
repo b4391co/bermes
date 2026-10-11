@@ -496,34 +496,45 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => _mentionCandidates = out);
   }
 
-  /// Candidatos `@` desde el espejo persistido de una sala (miembros crudos
-  /// de Desktop/Pocket). PRIORIZA EL NOMBRE VISIBLE — `title`/`display_name`
-  /// — que es lo que `GroupTurnEngine.parseMentions` entiende y lo que el
-  /// usuario ve en la lista de bots; `handle`/`name` sólo de relleno si no
-  /// hay título (un `default` a secas no desambigua entre gateways, pero es
-  /// mejor que nada y el motor lo resuelve por su fila).
+  /// Candidatos `@` desde el espejo persistido de una sala. UNA entrada por
+  /// miembro (antes se volcaba cada alias title/handle/name como fila suelta
+  /// y el menú duplicaba el mismo bot). Token de inserción = handle si
+  /// existe (enruta en hosted/espejo); etiqueta = título visible.
   List<MentionCandidate> _mirrorCandidatesFromJson(String? raw) {
     if (raw == null || raw.isEmpty) return const [];
     try {
-      final names = <String>{
-        for (final m in (jsonDecode(raw) as List).whereType<Map>())
-          for (final k in <String?>[
-            m['title'],
-            m['display_name'],
-            m['handle'],
-            m['name'],
-          ])
-            if (k is String && k.isNotEmpty) k,
-      };
-      names.remove('');
-      return [
-        for (final name in names)
+      final out = <MentionCandidate>[];
+      final seen = <String>{};
+      for (final m in (jsonDecode(raw) as List).whereType<Map>()) {
+        final profile = ((m['name'] ?? '') as String).trim();
+        final handle = ((m['handle'] ?? '') as String).trim();
+        final title = ((m['title'] ?? m['display_name'] ?? '') as String)
+            .trim();
+        // Token: handle portable > título visible > perfil. El motor de
+        // turnos y hosted entienden handle/título; `default` seco es último.
+        final token = handle.isNotEmpty
+            ? handle
+            : (title.isNotEmpty
+                ? title
+                : (profile.isNotEmpty ? profile : ''));
+        if (token.isEmpty) continue;
+        if (!seen.add(token.toLowerCase())) continue;
+        final row = _botRowFor(token) ??
+            (profile.isNotEmpty ? _botRowFor(profile) : null) ??
+            (title.isNotEmpty ? _botRowFor(title) : null);
+        final label = (row?.title.isNotEmpty ?? false)
+            ? row!.title
+            : (title.isNotEmpty ? title : token);
+        out.add(
           MentionCandidate(
-            name: name,
-            avatarMeta: _botAvatars[name]?.$1,
-            avatarUrl: _botAvatars[name]?.$2,
+            name: token,
+            label: label,
+            avatarMeta: row?.botAvatarMeta ?? _botAvatars[label]?.$1,
+            avatarUrl: row?.avatarUrl ?? _botAvatars[label]?.$2,
           ),
-      ];
+        );
+      }
+      return out;
     } catch (_) {
       return const [];
     }
@@ -1540,8 +1551,11 @@ class _ChatScreenState extends State<ChatScreen> {
         transcriptLines: delta,
         connections: AppServices.connections,
         onTurn: (turn) {
-          if (_memberTurnSubs.contains(turn.profile)) return;
-          _memberTurnSubs.add(turn.profile);
+          // Misma clave que 1:1: perfil solo colisiona entre gateways
+          // (dos `default` en espejo multi-conexión perdían el 2.º stream).
+          final subKey = '${turn.connectionId}/${turn.profile}';
+          if (_memberTurnSubs.contains(subKey)) return;
+          _memberTurnSubs.add(subKey);
           _memberTurns.add(turn);
           turn.controller.stream.listen((msgs) {
             if (!mounted) return;
@@ -2368,10 +2382,10 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Container(
               padding: const EdgeInsets.fromLTRB(Hp.s3, Hp.s2, Hp.s3, Hp.s3),
               decoration: BoxDecoration(
-                color: cs.surfaceContainerLowest,
+                color: cs.surface.withValues(alpha: 0.92),
                 border: Border(
                   top: BorderSide(
-                    color: cs.outlineVariant.withValues(alpha: 0.5),
+                    color: cs.outlineVariant.withValues(alpha: 0.4),
                   ),
                 ),
               ),
@@ -2406,28 +2420,28 @@ class _ChatScreenState extends State<ChatScreen> {
                           onChanged: _onDraftChanged,
                           decoration: InputDecoration(
                             hintText: 'Mensaje',
-                            // Caja con relleno interior: el texto ya no
-                            // choca contra los bordes del campo.
+                            // Composer tipo Grok: píldora suave, sin
+                            // contorno duro; el foco se marca con un anillo
+                            // sutil.
                             filled: true,
+                            fillColor: cs.surfaceContainerLow,
                             isDense: true,
                             contentPadding: const EdgeInsets.symmetric(
-                              horizontal: Hp.s3,
-                              vertical: Hp.s3,
+                              horizontal: Hp.s4,
+                              vertical: Hp.s3 + 2,
                             ),
                             hintStyle: TextStyle(
-                              color: cs.onSurfaceVariant,
+                              color: cs.onSurfaceVariant.withValues(alpha: 0.8),
                             ),
                             enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(22),
-                              borderSide: BorderSide(
-                                color: cs.outlineVariant.withValues(alpha: 0.7),
-                              ),
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide.none,
                             ),
                             focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(22),
+                              borderRadius: BorderRadius.circular(24),
                               borderSide: BorderSide(
-                                color: cs.primary.withValues(alpha: 0.8),
-                                width: 1.4,
+                                color: cs.primary.withValues(alpha: 0.35),
+                                width: 1.2,
                               ),
                             ),
                           ),
@@ -2445,17 +2459,22 @@ class _ChatScreenState extends State<ChatScreen> {
                           icon: const Icon(Icons.stop_rounded),
                         )
                       else
-                        IconButton.filled(
-                          tooltip: _hasError ? 'Reintentar' : 'Enviar',
-                          // Sin texto pero con imágenes pendientes también se
-                          // puede enviar: la imagen EN COLA constituye el turno.
-                          onPressed: _sending || (!hasInput && !_hasError)
-                              ? null
-                              : _send,
-                          icon: Icon(
-                            _hasError
-                                ? Icons.refresh_rounded
-                                : Icons.arrow_upward_rounded,
+                        AnimatedScale(
+                          scale: hasInput || _hasError ? 1.0 : 0.92,
+                          duration: const Duration(milliseconds: 160),
+                          curve: Curves.easeOutCubic,
+                          child: IconButton.filled(
+                            tooltip: _hasError ? 'Reintentar' : 'Enviar',
+                            // Sin texto pero con imágenes pendientes también se
+                            // puede enviar: la imagen EN COLA constituye el turno.
+                            onPressed: _sending || (!hasInput && !_hasError)
+                                ? null
+                                : _send,
+                            icon: Icon(
+                              _hasError
+                                  ? Icons.refresh_rounded
+                                  : Icons.arrow_upward_rounded,
+                            ),
                           ),
                         ),
                     ],
@@ -2703,6 +2722,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // ÉSTA era la causa del «no autocompleta»: el guard exigía candidatos de
     // SALA (que sólo se cargan en grupos) — en un chat 1:1 el menú jamás
     // abría. El roster completo va aparte: decide la lista FUSIONADA.
+    // Sala primero (tokens hosted/handle), luego roster; dedupe por token.
     final all = [
       // «@todos» siempre disponible: dispara a todos los bots (y a los
       // miembros de la sala hosted por el gateway).
@@ -2716,14 +2736,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _setMention(open: false);
       return;
     }
-    final query = _input.text.substring(start + 1, caret).toLowerCase();
-    final shown = all
-        .where(
-          (m) =>
-              m.display.toLowerCase().contains(query) ||
-              m.name.toLowerCase().contains(query),
-        )
-        .toList(growable: false);
+    final query = _input.text.substring(start + 1, caret);
+    final shown = filterMentionCandidates(all, query);
     if (shown.isEmpty) {
       _setMention(open: false);
       return;
@@ -2737,18 +2751,28 @@ class _ChatScreenState extends State<ChatScreen> {
     int caret = -1,
     List<MentionCandidate> shown = const [],
   }) {
+    final sameKeys = shown.length == _mentionShown.length &&
+        List.generate(
+          shown.length,
+          (i) => shown[i].dedupeKey == _mentionShown[i].dedupeKey,
+        ).every((ok) => ok);
     final same =
         _mentionOpen == open &&
         _mentionStart == start &&
         _mentionCaret == caret &&
-        _mentionShown.length == shown.length;
+        sameKeys;
     if (same) return;
     setState(() {
       _mentionOpen = open;
       _mentionStart = start;
       _mentionCaret = caret;
-      if (shown.isNotEmpty) _mentionShown = shown;
+      if (shown.isNotEmpty || !open) _mentionShown = shown;
     });
+    // El OverlayEntry NO se reconstruye con setState del State: sin
+    // markNeedsBuild el menú se quedaba congelado al filtrar (`@c` → `@cl`
+    // seguía mostrando la lista vieja). Ésta era una causa directa de
+    // «las menciones no funcionan».
+    _mentionOverlay?.markNeedsBuild();
   }
 
   Widget _mentionMenuWidget() {
@@ -2761,7 +2785,14 @@ class _ChatScreenState extends State<ChatScreen> {
         builder: (context) {
           return SizedBox(
             width: MediaQuery.sizeOf(context).width - 32.0,
-            child: MentionMenu(candidates: _mentionShown, onPick: _pickMention),
+            child: MentionMenu(
+              candidates: _mentionShown,
+              onPick: _pickMention,
+              query: _mentionStart >= 0 &&
+                      _mentionCaret > _mentionStart
+                  ? _input.text.substring(_mentionStart + 1, _mentionCaret)
+                  : '',
+            ),
           );
         },
       ),

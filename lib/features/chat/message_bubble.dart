@@ -41,23 +41,41 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (message.role == MessageRole.system) return _systemNotice(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Hp.s2),
-      child: Column(
-        crossAxisAlignment: _isUser
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
-        children: [
-          if (showAuthor && message.authorName != null)
-            Padding(
-              padding: const EdgeInsets.only(left: Hp.s6, bottom: Hp.s1),
-              child: Text(
-                message.authorName!,
-                style: Theme.of(context).textTheme.labelSmall,
+    // Entrada suave (fade + lift): presencia tipo Grok Bot sin ruido.
+    // TweenAnimationBuilder sólo reinicia si cambian begin/end — los
+    // rebuilds de streaming no relanzan la animación.
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, child) => Opacity(
+        opacity: t,
+        child: Transform.translate(
+          offset: Offset(0, (1 - t) * 8),
+          child: child,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: Hp.s2),
+        child: Column(
+          crossAxisAlignment: _isUser
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+          children: [
+            if (showAuthor && message.authorName != null)
+              Padding(
+                padding: const EdgeInsets.only(left: Hp.s6, bottom: Hp.s1),
+                child: Text(
+                  message.authorName!,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.1,
+                  ),
+                ),
               ),
-            ),
-          _bubble(context),
-        ],
+            _bubble(context),
+          ],
+        ),
       ),
     );
   }
@@ -128,7 +146,10 @@ class MessageBubble extends StatelessWidget {
     );
 
     final body = Container(
-      padding: const EdgeInsets.symmetric(horizontal: Hp.s4 + 2, vertical: Hp.s3 + 2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Hp.s4 + 2,
+        vertical: Hp.s3 + 2,
+      ),
       constraints: const BoxConstraints(maxWidth: 560),
       decoration: BoxDecoration(
         // Contraste por tono: usuario = grafito suave (Hp tokens), bot =
@@ -144,6 +165,13 @@ class MessageBubble extends StatelessWidget {
               ? const Radius.circular(Hp.rSm)
               : const Radius.circular(Hp.rBubble),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: dark ? 0.22 : 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: content,
     );

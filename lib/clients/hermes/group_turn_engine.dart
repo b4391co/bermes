@@ -32,8 +32,22 @@ class GroupTurnEngine {
   /// `botHandle` + `botFriendlyNames` (data.ts:1170-1236). Case-insensitive:
   /// `parseGroupChatMentions` baja todo a minúsculas; `@([a-z0-9][a-z0-9._-]*)`
   /// y acepta la forma colapsada sin espacios.
+  /// Pliega acentos a ASCII (`José` → `jose`) para que `@José` y `@Jose`
+  /// resuelvan igual — el regex de parse es ASCII como en Desktop.
+  static String foldAscii(String input) {
+    const from = 'áàäâãåéèëêíìïîóòöôõúùüûñç';
+    const to = 'aaaaaaeeeeiiiiooooouuuunc';
+    final lower = input.toLowerCase();
+    final buf = StringBuffer();
+    for (final cu in lower.codeUnits) {
+      final i = from.codeUnits.indexOf(cu);
+      buf.writeCharCode(i >= 0 ? to.codeUnitAt(i) : cu);
+    }
+    return buf.toString();
+  }
+
   static Set<String> mentionForms(String name) {
-    final n = name.trim().toLowerCase();
+    final n = foldAscii(name.trim());
     if (n.isEmpty) return const {};
     final slug = n.replaceAll(RegExp(r'[^a-z0-9_-]+'), '-');
     final collapsed = n.replaceAll(RegExp(r'[^a-z0-9_-]+'), '');
@@ -44,7 +58,10 @@ class GroupTurnEngine {
     final reserved = {'all', 'everyone', 'user'};
     return {
       for (final f in {slug, collapsed})
-        if (f.isNotEmpty && RegExp(r'^[a-z0-9][a-z0-9_-]*$').hasMatch(f) && !reserved.contains(f)) f,
+        if (f.isNotEmpty &&
+            RegExp(r'^[a-z0-9][a-z0-9_-]*$').hasMatch(f) &&
+            !reserved.contains(f))
+          f,
     };
   }
 
@@ -60,7 +77,7 @@ class GroupTurnEngine {
     String text,
     List<({String profile, List<String> titles, String? handle})> members,
   ) {
-    final source = text.toLowerCase();
+    final source = foldAscii(text);
     final mentioned = <String>{};
     var everyone = false;
     final handles = <String, String>{};
@@ -69,8 +86,8 @@ class GroupTurnEngine {
       for (final t in m.titles) {
         if (t.isEmpty) continue;
         forms.addAll(mentionForms(t));
-        // `title.split(/\s+/)[0].toLowerCase()` del original.
-        final first = t.trim().toLowerCase().split(RegExp(r'\s+')).first;
+        // `title.split(/\s+/)[0].toLowerCase()` del original (+ fold acentos).
+        final first = foldAscii(t.trim()).split(RegExp(r'\s+')).first;
         if (first.isNotEmpty) forms.add(first);
       }
       // 0.1.61: en grupos espejo multi-gateway el usuario escribe el NOMBRE
@@ -188,9 +205,14 @@ Future<List<GroupMemberTurn>> startMentionTurns({
         (profile: m.profile, titles: [m.title], handle: m.handle),
     ],
   );
+  // Vacío + !everyone: el llamador 1:1 ya filtró; el espejo (lista = sala)
+  // despierta a todos — igual que Desktop ante un mensaje a la sala.
   final targets = parsed.everyone || parsed.mentioned.isEmpty
       ? members
-      : [for (final m in members) if (parsed.mentioned.contains(m.profile)) m];
+      : [
+          for (final m in members)
+            if (parsed.mentioned.contains(m.profile)) m,
+        ];
   final turns = <GroupMemberTurn>[];
   for (final m in targets) {
     final runtime = connections.runtimeFor(m.connectionId);

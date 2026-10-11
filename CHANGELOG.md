@@ -1,3 +1,20 @@
+## Release 0.1.65 (2026-10-11)
+
+### fix: menciones (overlay vivo, dedupe, acentos), iconos de grupo tipo Grok, UI/animación
+
+- **Menciones**: el `OverlayEntry` del menú `@` no se reconstruía al filtrar
+  (lista congelada al teclear). Ahora `markNeedsBuild` en cada cambio. Dedupe
+  sala+roster por token, orden por prefijo, pliegue de acentos (`@Jose` →
+  José), candidatos espejo = UNA fila por miembro (handle + etiqueta), y
+  suscripción de turnos espejo por `connectionId/profile` (antes el 2.º
+  `default` multi-gateway perdía el stream).
+- **Iconos de grupo**: pila de caras en círculos solapados con anillo
+  (estilo Grok/iMessage), badge `+N`, y `preferredConnectionId` también en
+  la lista (no sólo en Fijados/chat).
+- **UI**: transición slide al abrir chat, entrada fade+lift de burbujas,
+  composer tipo píldora, menú `@` con animación y resaltado de query,
+  tema claro recalibrado hacia Grok Bot.
+
 ## Release 0.1.64 (2026-10-09)
 
 ### fix: pantalla tras reanudar (socket closed), menú `@` con scroll, iconos de grupo con los bots de dentro
